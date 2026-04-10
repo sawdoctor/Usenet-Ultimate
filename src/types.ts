@@ -218,8 +218,8 @@ export interface FilterConfig {
     language?: Record<string, boolean>;      // Which languages are enabled
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
-  minFileSize?: number;                      // Min file size in bytes — individual episodes only (undefined = no minimum)
-  maxFileSize?: number;                      // Max file size in bytes — individual episodes only (undefined = unlimited)
+  minFileSize?: number;                      // Min file size in bytes — individual files only, excludes season packs (undefined = no minimum)
+  maxFileSize?: number;                      // Max file size in bytes — individual files only, excludes season packs (undefined = unlimited)
   minSeasonPackSize?: number;                // Min season pack total size in bytes (undefined = no minimum)
   maxSeasonPackSize?: number;                // Max season pack total size in bytes (undefined = unlimited)
   minSeasonPackEpisodeSize?: number;         // Min per-episode size for season packs in bytes (undefined = no minimum)

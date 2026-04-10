@@ -159,7 +159,7 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
 
   let results = allResults;
 
-  // File size filters — individual episodes only (season packs have separate filters)
+  // File size filters — individual files only (season packs have separate filters)
   if (filterConfig.minFileSize != null) {
     const before = results.length;
     results = results.filter(r => r.isSeasonPack || r.size >= (filterConfig.minFileSize ?? 0));

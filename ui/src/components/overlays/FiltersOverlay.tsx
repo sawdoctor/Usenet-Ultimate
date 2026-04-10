@@ -118,13 +118,13 @@ function StreamFilterField({ config: field, value: rawValue, onChange }: {
 }
 
 const MIN_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
-  { key: 'minFileSize', config: { label: 'Episode File Size', description: 'Filters out individual episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
+  { key: 'minFileSize', config: { label: 'Movie / Episode File Size', description: 'Filters out individual movie or episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
   { key: 'minSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
   { key: 'minSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Minimum total size for full season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
 ];
 
 const MAX_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
-  { key: 'maxFileSize', config: { label: 'Episode File Size', description: 'Filters out individual episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  { key: 'maxFileSize', config: { label: 'Movie / Episode File Size', description: 'Filters out individual movie or episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
   { key: 'maxSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
   { key: 'maxSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Maximum total size for full season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
 ];
@@ -310,8 +310,10 @@ export default function FiltersOverlay({
                   <StreamFilterField
                     key={key}
                     config={filterTab === 'movie'
-                      ? { ...config, label: 'Minimum Movie File Size', description: config.description.replace('individual episode files', 'movie files') }
-                      : config}
+                      ? { ...config, label: 'Movie File Size', description: config.description.replace('individual movie or episode files', 'movie files') }
+                      : filterTab === 'tv' && key === 'minFileSize'
+                        ? { ...config, label: 'Episode File Size', description: config.description.replace('individual movie or episode files', 'individual episode files') }
+                        : config}
                     value={activeFilters[key] as number | undefined}
                     onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
                   />
@@ -327,8 +329,10 @@ export default function FiltersOverlay({
                   <StreamFilterField
                     key={key}
                     config={filterTab === 'movie'
-                      ? { ...config, label: 'Maximum Movie File Size', description: config.description.replace('individual episode files', 'movie files') }
-                      : config}
+                      ? { ...config, label: 'Movie File Size', description: config.description.replace('individual movie or episode files', 'movie files') }
+                      : filterTab === 'tv' && key === 'maxFileSize'
+                        ? { ...config, label: 'Episode File Size', description: config.description.replace('individual movie or episode files', 'individual episode files') }
+                        : config}
                     value={activeFilters[key] as number | undefined}
                     onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
                   />
