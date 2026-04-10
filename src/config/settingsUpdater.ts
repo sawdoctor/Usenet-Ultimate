@@ -38,6 +38,7 @@ export function updateSettings(settings: {
   nzbdavSeasonPackTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
   autoResolveOnSearch?: boolean;
+  autoResolveTargets?: number;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
   nzbdavCacheTimeouts?: boolean;
@@ -176,6 +177,9 @@ export function updateSettings(settings: {
   if (settings.autoResolveOnSearch !== undefined) {
     configData.autoResolveOnSearch = settings.autoResolveOnSearch;
   }
+  if (settings.autoResolveTargets !== undefined) {
+    configData.autoResolveTargets = settings.autoResolveTargets;
+  }
   if (settings.nzbdavStreamBufferMB !== undefined) {
     configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
   }
@@ -295,7 +299,8 @@ export function updateSettings(settings: {
   // Cancel auto-resolves when preconditions change
   if (settings.nzbdavFallbackEnabled === false
       || settings.nzbdavFallbackOrder === 'selected'
-      || settings.autoResolveOnSearch === false) {
+      || settings.autoResolveOnSearch === false
+      || settings.autoResolveTargets !== undefined) {
     import('../nzbdav/autoResolve.js').then(m => m.cancelAllAutoResolves()).catch(() => {});
   }
 

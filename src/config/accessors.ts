@@ -125,6 +125,15 @@ export const config: Config = {
     if (env !== undefined) return env;
     return configData.autoResolveOnSearch !== false;
   },
+  get autoResolveTargets() {
+    const raw = envInt('AUTO_RESOLVE_TARGETS') ?? configData.autoResolveTargets;
+    if (raw !== undefined) {
+      return Number.isFinite(raw) ? Math.max(1, Math.min(4, raw)) : 2;
+    }
+    // Upgrade migration: users who already have auto-resolve active get 1 (opt-in to multi-chain).
+    // New installs (autoResolveOnSearch is undefined) get 2 (the feature default).
+    return configData.autoResolveOnSearch === true ? 1 : 2;
+  },
   get nzbdavCacheTimeouts() {
     const env = envBool('INCLUDE_TIMEOUTS_AS_DEAD_NZBS');
     if (env !== undefined) return env;

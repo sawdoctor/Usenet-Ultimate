@@ -154,7 +154,8 @@ export async function waitForVideoFile(
   config: NZBDavConfig,
   episodePattern?: string,
   contentType?: string,
-  episodesInSeason?: number
+  episodesInSeason?: number,
+  logPrefix = '',
 ): Promise<{ path: string; size: number }> {
   const client = getWebdavClient(config);
   const category = resolveCategory(config, contentType);
@@ -163,17 +164,18 @@ export async function waitForVideoFile(
     `/.ids/${nzoId}`,
   ];
 
-  console.log(`  \u{1F50D} Looking for video file...`);
+  console.log(`${logPrefix}  \u{1F50D} Looking for video file...`);
 
   for (const p of paths) {
     const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
     if (video) {
       const sizeMB = Math.round(video.size / 1024 / 1024);
-      console.log(`  \u2705 Video found: ${video.path} (${sizeMB}MB)`);
+      console.log(`${logPrefix}  \u2705 Video found: ${video.path} (${sizeMB}MB)`);
       return video;
     }
   }
 
+  console.log(`${logPrefix}  ❌ Video file not found in WebDAV after job completed`);
   throw nzbdavError('Video file not found in WebDAV after job completed');
 }
 
@@ -186,13 +188,15 @@ export async function checkNzbLibrary(
   config: NZBDavConfig,
   episodePattern?: string,
   contentType?: string,
-  episodesInSeason?: number
+  episodesInSeason?: number,
+  logPrefix = '',
+  quiet = false,
 ): Promise<StreamData | null> {
   const client = getWebdavClient(config);
   const category = resolveCategory(config, contentType);
   const dirPath = `/content/${category}/${title}`;
 
-  console.log(`\u{1F4DA} NZB library check: ${category}/${title}${episodePattern ? ` (${episodePattern})` : ''}`);
+  if (!quiet) console.log(`${logPrefix}\u{1F4DA} NZB library check: ${category}/${title}${episodePattern ? ` (${episodePattern})` : ''}`);
 
   try {
     const video = await findVideoFile(client, dirPath, 0, episodePattern, episodesInSeason);
@@ -210,19 +214,19 @@ export async function checkNzbLibrary(
         const probeResp = await fetch(probeUrl, { headers: probeHeaders, signal: AbortSignal.timeout(10_000) });
         await probeResp.body?.cancel().catch(() => {});
         if (probeResp.status === 404 || probeResp.status === 410) {
-          console.log(`📚 Library HIT but file not servable (${probeResp.status}) — treating as miss`);
+          if (!quiet) console.log(`${logPrefix}📚 Library HIT but file not servable (${probeResp.status}) — treating as miss`);
           return null;
         }
         if (probeResp.status !== 200 && probeResp.status !== 206) {
-          console.warn(`📚 Library probe returned ${probeResp.status} — treating as miss`);
+          if (!quiet) console.warn(`${logPrefix}📚 Library probe returned ${probeResp.status} — treating as miss`);
           return null;
         }
       } catch (probeErr) {
-        console.warn(`📚 Library probe failed (${(probeErr as Error).message}) — treating as miss`);
+        if (!quiet) console.warn(`${logPrefix}📚 Library probe failed (${(probeErr as Error).message}) — treating as miss`);
         return null;
       }
 
-      console.log(`📚 Library HIT - skipping indexer grab: ${video.path} (${sizeMB}MB)`);
+      if (!quiet) console.log(`${logPrefix}📚 Library HIT - skipping indexer grab: ${video.path} (${sizeMB}MB)`);
       return {
         nzoId: 'library',
         videoPath: video.path,
@@ -231,9 +235,9 @@ export async function checkNzbLibrary(
     }
   } catch (err) {
     if ((err as any).isNzbdavFailure) throw err;
-    console.log(`\u{1F4DA} Library check error (non-fatal): ${(err as Error).message}`);
+    if (!quiet) console.log(`${logPrefix}\u{1F4DA} Library check error (non-fatal): ${(err as Error).message}`);
   }
 
-  console.log(`\u{1F4DA} Library MISS - will grab NZB from indexer`);
+  if (!quiet) console.log(`${logPrefix}\u{1F4DA} Library MISS - will grab NZB from indexer`);
   return null;
 }

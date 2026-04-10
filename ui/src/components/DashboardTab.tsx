@@ -49,6 +49,7 @@ export interface DashboardTabProps {
   nzbdavFallbackEnabled: boolean;
   nzbdavFallbackOrder: 'selected' | 'top';
   autoResolveOnSearch: boolean;
+  autoResolveTargets: number;
   nzbdavMaxFallbacks: number;
   streamingMode: 'nzbdav' | 'stremio';
   proxyMode: 'disabled' | 'http';
@@ -91,6 +92,7 @@ export function DashboardTab({
   nzbdavFallbackEnabled,
   nzbdavFallbackOrder,
   autoResolveOnSearch,
+  autoResolveTargets,
   nzbdavMaxFallbacks,
   streamingMode,
   proxyMode,
@@ -302,7 +304,7 @@ export function DashboardTab({
                     <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
                       {nzbdavFallbackEnabled ? 'Enabled' : 'Disabled'}
                       {autoResolveOnSearch && nzbdavFallbackEnabled && nzbdavFallbackOrder === 'top' && (
-                        <span className="text-lg font-normal text-amber-400 ml-2">+ Auto-Resolve</span>
+                        <span className="text-lg font-normal text-amber-400 ml-2">+ Auto-Resolve ({autoResolveTargets})</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-1">

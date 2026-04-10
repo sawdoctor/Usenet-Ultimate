@@ -201,7 +201,7 @@ loadCacheFromDisk();
 recalculateTTLExpirations();
 
 /** Injected stream preparation function (set by streamHandler to break circular dep) */
-type PrepareFn = (nzbUrl: string, title: string, config: NZBDavConfig, episodePattern?: string, contentType?: string, episodesInSeason?: number, isSeasonPack?: boolean) => Promise<StreamData>;
+type PrepareFn = (nzbUrl: string, title: string, config: NZBDavConfig, episodePattern?: string, contentType?: string, episodesInSeason?: number, isSeasonPack?: boolean, logPrefix?: string) => Promise<StreamData>;
 let prepareFn: PrepareFn | null = null;
 
 export function setPrepareFn(fn: PrepareFn): void {
@@ -275,7 +275,8 @@ export async function getOrCreateStream(
   indexerName?: string,
   verbose = true,
   isSeasonPack?: boolean,
-  skipReadyCache?: boolean
+  skipReadyCache?: boolean,
+  logPrefix = '',
 ): Promise<StreamData> {
   cleanupExpiredCache();
 
@@ -285,7 +286,7 @@ export async function getOrCreateStream(
   if (!skipReadyCache) {
     const ready = readyCache.get(cacheKey);
     if (ready && ready.expiresAt > Date.now()) {
-      if (verbose) console.log(`\u2705 NZB Database (healthy): ${title}`);
+      if (verbose) console.log(`${logPrefix}\u2705 NZB Database (healthy): ${title}`);
       return ready.data;
     }
   }
@@ -294,7 +295,7 @@ export async function getOrCreateStream(
   const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
   const dead = deadNzbCache.get(deadKey);
   if (dead) {
-    if (verbose) console.log(`\u274C NZB Database (dead): ${title} - ${dead.error.message}`);
+    if (verbose) console.log(`${logPrefix}\u274C NZB Database (dead): ${title} - ${dead.error.message}`);
     throw dead.error;
   }
 
@@ -302,10 +303,10 @@ export async function getOrCreateStream(
   const pending = pendingCache.get(cacheKey);
   if (pending) {
     if (pending.expiresAt <= Date.now()) {
-      if (verbose) console.log(`\u23F3 NZB Database (expired): ${title}`);
+      if (verbose) console.log(`${logPrefix}\u23F3 NZB Database (expired): ${title}`);
       pendingCache.delete(cacheKey);
     } else {
-      if (verbose) console.log(`\u23F3 NZB Database (pending): ${title}`);
+      if (verbose) console.log(`${logPrefix}\u23F3 NZB Database (pending): ${title}`);
       return pending.promise!;
     }
   }
@@ -313,9 +314,9 @@ export async function getOrCreateStream(
   if (!prepareFn) throw new Error('Stream cache not initialised: prepareFn not set');
 
   // Create new preparation task
-  if (verbose) console.log(`\u{1F195} Starting new stream preparation: ${title}`);
+  if (verbose) console.log(`${logPrefix}\u{1F195} Starting new stream preparation: ${title}`);
 
-  const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack);
+  const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix);
 
   // Set as pending with a TTL — if the promise hangs, the entry expires and
   // subsequent requests can retry instead of hanging forever.  When fallback is

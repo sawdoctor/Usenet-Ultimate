@@ -710,6 +710,8 @@ function App() {
           setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
           autoResolveOnSearch={ac.autoResolveOnSearch}
           setAutoResolveOnSearch={ac.setAutoResolveOnSearch}
+          autoResolveTargets={ac.autoResolveTargets}
+          setAutoResolveChains={ac.setAutoResolveChains}
         />
       )}
 
@@ -997,6 +999,7 @@ function App() {
             nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
             nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
             autoResolveOnSearch={ac.autoResolveOnSearch}
+            autoResolveTargets={ac.autoResolveTargets}
             nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
             streamingMode={ac.streamingMode}
             proxyMode={ac.proxyMode}

@@ -135,6 +135,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds] = useState(30);
   const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('top');
   const [autoResolveOnSearch, setAutoResolveOnSearch] = useState(true);
+  const [autoResolveTargets, setAutoResolveChains] = useState(2);
   const [nzbdavCacheTimeouts, setNzbdavCacheTimeouts] = useState(true);
   const [filterDeadNzbs, setFilterDeadNzbs] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
@@ -305,10 +306,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
       nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch,
+      nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch, autoResolveTargets,
     }), 500);
     return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch, saveSettings]);
+  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch, autoResolveTargets, saveSettings]);
 
   // Auto-save: NZB database settings
   useEffect(() => {
@@ -767,6 +768,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavSeasonPackTimeoutSeconds(data.nzbdavSeasonPackTimeoutSeconds ?? legacyTimeout ?? 30);
       setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'top');
       setAutoResolveOnSearch(data.autoResolveOnSearch !== false);
+      setAutoResolveChains(Math.max(1, Math.min(4, data.autoResolveTargets ?? 2)));
       setNzbdavCacheTimeouts(data.nzbdavCacheTimeouts !== false);
       setFilterDeadNzbs(data.filterDeadNzbs !== false);
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
@@ -1217,6 +1219,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds,
     nzbdavFallbackOrder, setNzbdavFallbackOrder,
     autoResolveOnSearch, setAutoResolveOnSearch,
+    autoResolveTargets, setAutoResolveChains,
     nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
     filterDeadNzbs, setFilterDeadNzbs,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,

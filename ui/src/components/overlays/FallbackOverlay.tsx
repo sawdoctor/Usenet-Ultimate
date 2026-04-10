@@ -26,6 +26,8 @@ interface FallbackOverlayProps {
   setNzbdavProxyEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   autoResolveOnSearch: boolean;
   setAutoResolveOnSearch: React.Dispatch<React.SetStateAction<boolean>>;
+  autoResolveTargets: number;
+  setAutoResolveChains: React.Dispatch<React.SetStateAction<number>>;
 }
 
 export function FallbackOverlay({
@@ -48,6 +50,8 @@ export function FallbackOverlay({
   setNzbdavProxyEnabled,
   autoResolveOnSearch,
   setAutoResolveOnSearch,
+  autoResolveTargets,
+  setAutoResolveChains,
 }: FallbackOverlayProps) {
   const movieDec = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavMoviesTimeoutSeconds]));
   const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
@@ -55,6 +59,8 @@ export function FallbackOverlay({
   const tvInc = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavTvTimeoutSeconds]));
   const seasonPackDec = useHoldRepeat(useCallback(() => setNzbdavSeasonPackTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavSeasonPackTimeoutSeconds]));
   const seasonPackInc = useHoldRepeat(useCallback(() => setNzbdavSeasonPackTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavSeasonPackTimeoutSeconds]));
+  const targetsDec = useHoldRepeat(useCallback(() => setAutoResolveChains(v => Math.max(1, v - 1)), [setAutoResolveChains]));
+  const targetsInc = useHoldRepeat(useCallback(() => setAutoResolveChains(v => Math.min(4, v + 1)), [setAutoResolveChains]));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -330,6 +336,25 @@ export function FallbackOverlay({
                   <div className="text-xs text-slate-500 mt-0.5">Auto-resolve NZBs in the background when search results are fetched, including for auto play.</div>
                 </label>
               </div>
+              {autoResolveOnSearch && (
+                <div className="ml-6 space-y-1">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-slate-300 whitespace-nowrap">NZBs</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        {...targetsDec}
+                        className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                      >−</button>
+                      <span className="text-lg font-bold text-amber-400/90 tabular-nums w-4 text-center">{autoResolveTargets}</span>
+                      <button
+                        {...targetsInc}
+                        className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                      >+</button>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500">Number of NZBs to Auto-Resolve "From Top of List".</div>
+                </div>
+              )}
             </div>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
@@ -403,6 +428,7 @@ export function FallbackOverlay({
                 setNzbdavMaxFallbacks(0);
                 setNzbdavProxyEnabled(true);
                 setAutoResolveOnSearch(true);
+                setAutoResolveChains(2);
               }}
               className="btn-secondary w-full"
             >

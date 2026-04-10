@@ -154,7 +154,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
         : undefined;
       autoResolveFromCandidates(
         contentKey, fallbackCandidates, nzbdavConfig, epPattern, type, episodesInSeason,
-      ).catch(err => console.error('❌ Auto-resolve error:', err));
+        config.autoResolveTargets,
+      ).catch(err => console.error('❌ Auto-Resolve error:', err));
     };
 
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
