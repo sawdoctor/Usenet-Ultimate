@@ -318,17 +318,24 @@ export default function HealthChecksOverlay({
               )}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Connections</label>
-                <div className="input w-full cursor-default opacity-70">
-                  {healthChecks.inspectionMethod === 'smart'
+                {(() => {
+                  const poolProviderCount = healthChecks.providers.filter(p => p.enabled && p.type === 'pool').length;
+                  const batchCount = healthChecks.inspectionMethod === 'smart'
                     ? healthChecks.smartBatchSize
-                    : (healthChecks.nzbsToInspect || 6)}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  {healthChecks.inspectionMethod === 'smart'
-                    ? 'Auto-set to match batch size.'
-                    : 'Auto-set to match NZBs to inspect.'}
-                  {' '}<span className="text-amber-400/80">These connections plus any NZBDav connections must not exceed your provider's maximum allowed connections.</span>
-                </p>
+                    : (healthChecks.nzbsToInspect || 6);
+                  const totalConnections = batchCount * Math.max(1, poolProviderCount);
+                  return (
+                    <>
+                      <div className="input w-full cursor-default opacity-70">
+                        {totalConnections}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {batchCount} {healthChecks.inspectionMethod === 'smart' ? 'batch' : 'NZBs'} × {Math.max(1, poolProviderCount)} pool provider{poolProviderCount !== 1 ? 's' : ''}.
+                        {' '}<span className="text-amber-400/80">These connections plus any NZBDav connections must not exceed your provider's maximum allowed connections.</span>
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
