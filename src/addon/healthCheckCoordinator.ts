@@ -493,10 +493,23 @@ export function autoQueueToNzbdav(
   };
 
   if (mode === 'all') {
-    const verified = allResults.filter(isEligible);
+    // Deduplicate by title — same release from different indexers causes NZBDav DB conflicts
+    const seen = new Set<string>();
+    const verified = allResults.filter(r => {
+      if (!isEligible(r)) return false;
+      if (seen.has(r.title)) return false;
+      seen.add(r.title);
+      return true;
+    });
     if (verified.length > 0) {
       console.log(`🚀 Auto-queueing all ${verified.length} verified result(s) to NZBDav`);
-      verified.forEach((r, i) => sendToNzbdav(r, `verified ${i + 1}/${verified.length}`));
+      // Serialize submissions — NZBDav's database chokes on concurrent inserts
+      (async () => {
+        for (let i = 0; i < verified.length; i++) {
+          sendToNzbdav(verified[i], `verified ${i + 1}/${verified.length}`);
+          if (i < verified.length - 1) await new Promise(r => setTimeout(r, 250));
+        }
+      })();
     }
   } else {
     // mode === 'top'
