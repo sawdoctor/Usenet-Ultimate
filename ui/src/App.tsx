@@ -30,6 +30,7 @@ import { AutoPlayOverlay } from './components/overlays/AutoPlayOverlay';
 import { StatsOverlay } from './components/overlays/StatsOverlay';
 import FiltersOverlay from './components/overlays/FiltersOverlay';
 import HealthChecksOverlay from './components/overlays/HealthChecksOverlay';
+import { UltimateResolveOverlay } from './components/overlays/UltimateResolveOverlay';
 import { StreamDisplayOverlay } from './components/overlays/StreamDisplayOverlay';
 import { ZyclopsOverlay } from './components/overlays/ZyclopsOverlay';
 import { LogsOverlay } from './components/overlays/LogsOverlay';
@@ -810,6 +811,20 @@ function App() {
         />
       )}
 
+      {/* Ultimate-Resolve Overlay */}
+      {ac.activeOverlay === 'ultimateResolve' && (
+        <UltimateResolveOverlay
+          onClose={() => ac.setActiveOverlay(null)}
+          ultimateResolve={ac.ultimateResolve}
+          setUltimateResolve={ac.setUltimateResolve}
+          healthChecks={ac.healthChecks}
+          setHealthChecks={ac.setHealthChecks}
+          nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
+          setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
+          apiFetch={apiFetch}
+        />
+      )}
+
       {/* Proxy Overlay */}
       {ac.activeOverlay === 'proxy' && (
         <ProxyOverlay
@@ -1009,6 +1024,7 @@ function App() {
             autoPlay={ac.autoPlay}
             streamDisplayConfig={ac.streamDisplayConfig}
             healthChecks={ac.healthChecks}
+            ultimateResolve={ac.ultimateResolve}
             statsData={ac.statsData}
             fetchStats={ac.fetchStats}
             hasIndexers={!!hasIndexers}

@@ -35,6 +35,7 @@ export interface StreamBuildContext {
   allResults: any[];
   healthResults: Map<string, HealthCheckResult>;
   type: string;
+  imdbId?: string;
   season?: number;
   episode?: number;
   episodesInSeason?: number;
@@ -52,7 +53,8 @@ export interface StreamBuildOutput {
  * Build Stremio Stream objects from processed search results.
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
-  const { allResults, healthResults, type, season, episode, episodesInSeason, now, runtime } = ctx;
+  const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, now, runtime } = ctx;
+  const ckParam = imdbId ? `&ck=${encodeURIComponent(`${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`)}` : '';
 
   // Build auto-play / binge group settings
   const autoPlay: AutoPlayConfig = config.autoPlay || { enabled: true, method: 'firstFile' as const, attributes: ['resolution', 'quality', 'edition'] as ('resolution' | 'quality' | 'edition')[] };
@@ -60,7 +62,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Create fallback group for NZBDav mode (auto-retry next NZB on failure)
   let fallbackGroupId: string | undefined;
   let fallbackCandidates: FallbackCandidate[] | undefined;
-  if (config.streamingMode === 'nzbdav' && config.nzbdavFallbackEnabled === true) {
+  if (config.streamingMode === 'nzbdav' && (config.nzbdavFallbackEnabled === true || config.ultimateResolve?.enabled)) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
     const streamManifestKey = requestContext.getStore()?.manifestKey || '';
 
@@ -211,7 +213,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
           : '';
         const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-        const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+        const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${ckParam}`;
         streams.push({
           name: streamName,
           title: streamTitle,
@@ -263,7 +265,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         : '';
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${ckParam}`;
 
       streams.push({
         name: streamName,

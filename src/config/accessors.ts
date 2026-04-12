@@ -9,7 +9,7 @@
  *   env var > config.json > hardcoded default
  */
 
-import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer } from '../types.js';
+import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateResolveConfig } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
 
@@ -91,7 +91,8 @@ export const config: Config = {
   get nzbdavLibraryCheckEnabled() {
     const env = envBool('NZBDAV_LIBRARY_CHECK');
     if (env !== undefined) return env;
-    // Force on when auto-resolve is active (relies on library checks)
+    // Force on when auto-resolve or Ultimate-Resolve is active (relies on library checks)
+    if (configData.ultimateResolve?.enabled) return true;
     if (configData.autoResolveOnSearch !== false
         && configData.nzbdavFallbackEnabled
         && configData.nzbdavFallbackOrder === 'top') {
@@ -415,5 +416,24 @@ export const config: Config = {
   },
   get indexerPriority() {
     return configData.indexerPriority;
+  },
+  get ultimateResolve(): UltimateResolveConfig {
+    const ur = configData.ultimateResolve;
+    const enabled = envBool('ULTIMATE_RESOLVE_ENABLED') ?? ur?.enabled ?? false;
+    const candidateCount = Math.max(2, Math.min(10, envInt('ULTIMATE_RESOLVE_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
+    const preferenceMode = envEnum('ULTIMATE_RESOLVE_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'speed';
+    const archiveInspection = envBool('ULTIMATE_RESOLVE_ARCHIVE_INSPECTION') ?? ur?.archiveInspection ?? true;
+    const rawSample = envInt('ULTIMATE_RESOLVE_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
+    const sampleCount: 3 | 7 = rawSample === 7 ? 7 : 3;
+    const maxCandidates = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_MAX_CANDIDATES') ?? ur?.maxCandidates ?? 0));
+    return {
+      enabled,
+      candidateCount,
+      preferenceMode,
+      archiveInspection,
+      sampleCount,
+      maxCandidates,
+      healthCheckIndexers: ur?.healthCheckIndexers,
+    };
   },
 };

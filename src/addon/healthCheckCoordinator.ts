@@ -447,7 +447,8 @@ export function autoQueueToNzbdav(
   episodesInSeason?: number,
 ): void {
   const mode = config.healthChecks?.autoQueueMode;
-  if (!config.healthChecks?.enabled || !mode || mode === 'off' || config.streamingMode !== 'nzbdav' || allResults.length === 0) {
+  if (!config.healthChecks?.enabled || !mode || mode === 'off' || config.streamingMode !== 'nzbdav' || allResults.length === 0
+      || config.ultimateResolve?.enabled) {
     return;
   }
 

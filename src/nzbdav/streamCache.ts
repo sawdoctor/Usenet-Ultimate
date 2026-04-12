@@ -65,11 +65,11 @@ export function isVideoPathBroken(videoPath: string): boolean {
 }
 
 /** Dynamic TTL helpers — when mode is 'storage', entries never expire by time */
-function getReadyTTLMs(): number {
+export function getReadyTTLMs(): number {
   if (globalConfig.healthyNzbDbMode === 'storage') return Infinity;
   return (globalConfig.healthyNzbDbTTL ?? 259200) * 1000;
 }
-function getDeadTTLMs(): number {
+export function getDeadTTLMs(): number {
   if (globalConfig.deadNzbDbMode === 'storage') return Infinity;
   return (globalConfig.deadNzbDbTTL ?? 86400) * 1000;
 }
@@ -215,6 +215,21 @@ export function getCacheKey(nzbUrl: string, title: string): string {
 export function getDeadCacheKey(nzbUrl: string, episodePattern?: string): string {
   const normalized = normalizeProwlarrUrl(nzbUrl);
   return episodePattern ? `${normalized}::${episodePattern}` : normalized;
+}
+
+/** Write a resolved stream directly to readyCache (used by Ultimate-Resolve to bypass getOrCreateStream). */
+export function setReadyCacheEntry(cacheKey: string, data: StreamData, indexerName?: string): void {
+  const now = Date.now();
+  readyCache.set(cacheKey, { data, indexerName, createdAt: now, expiresAt: now + getReadyTTLMs() });
+  saveCacheToDisk();
+}
+
+/** Write a failed NZB directly to deadNzbCache (used by Ultimate-Resolve to bypass getOrCreateStream). */
+export function setDeadNzbEntry(nzbUrl: string, title: string, error: Error, episodePattern?: string): void {
+  const key = getDeadCacheKey(nzbUrl, episodePattern);
+  const now = Date.now();
+  deadNzbCache.set(key, { title, error, createdAt: now, expiresAt: now + getDeadTTLMs() });
+  saveCacheToDisk();
 }
 
 export function cleanupExpiredCache(): void {

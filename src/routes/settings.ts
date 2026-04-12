@@ -100,6 +100,7 @@ function buildConfigResponse(config: Config) {
     movieFilters: config.movieFilters,
     tvFilters: config.tvFilters,
     healthChecks: config.healthChecks,
+    ultimateResolve: config.ultimateResolve,
     autoPlay: config.autoPlay,
     streamDisplayConfig: config.streamDisplayConfig,
     syncedIndexers: config.syncedIndexers,

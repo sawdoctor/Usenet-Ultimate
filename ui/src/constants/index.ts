@@ -168,4 +168,14 @@ export const DEFAULT_FILTERS = {
   preferNonStandardEdition: false
 };
 
-export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'fallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'ultimateResolve', 'fallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+
+export const DEFAULT_ULTIMATE_RESOLVE = {
+  enabled: false,
+  candidateCount: 3,
+  preferenceMode: 'speed' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxCandidates: 0,
+  healthCheckIndexers: {} as Record<string, boolean>,
+};

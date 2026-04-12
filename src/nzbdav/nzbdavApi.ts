@@ -213,18 +213,25 @@ export async function cancelJob(nzoId: string, config: NZBDavConfig, reason?: st
   const cancelUrl = `${baseUrl}/api?mode=queue&name=delete&value=${encodeURIComponent(nzoId)}&apikey=${config.apiKey}`;
   const reasonSuffix = reason ? ` (${reason})` : '';
 
-  try {
-    const response = await fetch(cancelUrl, {
-      headers: { 'User-Agent': globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (response.ok) {
-      console.log(`  🗑️ Cancelled NZBDav job: ${nzoId}${reasonSuffix}`);
-    } else {
-      console.warn(`  ⚠️ Failed to cancel NZBDav job ${nzoId}${reasonSuffix}: ${response.status}`);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(cancelUrl, {
+        headers: { 'User-Agent': globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        console.log(`  🗑️ Cancelled NZBDav job: ${nzoId}${reasonSuffix}`);
+        return;
+      }
+      if (attempt === 2) {
+        console.warn(`  ⚠️ Failed to cancel NZBDav job ${nzoId}${reasonSuffix}: ${response.status}`);
+      }
+    } catch (err) {
+      if (attempt === 2) {
+        console.warn(`  ⚠️ Error cancelling NZBDav job ${nzoId}${reasonSuffix}: ${(err as Error).message}`);
+      }
     }
-  } catch (err) {
-    console.warn(`  ⚠️ Error cancelling NZBDav job ${nzoId}${reasonSuffix}: ${(err as Error).message}`);
+    if (attempt < 2) await new Promise(r => setTimeout(r, 200));
   }
 }
 

@@ -24,6 +24,7 @@ import {
   DEFAULT_HEALTH_CHECKS,
   DEFAULT_FILTERS,
   DEFAULT_CARD_ORDER,
+  DEFAULT_ULTIMATE_RESOLVE,
 } from '../constants';
 import { normalizeLineGroups } from '../utils/streamPreview';
 import { formatTTL, decomposeTTL, composeTTL } from '../utils/ttl';
@@ -192,6 +193,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [statsSortDir, setStatsSortDir] = useState<'asc' | 'desc'>('desc');
   const [statsExpandedIndexer, setStatsExpandedIndexer] = useState<string | null>(null);
 
+  // ─── Ultimate-Resolve ───────────────────────────────────────────────
+  const [ultimateResolve, setUltimateResolve] = useState({ ...DEFAULT_ULTIMATE_RESOLVE });
+
   // ─── Health Checks ──────────────────────────────────────────────────
   const [healthChecks, setHealthChecks] = useState<HealthChecksState>({ ...DEFAULT_HEALTH_CHECKS });
   const [syncedIndexers, setSyncedIndexers] = useState<SyncedIndexer[]>([]);
@@ -284,6 +288,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
+
+  // Auto-save: Ultimate-Resolve settings
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const timer = setTimeout(() => saveSettings({ ultimateResolve }), 500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ultimateResolve.enabled, ultimateResolve.candidateCount, ultimateResolve.preferenceMode, ultimateResolve.archiveInspection, ultimateResolve.sampleCount, ultimateResolve.maxCandidates, ultimateResolve.healthCheckIndexers, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {
@@ -597,6 +609,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           ? [...order.slice(0, healthIdx + 1), 'nzbDatabase', ...order.slice(healthIdx + 1)]
           : [...order, 'nzbDatabase'];
       }
+      if (!order.includes('ultimateResolve')) {
+        const zyclopsIdx = order.indexOf('zyclops');
+        order = zyclopsIdx !== -1
+          ? [...order.slice(0, zyclopsIdx + 1), 'ultimateResolve', ...order.slice(zyclopsIdx + 1)]
+          : [...order, 'ultimateResolve'];
+      }
       setCardOrder(order);
 
       // Load auto-play settings
@@ -740,6 +758,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setHealthChecks({
         ...DEFAULT_HEALTH_CHECKS,
         ...(data.healthChecks || {})
+      });
+
+      setUltimateResolve({
+        ...DEFAULT_ULTIMATE_RESOLVE,
+        ...(data.ultimateResolve || {})
       });
 
       // Load synced indexers from config
@@ -1269,6 +1292,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     statsSortBy, setStatsSortBy,
     statsSortDir, setStatsSortDir,
     statsExpandedIndexer, setStatsExpandedIndexer,
+
+    // Ultimate-Resolve
+    ultimateResolve, setUltimateResolve,
 
     // Health checks
     healthChecks, setHealthChecks,

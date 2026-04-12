@@ -114,6 +114,15 @@ export interface ConfigData {
     usenetPassword?: string;
     maxConnections?: number;
   };
+  ultimateResolve?: {
+    enabled: boolean;
+    candidateCount?: number;
+    preferenceMode?: 'priority' | 'speed';
+    archiveInspection?: boolean;
+    sampleCount?: 3 | 7;
+    maxCandidates?: number;
+    healthCheckIndexers?: Record<string, boolean>;
+  };
 }
 
 // Load config from file or create default
@@ -185,6 +194,8 @@ const ENV_OVERRIDES: readonly string[] = [
   'HEALTH_CHECK_ENABLED', 'HEALTH_CHECK_NNTP_HOST', 'HEALTH_CHECK_NNTP_PORT',
   'HEALTH_CHECK_NNTP_TLS', 'HEALTH_CHECK_NNTP_USER', 'HEALTH_CHECK_NNTP_PASS',
   'ZYCLOPS_ENDPOINT',
+  'ULTIMATE_RESOLVE_ENABLED', 'ULTIMATE_RESOLVE_CANDIDATE_COUNT', 'ULTIMATE_RESOLVE_PREFERENCE_MODE',
+  'ULTIMATE_RESOLVE_ARCHIVE_INSPECTION', 'ULTIMATE_RESOLVE_SAMPLE_COUNT', 'ULTIMATE_RESOLVE_MAX_CANDIDATES',
 ] as const;
 const active = ENV_OVERRIDES.filter(name => process.env[name] !== undefined && process.env[name] !== '');
 if (active.length > 0) {

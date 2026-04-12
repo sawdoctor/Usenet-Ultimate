@@ -16,6 +16,7 @@ import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern } from './utils.js';
+import { getSessionPromise } from './ultimateResolve.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -146,7 +147,7 @@ function cleanupRecentDeliveries(): void {
  * For series, returns season pack timeout or TV timeout depending on isSeasonPack.
  * For movies, returns the movies timeout. */
 function getAttemptBudgetMs(contentType?: string, isSeasonPack?: boolean): number {
-  if (globalConfig.nzbdavFallbackEnabled !== true) return 0;
+  if (globalConfig.nzbdavFallbackEnabled !== true || globalConfig.ultimateResolve?.enabled) return 0;
   return (contentType === 'series'
     ? (isSeasonPack
         ? (globalConfig.nzbdavSeasonPackTimeoutSeconds ?? 30)
@@ -389,7 +390,7 @@ export async function handleStream(
     { nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest }
   ];
 
-  const fallbackEnabled = globalConfig.nzbdavFallbackEnabled === true;
+  const fallbackEnabled = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
   const maxFallbacksSetting = globalConfig.nzbdavMaxFallbacks ?? 0; // 0 = unlimited (try all)
 
   // Check whether this request should produce detailed logs.
@@ -488,6 +489,67 @@ export async function handleStream(
           res.redirect(302, directUrl.href);
         }
         return;
+      }
+    }
+  }
+
+  // ── Ultimate-Resolve Lobby ─────────────────────────────────────────
+  // When Ultimate-Resolve is active, await its session promise instead of
+  // starting our own nzbdav submission. Self-redirect keeps ExoPlayer alive.
+  const contentKey = req.query.ck as string | undefined;
+  if (globalConfig.ultimateResolve?.enabled && contentKey) {
+    const sessionPromise = getSessionPromise(contentKey);
+    if (sessionPromise) {
+      const elapsed = Date.now() - streamStartTime;
+      const remainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
+      if (remainingMs > 0 && redirectCount < MAX_SELF_REDIRECTS) {
+        try {
+          let stremioTimer: ReturnType<typeof setTimeout>;
+          const streamData = await Promise.race([
+            sessionPromise,
+            new Promise<never>((_, reject) => {
+              stremioTimer = setTimeout(
+                () => reject(Object.assign(new Error('lobby timeout'), { isLobbyTimeout: true })),
+                remainingMs,
+              );
+            }),
+          ]).finally(() => clearTimeout(stremioTimer!));
+
+          // Ultimate-Resolve resolved — deliver the stream
+          const mode: 'proxy' | 'direct' = globalConfig.nzbdavProxyEnabled !== false ? 'proxy' : 'direct';
+          const lastLobby = lastDeliveryLog.get(streamData.videoPath);
+          const shouldLogLobby = !lastLobby || lastLobby.mode !== mode;
+          lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
+          if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Resolve result for ${contentKey}`);
+          if (mode === 'proxy') {
+            if (shouldLogLobby) console.log(`  📡 Proxy streaming: ${streamData.videoPath}`);
+            if (proxyFn) {
+              await proxyFn(req, res, streamData.videoPath);
+            } else {
+              const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+              proxyUrl.searchParams.set('path', streamData.videoPath);
+              proxyUrl.searchParams.set('_fb', req.originalUrl);
+              res.redirect(302, proxyUrl.href);
+            }
+          } else {
+            const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
+            const directUrl = new URL(`${webdavBase}${encodeWebdavPath(streamData.videoPath)}`);
+            if (config.webdavUser) { directUrl.username = config.webdavUser; directUrl.password = config.webdavPassword || ''; }
+            res.redirect(302, directUrl.href);
+          }
+          return;
+        } catch (err) {
+          if ((err as any).isLobbyTimeout) {
+            // Stremio timeout approaching — self-redirect to keep ExoPlayer alive
+            const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
+            redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
+            console.log(`👑 Lobby: self-redirect (${Math.round((Date.now() - streamStartTime) / 1000)}s elapsed, redirect ${redirectCount + 1})`);
+            res.redirect(302, redirectUrl.href);
+            return;
+          }
+          // Session promise rejected (all candidates exhausted) — fall through to single attempt
+          console.log(`👑 Lobby: session ended without resolution — falling through to single attempt`);
+        }
       }
     }
   }
@@ -598,7 +660,7 @@ export async function handleStream(
 
       // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect.
       // When fallback is off, inline proxy (no 302) for broadest player compatibility.
-      const fallbackOn = globalConfig.nzbdavFallbackEnabled === true;
+      const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
       const mode: 'proxy' | 'direct' = (!fallbackOn || globalConfig.nzbdavProxyEnabled) ? 'proxy' : 'direct';
       const last = lastDeliveryLog.get(streamData.videoPath);
       const shouldLogDelivery = !last || last.mode !== mode;

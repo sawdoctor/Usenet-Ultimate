@@ -92,6 +92,15 @@ export function updateSettings(settings: {
     hideBlocked: boolean;
     healthCheckIndexers?: Record<string, boolean>;
   };
+  ultimateResolve?: {
+    enabled: boolean;
+    candidateCount?: number;
+    preferenceMode?: 'priority' | 'speed';
+    archiveInspection?: boolean;
+    sampleCount?: 3 | 7;
+    maxCandidates?: number;
+    healthCheckIndexers?: Record<string, boolean>;
+  };
 }): void {
   if (settings.addonEnabled !== undefined) {
     configData.addonEnabled = settings.addonEnabled;
@@ -290,6 +299,9 @@ export function updateSettings(settings: {
   if (settings.streamDisplayConfig !== undefined) {
     configData.streamDisplayConfig = settings.streamDisplayConfig;
   }
+  if (settings.ultimateResolve !== undefined) {
+    configData.ultimateResolve = settings.ultimateResolve;
+  }
 
   // Enforce minimum cacheTTL when auto play is enabled
   if ((configData.autoPlay?.enabled ?? true) && configData.cacheTTL < 9000) {
@@ -302,6 +314,12 @@ export function updateSettings(settings: {
       || settings.autoResolveOnSearch === false
       || settings.autoResolveTargets !== undefined) {
     import('../nzbdav/autoResolve.js').then(m => m.cancelAllAutoResolves()).catch(() => {});
+  }
+
+  // Cancel Ultimate-Resolve sessions when settings change
+  if (settings.ultimateResolve !== undefined) {
+    import('../nzbdav/ultimateResolve.js').then(m => m.cancelAllUltimateResolves()).catch(() => {});
+    import('../addon/index.js').then(m => m.clearSearchCache()).catch(() => {});
   }
 
   // Mutual exclusion: force enabled + disable proxy/health checks for Zyclops-enabled indexers

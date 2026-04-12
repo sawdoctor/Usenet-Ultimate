@@ -116,6 +116,7 @@ export interface Config {
   movieFilters?: FilterConfig;   // Movie-specific sort/filter overrides (falls back to filters)
   tvFilters?: FilterConfig;      // TV-specific sort/filter overrides (falls back to filters)
   healthChecks?: HealthCheckConfig; // Health check settings for NZB verification
+  ultimateResolve?: UltimateResolveConfig; // Ultimate-Resolve: combined fallback + health checking
   autoPlay?: AutoPlayConfig;   // Auto-play / binge group settings
   streamDisplayConfig?: StreamDisplayConfig; // Stream display customization
   syncedIndexers?: SyncedIndexer[]; // Indexers synced from Prowlarr or NZBHydra
@@ -267,6 +268,17 @@ export interface HealthCheckConfig {
   hideBlocked: boolean;          // Filter out blocked NZBs from results
   libraryPreCheck: boolean;      // Check NZBDav library before NNTP checks — skip checking content already downloaded
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
+}
+
+// Ultimate-Resolve: combines NZB Fallback with Health Checking for fastest resolution
+export interface UltimateResolveConfig {
+  enabled: boolean;
+  candidateCount: number;              // Active pool size (2-10, default 4)
+  preferenceMode: 'priority' | 'speed';
+  archiveInspection: boolean;
+  sampleCount: 3 | 7;
+  maxCandidates: number;               // Rolling replacement depth (0 = all results, 1-20 = limit)
+  healthCheckIndexers?: Record<string, boolean>;
 }
 
 // Device manifest — each represents a Stremio installation

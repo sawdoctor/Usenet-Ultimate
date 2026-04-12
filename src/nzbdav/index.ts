@@ -10,13 +10,16 @@ export type { NZBDavConfig, FallbackCandidate } from './types.js';
 export { createFallbackGroup, getFallbackGroup, clearFallbackGroups } from './fallbackManager.js';
 
 // Stream cache
-export { getOrCreateStream, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath, clearTimeoutEntries } from './streamCache.js';
+export { getOrCreateStream, getCacheKey, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath, clearTimeoutEntries, setReadyCacheEntry, setDeadNzbEntry } from './streamCache.js';
 
 // Cache utilities
 export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
 
 // Auto-resolve (background NZB pre-resolution)
 export { autoResolveFromCandidates, cancelAllAutoResolves } from './autoResolve.js';
+
+// Ultimate-Resolve (combined fallback + health checking pipeline)
+export { ultimateResolveFromCandidates, cancelAllUltimateResolves, getSessionPromise, hasAnySessions } from './ultimateResolve.js';
 
 // Shared utilities
 export { buildEpisodePattern, buildNzbdavConfig } from './utils.js';

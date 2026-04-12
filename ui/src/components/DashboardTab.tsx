@@ -18,6 +18,7 @@ import {
   Trophy,
   Heart,
   RotateCcw,
+  Crown,
   GripVertical,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -65,6 +66,12 @@ export interface DashboardTabProps {
   autoPlay: AutoPlayState;
   streamDisplayConfig: StreamDisplayConfig;
   healthChecks: HealthChecksState;
+  ultimateResolve: {
+    enabled: boolean;
+    candidateCount: number;
+    preferenceMode: 'priority' | 'speed';
+    maxCandidates: number;
+  };
   statsData: any;
   fetchStats: () => void;
   hasIndexers: boolean;
@@ -102,6 +109,7 @@ export function DashboardTab({
   autoPlay,
   streamDisplayConfig,
   healthChecks,
+  ultimateResolve,
   statsData,
   fetchStats,
   hasIndexers,
@@ -287,13 +295,17 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'fallback')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 active:!border-amber-400/50 active:!shadow-amber-400/30 transition-all",
+                      "card p-4 group transition-all",
+                      ultimateResolve.enabled
+                        ? "opacity-50 cursor-not-allowed"
+                        : streamingMode !== 'nzbdav'
+                          ? "opacity-50 pointer-events-none"
+                          : "cursor-move hover:!border-amber-400/50 hover:!shadow-amber-400/30 active:!border-amber-400/50 active:!shadow-amber-400/30",
                       isDragging && "opacity-50 scale-95",
-                      isOver && "ring-2 ring-amber-400 scale-105",
-                      streamingMode !== 'nzbdav' && "opacity-50 pointer-events-none"
+                      isOver && "ring-2 ring-amber-400 scale-105"
                     )}
                     onClick={() => {
-                      if (!draggedCard && streamingMode === 'nzbdav') setActiveOverlay('fallback');
+                      if (!draggedCard && !ultimateResolve.enabled && streamingMode === 'nzbdav') setActiveOverlay('fallback');
                     }}
                   >
                     <div className="flex items-center gap-3 mb-2">
@@ -301,23 +313,32 @@ export function DashboardTab({
                       <RotateCcw className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">NZB Fallback</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
-                      {nzbdavFallbackEnabled ? 'Enabled' : 'Disabled'}
-                      {autoResolveOnSearch && nzbdavFallbackEnabled && nzbdavFallbackOrder === 'top' && (
-                        <span className="text-lg font-normal text-amber-400 ml-2">+ Auto-Resolve ({autoResolveTargets})</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
-                        {!nzbdavFallbackEnabled
-                          ? 'Click to configure \u2192'
-                          : nzbdavMaxFallbacks === 0
-                            ? 'All fallbacks enabled'
-                            : `Up to ${nzbdavMaxFallbacks} fallback${nzbdavMaxFallbacks > 1 ? 's' : ''}`}
-                      </span>
-                    </div>
-                    {streamingMode !== 'nzbdav' && (
-                      <span className="text-xs text-slate-600 mt-1">NZB Fallback is only available in NZBDav streaming mode</span>
+                    {ultimateResolve.enabled ? (
+                      <>
+                        <div className="text-3xl font-bold text-slate-500">Managed</div>
+                        <span className="text-xs text-amber-400/80">Managed by Ultimate Resolve</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
+                          {nzbdavFallbackEnabled ? 'Enabled' : 'Disabled'}
+                          {autoResolveOnSearch && nzbdavFallbackEnabled && nzbdavFallbackOrder === 'top' && (
+                            <span className="text-lg font-normal text-amber-400 ml-2">+ Auto-Resolve ({autoResolveTargets})</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
+                            {!nzbdavFallbackEnabled
+                              ? 'Click to configure \u2192'
+                              : nzbdavMaxFallbacks === 0
+                                ? 'All fallbacks enabled'
+                                : `Up to ${nzbdavMaxFallbacks} fallback${nzbdavMaxFallbacks > 1 ? 's' : ''}`}
+                          </span>
+                        </div>
+                        {streamingMode !== 'nzbdav' && (
+                          <span className="text-xs text-slate-600 mt-1">NZB Fallback is only available in NZBDav streaming mode</span>
+                        )}
+                      </>
                     )}
                   </div>
                 ),
@@ -698,12 +719,15 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'healthChecks')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-pink-400/50 hover:!shadow-pink-400/30 active:!border-pink-400/50 active:!shadow-pink-400/30 transition-all",
+                      "card p-4 group transition-all",
+                      ultimateResolve.enabled
+                        ? "opacity-50 cursor-not-allowed"
+                        : "cursor-move hover:!border-pink-400/50 hover:!shadow-pink-400/30 active:!border-pink-400/50 active:!shadow-pink-400/30",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-pink-400 scale-105"
                     )}
                     onClick={() => {
-                      if (!draggedCard) setActiveOverlay('healthChecks');
+                      if (!draggedCard && !ultimateResolve.enabled) setActiveOverlay('healthChecks');
                     }}
                   >
                     <div className="flex items-center gap-3 mb-2">
@@ -711,6 +735,13 @@ export function DashboardTab({
                       <Heart className="w-5 h-5 text-pink-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Health Checks</span>
                     </div>
+                    {ultimateResolve.enabled ? (
+                      <>
+                        <div className="text-3xl font-bold text-slate-500">Managed</div>
+                        <span className="text-xs text-amber-400/80">Managed by Ultimate Resolve</span>
+                      </>
+                    ) : (
+                      <>
                     <div className="text-3xl font-bold group-hover:text-pink-400 group-active:text-pink-400 transition-colors">
                       {healthChecks.enabled ? 'Enabled' : 'Disabled'}
                       {healthChecks.enabled && healthChecks.autoQueueMode !== 'off' && (
@@ -734,6 +765,64 @@ export function DashboardTab({
                             return `${parts.join(', ')} of ${total} provider${total !== 1 ? 's' : ''} · ${inspectionSummary} · ${modeSummary}`;
                           })()
                         : 'Click to configure →'}
+                    </div>
+                      </>
+                    )}
+                  </div>
+                ),
+                ultimateResolve: (
+                  <div
+                    key="ultimateResolve"
+                    draggable
+                    onDragStart={() => handleCardDragStart('ultimateResolve')}
+                    onDragOver={(e) => handleCardDragOver(e, 'ultimateResolve')}
+                    onDrop={(e) => handleCardDrop(e, 'ultimateResolve')}
+                    onDragEnd={handleCardDragEnd}
+                    className={clsx(
+                      "card p-4 group transition-all relative overflow-hidden",
+                      streamingMode !== 'nzbdav'
+                        ? "opacity-50 cursor-not-allowed"
+                        : "cursor-move hover:!border-amber-400/50 hover:!shadow-amber-500/30 active:!border-amber-400/50 active:!shadow-amber-500/30",
+                      isDragging && "opacity-50 scale-95",
+                      isOver && "ring-2 ring-amber-400 scale-105",
+                      ultimateResolve.enabled && streamingMode === 'nzbdav' && "!border-amber-500/30"
+                    )}
+                    onClick={() => {
+                      if (!draggedCard && streamingMode === 'nzbdav') setActiveOverlay('ultimateResolve');
+                    }}
+                  >
+                    {ultimateResolve.enabled && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5 animate-pulse" style={{ animationDuration: '4s' }} />
+                    )}
+                    <div className="relative flex items-center gap-3 mb-2">
+                      <GripVertical className="w-4 h-4 text-slate-600" />
+                      <div className={clsx(
+                        "w-6 h-6 rounded-lg flex items-center justify-center",
+                        ultimateResolve.enabled
+                          ? "bg-gradient-to-br from-amber-500 to-yellow-600 shadow-lg shadow-amber-500/25"
+                          : "bg-slate-700"
+                      )}>
+                        <Crown className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <span className={clsx(
+                        "text-sm font-medium",
+                        ultimateResolve.enabled
+                          ? "bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent"
+                          : "text-slate-400"
+                      )}>Ultimate Resolve</span>
+                    </div>
+                    <div className={clsx(
+                      "relative text-3xl font-bold transition-colors",
+                      ultimateResolve.enabled
+                        ? "bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent"
+                        : "group-hover:text-amber-400 group-active:text-amber-400"
+                    )}>
+                      {ultimateResolve.enabled ? 'Enabled' : 'Disabled'}
+                    </div>
+                    <div className="relative text-xs text-slate-500 mt-1">
+                      {ultimateResolve.enabled
+                        ? `${ultimateResolve.candidateCount} candidates · ${ultimateResolve.preferenceMode === 'priority' ? 'Priority' : 'Speed'} mode`
+                        : 'Click to configure \u2192'}
                     </div>
                   </div>
                 ),

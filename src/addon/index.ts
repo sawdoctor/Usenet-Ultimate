@@ -24,7 +24,7 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, autoResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, autoResolveFromCandidates, ultimateResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
@@ -140,18 +140,32 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return filtered;
     };
 
-    // === SHARED: Trigger auto-resolve if enabled ===
+    // === SHARED: Trigger auto-resolve or Ultimate-Resolve if enabled ===
     const triggerAutoResolve = (fallbackCandidates: any[] | undefined, episodesInSeason?: number) => {
-      if (!fallbackCandidates?.length
-          || !config.autoResolveOnSearch
-          || config.nzbdavFallbackOrder !== 'top'
-          || !config.nzbdavFallbackEnabled) return;
+      if (!fallbackCandidates?.length) return;
 
       const contentKey = `${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`;
       const nzbdavConfig = buildNzbdavConfig();
       const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
         ? buildEpisodePattern(season, episode, config.searchConfig?.allowMultiEpisodeFiles !== false)
         : undefined;
+
+      // Ultimate-Resolve takes priority — handles health checking + nzbdav internally
+      if (config.ultimateResolve?.enabled) {
+        const ur = config.ultimateResolve;
+        ultimateResolveFromCandidates(
+          contentKey, fallbackCandidates, nzbdavConfig,
+          { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxCandidates: ur.maxCandidates, healthCheckIndexers: ur.healthCheckIndexers },
+          epPattern, type, episodesInSeason,
+        ).catch(err => console.error('❌ Ultimate-Resolve error:', err));
+        return;
+      }
+
+      // Standard auto-resolve
+      if (!config.autoResolveOnSearch
+          || config.nzbdavFallbackOrder !== 'top'
+          || !config.nzbdavFallbackEnabled) return;
+
       autoResolveFromCandidates(
         contentKey, fallbackCandidates, nzbdavConfig, epPattern, type, episodesInSeason,
         config.autoResolveTargets,
@@ -166,30 +180,36 @@ builder.defineStreamHandler(async ({ type, id }) => {
       // Apply current user filter/sort preferences (deprioritized packs appended after sort)
       allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);
 
-      // Health checks — pass pre-existing health data so the coordinator skips
-      // already-checked results and smart mode counts them toward its threshold
-      const { healthResults: newHealth, filteredResults } = await coordinateHealthChecks({
-        allResults,
-        type: titleMeta.type,
-        season: titleMeta.season,
-        episode: titleMeta.episode,
-        episodesInSeason: titleMeta.episodesInSeason,
-        preExistingHealth: healthMap.size > 0 ? healthMap : undefined,
-      });
-      for (const [key, val] of newHealth) healthMap.set(key, val);
-      allResults = filteredResults;
+      // When Ultimate-Resolve is enabled, it handles health checking + nzbdav internally
+      if (!config.ultimateResolve?.enabled) {
+        // Health checks — pass pre-existing health data so the coordinator skips
+        // already-checked results and smart mode counts them toward its threshold
+        const { healthResults: newHealth, filteredResults } = await coordinateHealthChecks({
+          allResults,
+          type: titleMeta.type,
+          season: titleMeta.season,
+          episode: titleMeta.episode,
+          episodesInSeason: titleMeta.episodesInSeason,
+          preExistingHealth: healthMap.size > 0 ? healthMap : undefined,
+        });
+        for (const [key, val] of newHealth) healthMap.set(key, val);
+        allResults = filteredResults;
+      }
 
       // Auto-mark EasyNews and Zyclops results as verified
       autoMarkRemainingResults(allResults, healthMap);
 
-      // Auto-queue to NZBDav if enabled
-      autoQueueToNzbdav(allResults, healthMap, titleMeta.type, titleMeta.season, titleMeta.episode, titleMeta.episodesInSeason);
+      // Auto-queue to NZBDav if enabled (skipped when Ultimate-Resolve manages this)
+      if (!config.ultimateResolve?.enabled) {
+        autoQueueToNzbdav(allResults, healthMap, titleMeta.type, titleMeta.season, titleMeta.episode, titleMeta.episodesInSeason);
+      }
 
       // Build streams
       const { streams, fallbackGroupId, fallbackCandidates } = buildStreams({
         allResults,
         healthResults: healthMap,
         type: titleMeta.type,
+        imdbId,
         season: titleMeta.season,
         episode: titleMeta.episode,
         episodesInSeason: titleMeta.episodesInSeason,
