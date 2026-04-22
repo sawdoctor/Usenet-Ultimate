@@ -161,6 +161,7 @@ export async function ultimateResolveFromCandidates(
   let sessionResolve!: (data: StreamData) => void;
   let sessionReject!: (err: Error) => void;
   const sessionPromise = new Promise<StreamData>((res, rej) => { sessionResolve = res; sessionReject = rej; });
+  sessionPromise.catch(() => {});
   const deferred: DeferredStream = { promise: sessionPromise, resolve: sessionResolve, reject: sessionReject, backupUrls: new Set() };
   sessionPromises.set(sessionKey, deferred);
 
