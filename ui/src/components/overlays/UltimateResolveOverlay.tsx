@@ -2,8 +2,8 @@
 //   Ultimate Resolve configuration overlay — combines NZB Fallback with Health Checking
 //   for the fastest possible NZB resolution
 
-import { useCallback } from 'react';
-import { Crown, X } from 'lucide-react';
+import { useCallback, useEffect } from 'react';
+import { Crown, X, Film, Tv, Layers } from 'lucide-react';
 import clsx from 'clsx';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import type { HealthChecksState, UsenetProvider } from '../../types';
@@ -20,6 +20,12 @@ interface UltimateResolveOverlayProps {
     maxCandidates: number;
     desiredBackups: number;
     backupProcessingLimit: number;
+    priorityMoviesTimeoutSeconds: number;
+    priorityTvTimeoutSeconds: number;
+    prioritySeasonPackTimeoutSeconds: number;
+    speedMoviesTimeoutSeconds: number;
+    speedTvTimeoutSeconds: number;
+    speedSeasonPackTimeoutSeconds: number;
     healthCheckIndexers: Record<string, boolean>;
   };
   setUltimateResolve: React.Dispatch<React.SetStateAction<UltimateResolveOverlayProps['ultimateResolve']>>;
@@ -50,6 +56,57 @@ export function UltimateResolveOverlay({
   const backupsInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.min(10, prev.desiredBackups + 1) })), [setUltimateResolve]));
   const bplDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, backupProcessingLimit: Math.max(0, prev.backupProcessingLimit - 1) })), [setUltimateResolve]));
   const bplInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, backupProcessingLimit: Math.min(20, prev.backupProcessingLimit + 1) })), [setUltimateResolve]));
+
+  // Wait-time +/- hooks. Each action reads prev.preferenceMode so the active set
+  // is always the one being mutated — no stale closure across mode toggles.
+  const moviesDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const key = prev.preferenceMode === 'priority' ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds';
+    return { ...prev, [key]: Math.max(1, prev[key] - 1) };
+  }), [setUltimateResolve]));
+  const moviesInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const key = prev.preferenceMode === 'priority' ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds';
+    return { ...prev, [key]: Math.min(90, prev[key] + 1) };
+  }), [setUltimateResolve]));
+  const tvDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const key = prev.preferenceMode === 'priority' ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds';
+    return { ...prev, [key]: Math.max(1, prev[key] - 1) };
+  }), [setUltimateResolve]));
+  const tvInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const key = prev.preferenceMode === 'priority' ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds';
+    return { ...prev, [key]: Math.min(90, prev[key] + 1) };
+  }), [setUltimateResolve]));
+  const seasonPackDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const key = prev.preferenceMode === 'priority' ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds';
+    return { ...prev, [key]: Math.max(1, prev[key] - 1) };
+  }), [setUltimateResolve]));
+  const seasonPackInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const key = prev.preferenceMode === 'priority' ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds';
+    return { ...prev, [key]: Math.min(90, prev[key] + 1) };
+  }), [setUltimateResolve]));
+
+  // Cancel any active hold-to-accelerate when preferenceMode toggles, so the
+  // user explicitly re-presses to continue against the new mode's value.
+  useEffect(() => {
+    moviesDec.onPointerUp(); moviesInc.onPointerUp();
+    tvDec.onPointerUp(); tvInc.onPointerUp();
+    seasonPackDec.onPointerUp(); seasonPackInc.onPointerUp();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ultimateResolve.preferenceMode]);
+
+  const isPriority = ultimateResolve.preferenceMode === 'priority';
+  const moviesValue = isPriority ? ultimateResolve.priorityMoviesTimeoutSeconds : ultimateResolve.speedMoviesTimeoutSeconds;
+  const tvValue = isPriority ? ultimateResolve.priorityTvTimeoutSeconds : ultimateResolve.speedTvTimeoutSeconds;
+  const seasonPackValue = isPriority ? ultimateResolve.prioritySeasonPackTimeoutSeconds : ultimateResolve.speedSeasonPackTimeoutSeconds;
+  const setMoviesValue = (v: number) => update(isPriority ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds', Math.min(90, Math.max(1, v)));
+  const setTvValue = (v: number) => update(isPriority ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds', Math.min(90, Math.max(1, v)));
+  const setSeasonPackValue = (v: number) => update(isPriority ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds', Math.min(90, Math.max(1, v)));
+  const resetActiveModeWaitTimes = () => {
+    if (isPriority) {
+      setUltimateResolve(prev => ({ ...prev, priorityMoviesTimeoutSeconds: 30, priorityTvTimeoutSeconds: 15, prioritySeasonPackTimeoutSeconds: 30 }));
+    } else {
+      setUltimateResolve(prev => ({ ...prev, speedMoviesTimeoutSeconds: 20, speedTvTimeoutSeconds: 10, speedSeasonPackTimeoutSeconds: 20 }));
+    }
+  };
 
   const enabledPoolProviders = healthChecks.providers.filter(p => p.enabled && p.type === 'pool').length;
   const hasProviders = enabledPoolProviders > 0 || healthChecks.providers.some(p => p.enabled && p.type === 'backup');
@@ -196,6 +253,170 @@ export function UltimateResolveOverlay({
                 <p className="text-xs text-slate-500">Prefer the fastest resolving NZB, even if there are unresolved candidates with higher priority.</p>
               </div>
             </label>
+            <p className="text-xs text-slate-500 pt-1">Mode also controls Stream Wait Times below.</p>
+          </div>
+
+          {/* Stream Wait Times — per-mode set */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-medium text-slate-300">Stream Wait Times</div>
+                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300/90 font-medium">
+                  Editing: {isPriority ? 'Priority' : 'Speed'}
+                </span>
+              </div>
+              <button
+                onClick={resetActiveModeWaitTimes}
+                className="text-xs text-amber-400 hover:text-amber-300 whitespace-nowrap"
+              >
+                Reset {isPriority ? 'Priority' : 'Speed'} Defaults
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Movies */}
+                <div className="rounded-lg bg-slate-800/40 border border-slate-700/20 py-3 px-2 flex flex-col items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    <Film className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">Movies</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      {...moviesDec}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >−</button>
+                    <div className="flex flex-col items-center">
+                      {moviesValue >= 60 ? (
+                        <>
+                          <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                            {Math.floor(moviesValue / 60)}
+                            <span className="text-lg text-amber-400/40 mx-px">:</span>
+                            {String(moviesValue % 60).padStart(2, '0')}
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            type="number"
+                            min={1}
+                            max={90}
+                            step={1}
+                            value={moviesValue}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10);
+                              if (!isNaN(v)) setMoviesValue(v);
+                            }}
+                            className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                          />
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      {...moviesInc}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >+</button>
+                  </div>
+                </div>
+                {/* TV */}
+                <div className="rounded-lg bg-slate-800/40 border border-slate-700/20 py-3 px-2 flex flex-col items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    <Tv className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">TV Shows</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      {...tvDec}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >−</button>
+                    <div className="flex flex-col items-center">
+                      {tvValue >= 60 ? (
+                        <>
+                          <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                            {Math.floor(tvValue / 60)}
+                            <span className="text-lg text-amber-400/40 mx-px">:</span>
+                            {String(tvValue % 60).padStart(2, '0')}
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            type="number"
+                            min={1}
+                            max={90}
+                            step={1}
+                            value={tvValue}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10);
+                              if (!isNaN(v)) setTvValue(v);
+                            }}
+                            className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                          />
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      {...tvInc}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >+</button>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-center">
+                {/* Season Pack */}
+                <div className="w-1/2 rounded-lg bg-slate-800/40 border border-slate-700/20 py-3 px-2 flex flex-col items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    <Layers className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">Season Packs</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      {...seasonPackDec}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >−</button>
+                    <div className="flex flex-col items-center">
+                      {seasonPackValue >= 60 ? (
+                        <>
+                          <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                            {Math.floor(seasonPackValue / 60)}
+                            <span className="text-lg text-amber-400/40 mx-px">:</span>
+                            {String(seasonPackValue % 60).padStart(2, '0')}
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            type="number"
+                            min={1}
+                            max={90}
+                            step={1}
+                            value={seasonPackValue}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10);
+                              if (!isNaN(v)) setSeasonPackValue(v);
+                            }}
+                            className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                          />
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      {...seasonPackInc}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
+              <li>How long to wait for a stream to become ready before giving up on this NZB. Hold the +/- buttons to accelerate. Min 1s, max 1 min 30s.</li>
+              <li>Speed mode uses a separate set of wait times — switch Preference Mode above to edit those.</li>
+            </ul>
           </div>
 
           {/* Max Candidates */}
@@ -343,6 +564,12 @@ export function UltimateResolveOverlay({
                   maxCandidates: 0,
                   desiredBackups: 0,
                   backupProcessingLimit: 0,
+                  priorityMoviesTimeoutSeconds: 30,
+                  priorityTvTimeoutSeconds: 15,
+                  prioritySeasonPackTimeoutSeconds: 30,
+                  speedMoviesTimeoutSeconds: 20,
+                  speedTvTimeoutSeconds: 10,
+                  speedSeasonPackTimeoutSeconds: 20,
                   healthCheckIndexers: {},
                 });
                 setNzbdavProxyEnabled(true);

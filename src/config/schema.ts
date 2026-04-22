@@ -115,6 +115,12 @@ export interface ConfigData {
     maxCandidates?: number;
     desiredBackups?: number;
     backupProcessingLimit?: number;
+    priorityMoviesTimeoutSeconds?: number;
+    priorityTvTimeoutSeconds?: number;
+    prioritySeasonPackTimeoutSeconds?: number;
+    speedMoviesTimeoutSeconds?: number;
+    speedTvTimeoutSeconds?: number;
+    speedSeasonPackTimeoutSeconds?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
 }
@@ -194,6 +200,8 @@ const ENV_OVERRIDES: readonly string[] = [
   'ULTIMATE_RESOLVE_ENABLED', 'ULTIMATE_RESOLVE_CANDIDATE_COUNT', 'ULTIMATE_RESOLVE_PREFERENCE_MODE',
   'ULTIMATE_RESOLVE_ARCHIVE_INSPECTION', 'ULTIMATE_RESOLVE_SAMPLE_COUNT', 'ULTIMATE_RESOLVE_MAX_CANDIDATES',
   'ULTIMATE_RESOLVE_DESIRED_BACKUPS', 'ULTIMATE_RESOLVE_BACKUP_PROCESSING_LIMIT',
+  'ULTIMATE_RESOLVE_PRIORITY_MOVIES_TIMEOUT', 'ULTIMATE_RESOLVE_PRIORITY_TV_TIMEOUT', 'ULTIMATE_RESOLVE_PRIORITY_SEASON_PACK_TIMEOUT',
+  'ULTIMATE_RESOLVE_SPEED_MOVIES_TIMEOUT', 'ULTIMATE_RESOLVE_SPEED_TV_TIMEOUT', 'ULTIMATE_RESOLVE_SPEED_SEASON_PACK_TIMEOUT',
 ] as const;
 const active = ENV_OVERRIDES.filter(name => process.env[name] !== undefined && process.env[name] !== '');
 if (active.length > 0) {

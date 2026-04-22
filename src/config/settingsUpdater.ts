@@ -101,6 +101,12 @@ export function updateSettings(settings: {
     maxCandidates?: number;
     desiredBackups?: number;
     backupProcessingLimit?: number;
+    priorityMoviesTimeoutSeconds?: number;
+    priorityTvTimeoutSeconds?: number;
+    prioritySeasonPackTimeoutSeconds?: number;
+    speedMoviesTimeoutSeconds?: number;
+    speedTvTimeoutSeconds?: number;
+    speedSeasonPackTimeoutSeconds?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
 }): void {

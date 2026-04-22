@@ -280,6 +280,13 @@ export interface UltimateResolveConfig {
   maxCandidates: number;               // Rolling replacement depth (0 = all results, 1-20 = limit)
   desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count)
   backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all)
+  // Per-mode nzbdav job-completion wait times (1-90s). Active set picked by preferenceMode at runtime.
+  priorityMoviesTimeoutSeconds: number;
+  priorityTvTimeoutSeconds: number;
+  prioritySeasonPackTimeoutSeconds: number;
+  speedMoviesTimeoutSeconds: number;
+  speedTvTimeoutSeconds: number;
+  speedSeasonPackTimeoutSeconds: number;
   healthCheckIndexers?: Record<string, boolean>;
 }
 

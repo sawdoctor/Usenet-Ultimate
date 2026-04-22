@@ -181,5 +181,12 @@ export const DEFAULT_ULTIMATE_RESOLVE = {
   maxCandidates: 0,
   desiredBackups: 0,
   backupProcessingLimit: 0,
+  // Keep in sync with src/nzbdav/timeoutDefaults.ts (UR_TIMEOUT_DEFAULTS).
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
   healthCheckIndexers: {} as Record<string, boolean>,
 };

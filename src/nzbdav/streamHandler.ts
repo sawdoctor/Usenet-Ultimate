@@ -17,6 +17,7 @@ import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDead
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern } from './utils.js';
 import { getSessionPromise, getSessionBackups } from './ultimateResolve.js';
+import { selectTimeoutMs, type TimeoutSet } from './timeoutDefaults.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -148,11 +149,12 @@ function cleanupRecentDeliveries(): void {
  * For movies, returns the movies timeout. */
 function getAttemptBudgetMs(contentType?: string, isSeasonPack?: boolean): number {
   if (globalConfig.nzbdavFallbackEnabled !== true || globalConfig.ultimateResolve?.enabled) return 0;
-  return (contentType === 'series'
-    ? (isSeasonPack
-        ? (globalConfig.nzbdavSeasonPackTimeoutSeconds ?? 30)
-        : (globalConfig.nzbdavTvTimeoutSeconds ?? 15))
-    : (globalConfig.nzbdavMoviesTimeoutSeconds ?? 30)) * 1000;
+  const set: TimeoutSet = {
+    movies: globalConfig.nzbdavMoviesTimeoutSeconds ?? 30,
+    tv: globalConfig.nzbdavTvTimeoutSeconds ?? 15,
+    seasonPack: globalConfig.nzbdavSeasonPackTimeoutSeconds ?? 30,
+  };
+  return selectTimeoutMs(set, contentType, isSeasonPack ?? false);
 }
 
 // ============================================================================

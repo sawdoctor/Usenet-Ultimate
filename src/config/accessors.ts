@@ -12,6 +12,7 @@
 import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateResolveConfig } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
+import { UR_TIMEOUT_DEFAULTS } from '../nzbdav/timeoutDefaults.js';
 
 /** Parse a 'true'/'false' env var string. Returns undefined if not set. */
 function envBool(name: string): boolean | undefined {
@@ -424,6 +425,12 @@ export const config: Config = {
     const maxCandidates = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_MAX_CANDIDATES') ?? ur?.maxCandidates ?? 0));
     const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_RESOLVE_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 0));
     const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 0));
+    const priorityMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.priority.movies));
+    const priorityTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_PRIORITY_TV_TIMEOUT') ?? ur?.priorityTvTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.priority.tv));
+    const prioritySeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_PRIORITY_SEASON_PACK_TIMEOUT') ?? ur?.prioritySeasonPackTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.priority.seasonPack));
+    const speedMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_MOVIES_TIMEOUT') ?? ur?.speedMoviesTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.movies));
+    const speedTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_TV_TIMEOUT') ?? ur?.speedTvTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.tv));
+    const speedSeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.seasonPack));
     return {
       enabled,
       candidateCount,
@@ -433,6 +440,12 @@ export const config: Config = {
       maxCandidates,
       desiredBackups,
       backupProcessingLimit,
+      priorityMoviesTimeoutSeconds,
+      priorityTvTimeoutSeconds,
+      prioritySeasonPackTimeoutSeconds,
+      speedMoviesTimeoutSeconds,
+      speedTvTimeoutSeconds,
+      speedSeasonPackTimeoutSeconds,
       healthCheckIndexers: ur?.healthCheckIndexers,
     };
   },

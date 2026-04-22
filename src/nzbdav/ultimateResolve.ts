@@ -19,6 +19,7 @@ import { isDeadNzbByUrl, getCacheKey, setReadyCacheEntry, setDeadNzbEntry, addDe
 import { submitNzb, waitForJobCompletion, cancelJob, prefetchNzb } from './nzbdavApi.js';
 import { checkNzbLibrary, waitForVideoFile } from './videoDiscovery.js';
 import { encodeWebdavPath, nzbdavError } from './utils.js';
+import { selectTimeoutMs, type TimeoutSet } from './timeoutDefaults.js';
 import type { FallbackCandidate, NZBDavConfig, StreamData } from './types.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -49,6 +50,12 @@ interface UltimateResolveOptions {
   maxCandidates: number;
   desiredBackups: number;
   backupProcessingLimit: number;
+  priorityMoviesTimeoutSeconds: number;
+  priorityTvTimeoutSeconds: number;
+  prioritySeasonPackTimeoutSeconds: number;
+  speedMoviesTimeoutSeconds: number;
+  speedTvTimeoutSeconds: number;
+  speedSeasonPackTimeoutSeconds: number;
   healthCheckIndexers?: Record<string, boolean>;
 }
 
@@ -190,7 +197,10 @@ export async function ultimateResolveFromCandidates(
     }
 
     const pipelineStart = Date.now();
-    console.log(`${tag} Starting — ${allCandidates.length} candidate(s), pool size ${options.candidateCount}, mode: ${options.preferenceMode}`);
+    const activeSet: TimeoutSet = options.preferenceMode === 'priority'
+      ? { movies: options.priorityMoviesTimeoutSeconds, tv: options.priorityTvTimeoutSeconds, seasonPack: options.prioritySeasonPackTimeoutSeconds }
+      : { movies: options.speedMoviesTimeoutSeconds, tv: options.speedTvTimeoutSeconds, seasonPack: options.speedSeasonPackTimeoutSeconds };
+    console.log(`${tag} Starting — ${allCandidates.length} candidate(s), pool size ${options.candidateCount}, mode: ${options.preferenceMode} (movies=${activeSet.movies}s, tv=${activeSet.tv}s, pack=${activeSet.seasonPack}s)`);
 
     // ── Stage 1: Library pre-check on ALL candidates ────────────
     const libraryTasks = allCandidates
@@ -351,8 +361,9 @@ export async function ultimateResolveFromCandidates(
           return null;
         }
 
-        // Step 2: Wait for job completion
-        await waitForJobCompletion(nzoId, nzbdavConfig, 120_000, 250, contentType, logPrefix);
+        // Step 2: Wait for job completion (per-mode, per-content-type budget)
+        const jobTimeoutMs = selectTimeoutMs(activeSet, contentType, cs.candidate.isSeasonPack === true);
+        await waitForJobCompletion(nzoId, nzbdavConfig, jobTimeoutMs, 250, contentType, logPrefix);
 
         // Cancel checkpoint: health check may have failed during polling
         if (cs.cancelled) { cs.nzbdavStatus = 'failed'; return null; }
