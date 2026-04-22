@@ -680,6 +680,11 @@ function App() {
           nzbdavTestNzbMessage={ac.nzbdavTestNzbMessage}
           nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
           setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
+          nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
+          setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
+          nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
+          nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
+          ultimateResolveEnabled={ac.ultimateResolve.enabled}
           checkNzbdavConnection={ac.checkNzbdavConnection}
           sendNzbdavTestNzb={ac.sendNzbdavTestNzb}
         />
@@ -703,8 +708,13 @@ function App() {
           setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
           nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
           setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
-          nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
-          setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
+          nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
+          setNzbdavStreamingMethod={ac.setNzbdavStreamingMethod}
+          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
+          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
+          nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
+          setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
+          ultimateResolveEnabled={ac.ultimateResolve.enabled}
           autoResolveOnSearch={ac.autoResolveOnSearch}
           setAutoResolveOnSearch={ac.setAutoResolveOnSearch}
           autoResolveTargets={ac.autoResolveTargets}
@@ -815,8 +825,8 @@ function App() {
           setUltimateResolve={ac.setUltimateResolve}
           healthChecks={ac.healthChecks}
           setHealthChecks={ac.setHealthChecks}
-          nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
-          setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
+          nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
+          setNzbdavStreamingMethod={ac.setNzbdavStreamingMethod}
           apiFetch={apiFetch}
         />
       )}
@@ -1008,6 +1018,7 @@ function App() {
             syncedIndexers={ac.syncedIndexers}
             nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
             nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
+            nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
             nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
             autoResolveOnSearch={ac.autoResolveOnSearch}
             autoResolveTargets={ac.autoResolveTargets}

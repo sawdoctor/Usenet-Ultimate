@@ -27,6 +27,11 @@ interface StreamingOverlayProps {
   setNzbdavTvCategory: React.Dispatch<React.SetStateAction<string>>;
   nzbdavStreamBufferMB: number;
   setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavPipeBufferMB: number;
+  setNzbdavPipeBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
+  nzbdavFallbackEnabled: boolean;
+  ultimateResolveEnabled: boolean;
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavTestNzbStatus: 'idle' | 'sending' | 'success' | 'error';
   nzbdavTestNzbMessage: string;
@@ -56,12 +61,19 @@ export function StreamingOverlay({
   setNzbdavTvCategory,
   nzbdavStreamBufferMB,
   setNzbdavStreamBufferMB,
+  nzbdavPipeBufferMB,
+  setNzbdavPipeBufferMB,
+  nzbdavStreamingMethod,
+  nzbdavFallbackEnabled,
+  ultimateResolveEnabled,
   nzbdavConnectionStatus,
   nzbdavTestNzbStatus,
   nzbdavTestNzbMessage,
   checkNzbdavConnection,
   sendNzbdavTestNzb,
 }: StreamingOverlayProps) {
+  // Backend forces pipe when both fallback AND UR are off — mirror here so the UI stays truthful
+  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolveEnabled) ? 'pipe' as const : nzbdavStreamingMethod;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
@@ -145,12 +157,13 @@ export function StreamingOverlay({
                   </div>
                 </div>
               </div>
-              {/* Stream Buffer Size */}
+              {/* Stream Buffer Size — hidden in direct mode (no buffer needed); method + range follow effectiveMethod */}
+              {effectiveMethod !== 'direct' && (
               <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-slate-300">Proxy Stream Buffer</div>
+                  <div className="text-sm font-medium text-slate-300">{effectiveMethod === 'pipe' ? 'Pipe Stream Buffer' : 'Dual-Stage Proxy Stream Buffer'}</div>
                   <button
-                    onClick={() => setNzbdavStreamBufferMB(128)}
+                    onClick={() => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(8) : setNzbdavStreamBufferMB(128)}
                     className="text-xs text-primary-400 hover:text-primary-300"
                   >
                     Reset
@@ -159,19 +172,22 @@ export function StreamingOverlay({
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
-                    min={8}
-                    max={256}
-                    step={8}
-                    value={nzbdavStreamBufferMB}
-                    onChange={(e) => setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
+                    min={effectiveMethod === 'pipe' ? 1 : 8}
+                    max={effectiveMethod === 'pipe' ? 16 : 256}
+                    step={effectiveMethod === 'pipe' ? 1 : 8}
+                    value={effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB}
+                    onChange={(e) => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(parseInt(e.target.value, 10)) : setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
                     className="flex-1 accent-purple-400"
                   />
-                  <span className="text-sm text-slate-300 w-16 text-right">{nzbdavStreamBufferMB} MB</span>
+                  <span className="text-sm text-slate-300 w-16 text-right">{effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB} MB</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream. If you experience buffering on large files, try increasing this.
+                  {effectiveMethod === 'pipe'
+                    ? 'Buffer between WebDAV and the player. Absorbs network jitter with minimal memory usage.'
+                    : 'Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream.'}
                 </p>
               </div>
+              )}
               <div className={clsx(
                 "flex items-center justify-between p-4 rounded-lg border",
                 nzbdavConnectionStatus === 'connected' && "bg-green-500/10 border-green-500/30",

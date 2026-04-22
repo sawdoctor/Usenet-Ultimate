@@ -31,8 +31,8 @@ interface UltimateResolveOverlayProps {
   setUltimateResolve: React.Dispatch<React.SetStateAction<UltimateResolveOverlayProps['ultimateResolve']>>;
   healthChecks: HealthChecksState;
   setHealthChecks: React.Dispatch<React.SetStateAction<HealthChecksState>>;
-  nzbdavProxyEnabled: boolean;
-  setNzbdavProxyEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
+  setNzbdavStreamingMethod: React.Dispatch<React.SetStateAction<'pipe' | 'proxy' | 'direct'>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -42,8 +42,8 @@ export function UltimateResolveOverlay({
   setUltimateResolve,
   healthChecks,
   setHealthChecks,
-  nzbdavProxyEnabled,
-  setNzbdavProxyEnabled,
+  nzbdavStreamingMethod,
+  setNzbdavStreamingMethod,
   apiFetch,
 }: UltimateResolveOverlayProps) {
   const update = useCallback(<K extends keyof typeof ultimateResolve>(key: K, value: (typeof ultimateResolve)[K]) => {
@@ -157,37 +157,34 @@ export function UltimateResolveOverlay({
 
           {/* Streaming Method */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
-            <label className="block text-sm font-medium text-slate-300">Streaming Method</label>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setNzbdavProxyEnabled(true)}
-                className={clsx(
-                  "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
-                  nzbdavProxyEnabled
-                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
-                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
-                )}
-              >
-                Proxy
-              </button>
-              <button
-                onClick={() => setNzbdavProxyEnabled(false)}
-                className={clsx(
-                  "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
-                  !nzbdavProxyEnabled
-                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
-                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
-                )}
-              >
-                Direct
-              </button>
+            <label id="ur-streaming-method-label" className="block text-sm font-medium text-slate-300">Streaming Method</label>
+            <div role="radiogroup" aria-labelledby="ur-streaming-method-label" className="flex gap-3">
+              {(['pipe', 'proxy', 'direct'] as const).map((method) => (
+                <button
+                  key={method}
+                  role="radio"
+                  aria-checked={nzbdavStreamingMethod === method}
+                  onClick={() => setNzbdavStreamingMethod(method)}
+                  className={clsx(
+                    "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
+                    nzbdavStreamingMethod === method
+                      ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                      : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  {method === 'pipe' ? 'Pipe' : method === 'proxy' ? 'Dual-Stage Proxy' : 'Direct'}
+                </button>
+              ))}
             </div>
             <p className="text-xs text-slate-500">
-              {nzbdavProxyEnabled
-                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for most devices.'
-                : 'Player is redirected directly to the WebDAV URL. Only supported on select stremio applications.'}
+              {nzbdavStreamingMethod === 'pipe'
+                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead — recommended for most setups.'
+                : nzbdavStreamingMethod === 'proxy'
+                ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Use if pipe mode has playback issues.'
+                : 'Player is redirected directly to the WebDAV URL. Only supported on select Stremio applications.'}
             </p>
           </div>
+
 
           {/* Empty providers warning */}
           {ultimateResolve.enabled && !hasProviders && (
@@ -572,7 +569,7 @@ export function UltimateResolveOverlay({
                   speedSeasonPackTimeoutSeconds: 20,
                   healthCheckIndexers: {},
                 });
-                setNzbdavProxyEnabled(true);
+                setNzbdavStreamingMethod('pipe');
               }}
               className="btn-secondary w-full"
             >

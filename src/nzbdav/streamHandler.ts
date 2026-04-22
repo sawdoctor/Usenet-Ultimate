@@ -43,7 +43,7 @@ const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
 const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
 const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 500; // Safety cap on self-redirects — supports large fallback chains without infinite loops
 const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
-const DEDUP_CACHE_TTL_MS = 10_000;       // Short-lived dedup to handle Stremio's rapid sequential requests
+const DEDUP_CACHE_TTL_MS = 600_000;      // 10 min — covers a typical play session's seeks/probes without library-check overhead; eviction mid-session self-heals via isVideoPathBroken
 // Self-redirect query params (internal, appended to stream URL during 302 redirects):
 //   _rc — redirect count: how many self-redirects have occurred (prevents infinite loops)
 //   _ci — candidate index: which fallback candidate to resume at (avoids restarting from 0)
@@ -130,11 +130,12 @@ function isClientDisconnect(error: unknown): boolean {
 }
 
 // ── Stremio request dedup ────────────────────────────────────────────
-// Caches successful deliveries for 10s to deduplicate Stremio's rapid
-// sequential requests (catalog browse → detail → play → range).
+// Caches successful deliveries for 10 min to deduplicate Stremio's rapid
+// sequential requests (catalog browse → detail → play → range) and to
+// short-circuit seeks in inline-proxy mode so they skip library check.
 // Completely outside the cache pipeline — doesn't interfere with library checks.
 
-interface CachedDelivery { streamData: StreamData; proxyMode: boolean; timestamp: number }
+interface CachedDelivery { streamData: StreamData; streamingMethod: 'pipe' | 'proxy' | 'direct'; timestamp: number }
 const recentDeliveries = new Map<string, CachedDelivery>();
 
 function cleanupRecentDeliveries(): void {
@@ -185,20 +186,20 @@ export async function prepareStream(
 
   console.log(`\n${logPrefix}\u{1F3AC} Preparing stream: ${title}${episodePattern ? ` (selecting ${episodePattern})` : ''} [${contentType || 'unknown'}] \u23F1\uFE0F ${unlimited ? 'no limit' : `${Math.round(totalBudgetMs / 1000)}s budget`}`);
 
-  // Step 0: Check NZB library first - avoid grabbing from indexer if already downloaded
-  if (globalConfig.nzbdavLibraryCheckEnabled) {
-    const libraryResult = await checkNzbLibrary(title, config, episodePattern, contentType, episodesInSeason, logPrefix);
-    if (libraryResult) {
-      // Skip if this video path was recently marked as broken (WebDAV 5xx)
-      if (isVideoPathBroken(libraryResult.videoPath)) {
-        console.log(`${logPrefix}\u{1F6AB} Library hit skipped (video path broken): ${libraryResult.videoPath}`);
-      } else {
-        console.log(`${logPrefix}\u2705 Stream ready (from library): ${title}\n`);
-        return libraryResult;
-      }
+  // Step 0: Check NZB library first — authoritative freshness signal for
+  // already-downloaded content. Runs unconditionally: it's the primary defense
+  // against re-submitting an NZB whose video already exists on WebDAV, and
+  // against serving stale in-memory cache paths (readyCache) after nzbdav
+  // evicts content.
+  const libraryResult = await checkNzbLibrary(title, config, episodePattern, contentType, episodesInSeason, logPrefix);
+  if (libraryResult) {
+    // Skip if this video path was recently marked as broken (WebDAV 5xx)
+    if (isVideoPathBroken(libraryResult.videoPath)) {
+      console.log(`${logPrefix}\u{1F6AB} Library hit skipped (video path broken): ${libraryResult.videoPath}`);
+    } else {
+      console.log(`${logPrefix}\u2705 Stream ready (from library): ${title}\n`);
+      return libraryResult;
     }
-  } else {
-    console.log(`${logPrefix}\u{1F4DA} Library check disabled — skipping`);
   }
 
   // Step 1: Submit NZB
@@ -358,7 +359,7 @@ export async function handleStream(
   res: ExpressResponse,
   config: NZBDavConfig,
   trackGrabFn?: (indexerName: string, title: string) => void,
-  proxyFn?: (req: Request, res: ExpressResponse, videoPath: string) => Promise<void>
+  proxyFn?: (req: Request, res: ExpressResponse, videoPath: string, usePipe: boolean) => Promise<void>
 ): Promise<void> {
   // Default to '' so downstream code keeps treating these as strings; UR tile requests
   // (no nzb/title) short-circuit before any empty-string values are actually used.
@@ -474,7 +475,8 @@ export async function handleStream(
   cleanupExpiredCache();
   cleanupRecentDeliveries();
 
-  // Stremio dedup: return cached delivery for rapid sequential requests (same stream within 10s).
+  // Stremio dedup: return cached delivery for subsequent requests on the same stream (within 10 min).
+  // Catches seeks, probes, and dupes without re-running library check or re-submitting NZBs.
   // Only for fresh initial requests — self-redirects (_ci set) bypass dedup to allow fallback retry.
   const isFreshRequest = candidateStart === 0 && !req.query._ci;
   if (isFreshRequest && candidates.length > 0) {
@@ -482,14 +484,14 @@ export async function handleStream(
     if (!isDeadNzb(firstDeadKey) && !isDeadNzbByUrl(candidates[0].nzbUrl)) {
       const dedupKey = getCacheKey(candidates[0].nzbUrl, candidates[0].title) + (episodePattern ? `:${episodePattern}` : '');
       const cached = recentDeliveries.get(dedupKey);
-      if (cached && Date.now() - cached.timestamp < DEDUP_CACHE_TTL_MS) {
+      if (cached && Date.now() - cached.timestamp < DEDUP_CACHE_TTL_MS && !isVideoPathBroken(cached.streamData.videoPath)) {
+        // Serve dupes / seeks / probes using the cached videoPath — no re-prep,
+        // no library check, no submission. If the path becomes broken mid-session
+        // (WebDAV eviction) we fall through to a fresh candidate loop via the
+        // isVideoPathBroken gate above.
         if (verbose) console.log(`📦 Stream dedup hit (delivered ${Math.round((Date.now() - cached.timestamp) / 1000)}s ago)`);
-        if (cached.proxyMode) {
-          const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
-          proxyUrl.searchParams.set('path', cached.streamData.videoPath);
-          proxyUrl.searchParams.set('_fb', req.originalUrl);
-          res.redirect(302, proxyUrl.href);
-        } else {
+        const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+        if (cached.streamingMethod === 'direct') {
           const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
           const safePath = encodeWebdavPath(cached.streamData.videoPath);
           const directUrl = new URL(`${webdavBase}${safePath}`);
@@ -498,6 +500,16 @@ export async function handleStream(
             directUrl.password = config.webdavPassword || '';
           }
           res.redirect(302, directUrl.href);
+        } else if (!fallbackOn && proxyFn) {
+          // Inline proxy — no redirect, matches primary delivery path. Runs
+          // another proxyVideoStream for this request; req.on('close') ensures
+          // cleanup if the client aborts.
+          await proxyFn(req, res, cached.streamData.videoPath, cached.streamingMethod !== 'proxy');
+        } else {
+          const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+          proxyUrl.searchParams.set('path', cached.streamData.videoPath);
+          proxyUrl.searchParams.set('_fb', req.originalUrl);
+          res.redirect(302, proxyUrl.href);
         }
         return;
       }
@@ -533,16 +545,19 @@ export async function handleStream(
           }
 
           // Ultimate-Resolve resolved — deliver the stream
-          const mode: 'proxy' | 'direct' = globalConfig.nzbdavProxyEnabled !== false ? 'proxy' : 'direct';
+          const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+          let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'pipe';
+          if (!lobbyFallbackOn) mode = 'pipe';
           const lastLobby = lastDeliveryLog.get(streamData.videoPath);
           const shouldLogLobby = !lastLobby || lastLobby.mode !== mode;
           lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
           if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Resolve result for ${sessionKey}`);
-          if (mode === 'proxy') {
-            if (shouldLogLobby) console.log(`  📡 Proxy streaming: ${streamData.videoPath}`);
-            const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
-            if (proxyFn && !lobbyFallbackOn) {
-              await proxyFn(req, res, streamData.videoPath);
+          if (mode !== 'direct') {
+            const inline = proxyFn && !lobbyFallbackOn;
+            const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
+            if (shouldLogLobby) console.log(`  ${label}${inline ? '' : ' 302'} streaming: ${streamData.videoPath}`);
+            if (inline) {
+              await proxyFn!(req, res, streamData.videoPath, mode !== 'proxy');
             } else {
               const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
               proxyUrl.searchParams.set('path', streamData.videoPath);
@@ -707,19 +722,32 @@ export async function handleStream(
         return;
       }
 
-      // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect.
-      // When fallback is off, inline proxy (no 302) for broadest player compatibility.
+      // Decide delivery method: pipe/proxy (buffered) or direct redirect.
+      // When fallback is off, the initial-delivery mode still forces pipe for
+      // logging/dedup consistency; /v's proxyVideoStream independently reads
+      // config on each range request, so seeks honor the user's current method.
       const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
-      const mode: 'proxy' | 'direct' = (!fallbackOn || globalConfig.nzbdavProxyEnabled) ? 'proxy' : 'direct';
+      let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'pipe';
+      if (!fallbackOn) mode = 'pipe';
       const last = lastDeliveryLog.get(streamData.videoPath);
       const shouldLogDelivery = !last || last.mode !== mode;
       lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
 
-      if (mode === 'proxy') {
-        if (shouldLogDelivery) console.log(`  📡 Proxy streaming: ${streamData.videoPath}`);
-        if (!fallbackOn && proxyFn) {
-          // Inline proxy — no 302, broadest player compatibility
-          await proxyFn(req, res, streamData.videoPath);
+      // Cache delivery for Stremio request dedup (10 min TTL) — populated BEFORE
+      // delivery so concurrent probes from Stremio land on the dedup path instead
+      // of triggering another prep.
+      const dedupKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+      recentDeliveries.set(dedupKey, { streamData, streamingMethod: mode, timestamp: Date.now() });
+
+      if (mode !== 'direct') {
+        const inline = !fallbackOn && proxyFn;
+        const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
+        if (shouldLogDelivery) console.log(`  ${label}${inline ? '' : ' 302'} streaming: ${streamData.videoPath}`);
+        if (inline) {
+          // Inline proxy — no 302, broadest player compatibility. Subsequent seeks
+          // come back to handleStream but hit recentDeliveries (10 min TTL) and
+          // skip library check + submission.
+          await proxyFn!(req, res, streamData.videoPath, mode !== 'proxy');
         } else {
           // Redirect to /v endpoint which adds auth + buffering + transparent reconnect
           const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
@@ -740,10 +768,6 @@ export async function handleStream(
         if (shouldLogDelivery) console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}`);
         res.redirect(302, directUrl.href);
       }
-
-      // Cache delivery for Stremio request dedup (10s TTL)
-      const dedupKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
-      recentDeliveries.set(dedupKey, { streamData, proxyMode: mode === 'proxy', timestamp: Date.now() });
       return;
 
     } catch (error) {

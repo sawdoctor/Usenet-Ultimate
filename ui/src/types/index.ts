@@ -159,6 +159,8 @@ export interface Config {
   nzbdavFallbackOrder?: 'selected' | 'top';
   autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
+  nzbdavPipeBufferMB?: number;
+  nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';
   nzbdavProxyEnabled?: boolean;
   easynewsEnabled?: boolean;
   easynewsUsername?: string;

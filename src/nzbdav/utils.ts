@@ -59,10 +59,10 @@ export function encodeWebdavPath(rawPath: string): string {
 // Lives here (rather than streamHandler) to avoid a circular dependency
 // between streamCache and streamHandler.
 
-const lastDeliveryLog = new Map<string, { mode: 'proxy' | 'direct'; at: number }>();
+const lastDeliveryLog = new Map<string, { mode: 'pipe' | 'proxy' | 'direct'; at: number }>();
 
 /** Get the delivery log map (used by streamHandler for dedup + TTL eviction) */
-export function getDeliveryLog(): Map<string, { mode: 'proxy' | 'direct'; at: number }> {
+export function getDeliveryLog(): Map<string, { mode: 'pipe' | 'proxy' | 'direct'; at: number }> {
   return lastDeliveryLog;
 }
 

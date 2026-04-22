@@ -146,10 +146,21 @@ export const config: Config = {
     if (envMB != null && envMB > 0) return Math.max(8, envMB);
     return Math.max(8, configData.nzbdavStreamBufferMB ?? 128);
   },
-  get nzbdavProxyEnabled() {
-    const env = envBool('NZBDAV_PROXY_ENABLED');
-    if (env !== undefined) return env;
-    return configData.nzbdavProxyEnabled !== false;
+  get nzbdavPipeBufferMB() {
+    const envMB = envInt('NZBDAV_PIPE_BUFFER_MB');
+    if (envMB != null && envMB > 0) return Math.max(1, Math.min(16, envMB));
+    return Math.max(1, Math.min(16, configData.nzbdavPipeBufferMB ?? 8));
+  },
+  get nzbdavStreamingMethod(): 'pipe' | 'proxy' | 'direct' {
+    const envMethod = envEnum('NZBDAV_STREAMING_METHOD', ['pipe', 'proxy', 'direct']);
+    if (envMethod) return envMethod;
+    const envLegacy = envBool('NZBDAV_PROXY_ENABLED');
+    if (envLegacy === true) return 'proxy';
+    if (envLegacy === false) return 'direct';
+    if (configData.nzbdavStreamingMethod) return configData.nzbdavStreamingMethod;
+    if (configData.nzbdavProxyEnabled === false) return 'direct';
+    if (configData.nzbdavProxyEnabled === true) return 'proxy';
+    return 'pipe';
   },
   get healthyNzbDbMode(): 'time' | 'storage' {
     return configData.healthyNzbDbMode || 'time';

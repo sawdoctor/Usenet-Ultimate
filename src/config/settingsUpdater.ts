@@ -40,7 +40,8 @@ export function updateSettings(settings: {
   autoResolveOnSearch?: boolean;
   autoResolveTargets?: number;
   nzbdavStreamBufferMB?: number;
-  nzbdavProxyEnabled?: boolean;
+  nzbdavPipeBufferMB?: number;
+  nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';
   nzbdavCacheTimeouts?: boolean;
   healthyNzbDbMode?: 'time' | 'storage';
   healthyNzbDbTTL?: number;
@@ -200,8 +201,12 @@ export function updateSettings(settings: {
   if (settings.nzbdavStreamBufferMB !== undefined) {
     configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
   }
-  if (settings.nzbdavProxyEnabled !== undefined) {
-    configData.nzbdavProxyEnabled = settings.nzbdavProxyEnabled;
+  if (settings.nzbdavPipeBufferMB !== undefined) {
+    configData.nzbdavPipeBufferMB = settings.nzbdavPipeBufferMB;
+  }
+  if (settings.nzbdavStreamingMethod !== undefined) {
+    configData.nzbdavStreamingMethod = settings.nzbdavStreamingMethod;
+    delete configData.nzbdavProxyEnabled;
   }
   if (settings.nzbdavCacheTimeouts !== undefined) {
     configData.nzbdavCacheTimeouts = settings.nzbdavCacheTimeouts;

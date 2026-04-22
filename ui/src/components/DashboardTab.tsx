@@ -48,6 +48,7 @@ export interface DashboardTabProps {
   syncedIndexers: SyncedIndexer[];
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavFallbackEnabled: boolean;
+  nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
   nzbdavFallbackOrder: 'selected' | 'top';
   autoResolveOnSearch: boolean;
   autoResolveTargets: number;
@@ -97,6 +98,7 @@ export function DashboardTab({
   syncedIndexers,
   nzbdavConnectionStatus,
   nzbdavFallbackEnabled,
+  nzbdavStreamingMethod,
   nzbdavFallbackOrder,
   autoResolveOnSearch,
   autoResolveTargets,
@@ -250,7 +252,11 @@ export function DashboardTab({
                       <Play className="w-5 h-5 text-purple-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Streaming Mode</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">{config.streamingMode === 'nzbdav' ? 'NZBDav' : 'Native'}</div>
+                    <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
+                      {config.streamingMode === 'nzbdav'
+                        ? <>NZBDav<span className="text-lg font-normal text-purple-400 ml-2">+ {(!nzbdavFallbackEnabled && !ultimateResolve.enabled) ? 'Pipe' : nzbdavStreamingMethod === 'proxy' ? 'Dual-Stage Proxy' : nzbdavStreamingMethod === 'direct' ? 'Direct' : 'Pipe'}</span></>
+                        : 'Native'}
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
                       {config.streamingMode === 'nzbdav' && nzbdavConnectionStatus && (
                         <>

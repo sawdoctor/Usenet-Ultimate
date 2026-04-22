@@ -138,7 +138,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavCacheTimeouts, setNzbdavCacheTimeouts] = useState(true);
   const [filterDeadNzbs, setFilterDeadNzbs] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
-  const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(true);
+  const [nzbdavPipeBufferMB, setNzbdavPipeBufferMB] = useState(8);
+  const [nzbdavStreamingMethod, setNzbdavStreamingMethod] = useState<'pipe' | 'proxy' | 'direct'>('pipe');
   const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
   const [healthyNzbDbTTL, setHealthyNzbDbTTL] = useState(259200);
   const [healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB] = useState(50);
@@ -306,20 +307,20 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB
+      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB
     }), 500);
     return () => clearTimeout(timer);
-  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, saveSettings]);
+  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB, saveSettings]);
 
   // Auto-save: NZB fallback settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
       nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch, autoResolveTargets,
+      nzbdavMaxFallbacks, nzbdavStreamingMethod, autoResolveOnSearch, autoResolveTargets,
     }), 500);
     return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch, autoResolveTargets, saveSettings]);
+  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamingMethod, autoResolveOnSearch, autoResolveTargets, saveSettings]);
 
   // Auto-save: NZB database settings
   useEffect(() => {
@@ -789,7 +790,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavCacheTimeouts(data.nzbdavCacheTimeouts !== false);
       setFilterDeadNzbs(data.filterDeadNzbs !== false);
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
-      setNzbdavProxyEnabled(data.nzbdavProxyEnabled !== false);
+      setNzbdavPipeBufferMB(data.nzbdavPipeBufferMB ?? 8);
+      // Belt-and-braces: backend accessor already migrates, but fall back to legacy field if the API response
+      // somehow lacks nzbdavStreamingMethod (very old server, hand-edited config, etc.)
+      setNzbdavStreamingMethod(
+        data.nzbdavStreamingMethod
+          ?? (data.nzbdavProxyEnabled === false ? 'direct' : data.nzbdavProxyEnabled === true ? 'proxy' : 'pipe')
+      );
       setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
       setHealthyNzbDbTTL(data.healthyNzbDbTTL ?? 259200);
       setHealthyNzbDbMaxSizeMB(data.healthyNzbDbMaxSizeMB ?? 50);
@@ -1238,7 +1245,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
     filterDeadNzbs, setFilterDeadNzbs,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
-    nzbdavProxyEnabled, setNzbdavProxyEnabled,
+    nzbdavPipeBufferMB, setNzbdavPipeBufferMB,
+    nzbdavStreamingMethod, setNzbdavStreamingMethod,
     healthyNzbDbMode, setHealthyNzbDbMode,
     healthyNzbDbTTL, setHealthyNzbDbTTL,
     healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB,

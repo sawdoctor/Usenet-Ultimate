@@ -21,7 +21,7 @@ import { evictReadyByVideoPath, markVideoPathBroken } from '../nzbdav/streamCach
 
 interface NzbdavDeps {
   config: Config;
-  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, trackGrab: (indexer: string, title: string) => void, proxyFn?: (req: any, res: any, videoPath: string) => Promise<void>) => Promise<void>;
+  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, trackGrab: (indexer: string, title: string) => void, proxyFn?: (req: any, res: any, videoPath: string, usePipe: boolean) => Promise<void>) => Promise<void>;
   getCacheStats: () => any;
   clearStreamCache: () => void;
   clearReadyCache: () => number;
@@ -260,17 +260,21 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const activeRequests = new Map<string, TrackedReq[]>();
   let reqIdCounter = 0;
 
-  function trackRequest(filePath: string, rangeStart: number, isFullRequest: boolean, abort: () => void): number {
+  function trackRequest(filePath: string, rangeStart: number, isFullRequest: boolean, usePipe: boolean, abort: () => void): number {
     const id = ++reqIdCounter;
     if (!activeRequests.has(filePath)) activeRequests.set(filePath, []);
     const tracked = activeRequests.get(filePath)!;
 
     // Kill full (non-Range) requests when a Range request arrives — the player
-    // has switched to range-based streaming and the full download just wastes
-    // bandwidth. Don't kill range-vs-range — players legitimately maintain
-    // parallel streams at different offsets (moov reads + read-ahead probes).
+    // has switched to range-based streaming and the old full download wastes
+    // bandwidth AND its pre-fetched buffer sits idle until TCP teardown.
+    // Only relevant in dual-stage proxy mode: its 128 MB buffer adds real memory
+    // pressure per ghost stream. Pipe mode's 8 MB buffer makes this negligible;
+    // MAX_CONCURRENT_PER_FILE eviction handles those cases.
+    // Don't kill range-vs-range — players legitimately maintain parallel streams
+    // at different offsets (moov reads + read-ahead probes).
     const toAbort: TrackedReq[] = [];
-    if (!isFullRequest) {
+    if (!isFullRequest && !usePipe) {
       for (const t of tracked) {
         if (t.isFullRequest) toAbort.push(t);
       }
@@ -308,9 +312,14 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const webdavHttpAgent = new http.Agent(agentOpts);
   const webdavHttpsAgent = new https.Agent(agentOpts);
 
-  /** Resolve stream buffer size (accessor handles env var → config → 128 MB default). */
+  /** Resolve dual-stage proxy buffer size (accessor handles env var → config → 128 MB default). */
   function getStreamBufferBytes(): number {
     return (config.nzbdavStreamBufferMB ?? 128) * 1024 * 1024;
+  }
+
+  /** Resolve pipe mode buffer size (accessor clamps 1–16 MB; default 8). */
+  function getPipeBufferBytes(): number {
+    return (config.nzbdavPipeBufferMB ?? 8) * 1024 * 1024;
   }
 
   /** Parse a Content-Range header (e.g. "bytes 0-999/1000"). */
@@ -349,19 +358,20 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   }
 
   /**
-   * Two-stage buffered proxy: upstream → PassThrough (pre-fetch) → res (delivery).
+   * Buffered proxy: upstream → PassThrough (pre-fetch) → res (delivery).
    *
    * The PassThrough pre-fetches data ahead of playback so that when upstream
    * momentarily stalls (e.g. WebDAV hiccups at specific byte offsets), there's
-   * already data waiting. Manual forwarding (no pipe()) avoids Node's automatic
-   * pipe backpressure which fully pauses upstream at highWaterMark.
+   * already data waiting.
    *
-   * Stage 1 (pre-fetch): upstream → buffer.write(). Pause upstream only when
-   *   buffer.writableLength exceeds half the configured total.
-   * Stage 2 (delivery): buffer → res.write(). Pause buffer only when
-   *   res.writableLength exceeds half the configured total.
+   * Two modes for stage 1, controlled by usePipe:
+   *  - Proxy (usePipe=false): manual data/end/drain listeners with split buffer,
+   *    giving finer control over upstream pause/resume.
+   *  - Pipe  (usePipe=true):  Node .pipe() handles upstream → buffer flow,
+   *    simpler code, Node-managed backpressure.
    *
-   * The configured buffer size is split evenly between both stages.
+   * Stage 2 (buffer → res) is always manual: soft backpressure pauses the
+   * buffer when res has a large pending backlog.
    */
   function consumeUpstream(
     upstream: http.IncomingMessage,
@@ -369,8 +379,9 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     req: http.IncomingMessage,
     onChunk: (byteLength: number) => void,
     skipBytes = 0,
+    usePipe = false,
   ): Promise<void> {
-    const stageBytes = Math.max(1, Math.floor(getStreamBufferBytes() / 2));
+    const stageBytes = usePipe ? getPipeBufferBytes() : Math.max(1, Math.floor(getStreamBufferBytes() / 2));
     const buffer = new PassThrough({ highWaterMark: stageBytes });
 
     return new Promise<void>((resolve, reject) => {
@@ -380,6 +391,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       const finish = (err?: Error) => {
         if (settled) return;
         settled = true;
+        if (usePipe) upstream.unpipe(buffer);
         upstream.removeListener('data', onUpstreamData);
         upstream.removeListener('end', onUpstreamEnd);
         upstream.removeListener('error', onUpstreamError);
@@ -396,6 +408,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       const onBufferDrain = () => { if (!settled) upstream.resume(); };
       const onUpstreamEnd = () => { buffer.end(); };
       const onUpstreamError = (err: Error) => {
+        // Disconnect pipe before draining so it stops writing to a buffer we end below
+        if (usePipe) upstream.unpipe(buffer);
         // Force-resume so queued data drains instantly to res (in-process memory
         // copy) even if the buffer was paused due to res backpressure. Without
         // this, we'd wait for res to drain below 16KB before buffer un-pauses,
@@ -435,11 +449,18 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         finish(err);
       };
 
-      // Wire up stage 1
-      upstream.on('data', onUpstreamData);
-      upstream.on('end', onUpstreamEnd);
-      upstream.on('error', onUpstreamError);
-      buffer.on('drain', onBufferDrain);
+      // Wire up stage 1 — pipe mode lets Node handle upstream → buffer flow;
+      // manual mode uses explicit data/end/drain listeners. Error listener is
+      // always needed — Node's pipe() does NOT propagate errors.
+      if (usePipe) {
+        upstream.pipe(buffer);
+        upstream.on('error', onUpstreamError);
+      } else {
+        upstream.on('data', onUpstreamData);
+        upstream.on('end', onUpstreamEnd);
+        upstream.on('error', onUpstreamError);
+        buffer.on('drain', onBufferDrain);
+      }
 
       // Wire up stage 2
       buffer.on('data', onBufferData);
@@ -451,7 +472,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   }
 
   /** Proxy video bytes from WebDAV with auth, buffering, and transparent reconnect. */
-  async function proxyVideoStream(req: any, res: any, videoPath: string): Promise<void> {
+  async function proxyVideoStream(req: any, res: any, videoPath: string, usePipeOverride?: boolean): Promise<void> {
     const webdavBase = (config.nzbdavWebdavUrl || config.nzbdavUrl || 'http://localhost:3000').replace(/\/+$/, '');
     const safePath = encodeWebdavPath(videoPath);
 
@@ -470,11 +491,14 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     const clientRange = parseClientRange(req.headers.range as string);
     const isFullRequest = !req.headers.range;
     const rangeStart = clientRange?.start ?? 0;
+    // Resolve usePipe once — used by the request tracker (to gate supersession
+    // cleanup) and by consumeUpstream (pipe vs manual branch).
+    const usePipe = usePipeOverride ?? ((config.nzbdavStreamingMethod ?? 'pipe') !== 'proxy');
 
     // Track this request and get an abort handle
     let currentUpstream: http.IncomingMessage | undefined;
     let aborted = false;
-    const reqId = trackRequest(safePath, rangeStart, isFullRequest, () => {
+    const reqId = trackRequest(safePath, rangeStart, isFullRequest, usePipe, () => {
       aborted = true;
       currentUpstream?.destroy();
       if (!res.writableFinished) res.destroy();
@@ -557,10 +581,12 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
       // Phase 2: Stream with transparent mid-stream reconnect
       let bytesSent = 0;
+      // usePipe resolved at function entry — in-flight streams keep their
+      // original mode even if config changes mid-stream.
 
       // Initial consume attempt
       try {
-        await consumeUpstream(upstream, res, req, (n) => { bytesSent += n; });
+        await consumeUpstream(upstream, res, req, (n) => { bytesSent += n; }, 0, usePipe);
         if (!res.writableFinished) res.end();
         return;
       } catch {
@@ -627,7 +653,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         }
 
         try {
-          await consumeUpstream(newUpstream, res, req, (n) => { bytesSent += n; }, skipBytes);
+          await consumeUpstream(newUpstream, res, req, (n) => { bytesSent += n; }, skipBytes, usePipe);
           if (!res.writableFinished) res.end();
           return;
         } catch {

@@ -22,8 +22,13 @@ interface FallbackOverlayProps {
   setNzbdavFallbackOrder: React.Dispatch<React.SetStateAction<'selected' | 'top'>>;
   nzbdavMaxFallbacks: number;
   setNzbdavMaxFallbacks: React.Dispatch<React.SetStateAction<number>>;
-  nzbdavProxyEnabled: boolean;
-  setNzbdavProxyEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
+  setNzbdavStreamingMethod: React.Dispatch<React.SetStateAction<'pipe' | 'proxy' | 'direct'>>;
+  nzbdavStreamBufferMB: number;
+  setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavPipeBufferMB: number;
+  setNzbdavPipeBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  ultimateResolveEnabled: boolean;
   autoResolveOnSearch: boolean;
   setAutoResolveOnSearch: React.Dispatch<React.SetStateAction<boolean>>;
   autoResolveTargets: number;
@@ -46,8 +51,13 @@ export function FallbackOverlay({
   setNzbdavFallbackOrder,
   nzbdavMaxFallbacks,
   setNzbdavMaxFallbacks,
-  nzbdavProxyEnabled,
-  setNzbdavProxyEnabled,
+  nzbdavStreamingMethod,
+  setNzbdavStreamingMethod,
+  nzbdavStreamBufferMB,
+  setNzbdavStreamBufferMB,
+  nzbdavPipeBufferMB,
+  setNzbdavPipeBufferMB,
+  ultimateResolveEnabled,
   autoResolveOnSearch,
   setAutoResolveOnSearch,
   autoResolveTargets,
@@ -61,6 +71,9 @@ export function FallbackOverlay({
   const seasonPackInc = useHoldRepeat(useCallback(() => setNzbdavSeasonPackTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavSeasonPackTimeoutSeconds]));
   const targetsDec = useHoldRepeat(useCallback(() => setAutoResolveChains(v => Math.max(1, v - 1)), [setAutoResolveChains]));
   const targetsInc = useHoldRepeat(useCallback(() => setAutoResolveChains(v => Math.min(4, v + 1)), [setAutoResolveChains]));
+
+  // Backend forces pipe when both fallback AND UR are off — mirror here so the UI stays truthful
+  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolveEnabled) ? 'pipe' as const : nzbdavStreamingMethod;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -90,7 +103,7 @@ export function FallbackOverlay({
               <div>
                 <span className="text-sm font-medium text-slate-300">Enable Fallback</span>
                 <p className="text-xs text-slate-500 mt-1">
-                  Automatically try alternative NZBs when the primary download fails. When disabled, all streams use proxy without a redirect.
+                  Automatically try alternative NZBs when the primary download fails. When disabled, all streams are piped without a redirect.
                 </p>
               </div>
             </label>
@@ -116,37 +129,65 @@ export function FallbackOverlay({
 
           {/* Streaming Method */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
-            <label className="block text-sm font-medium text-slate-300">Streaming Method</label>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setNzbdavProxyEnabled(true)}
-                className={clsx(
-                  "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
-                  nzbdavProxyEnabled
-                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
-                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
-                )}
-              >
-                Proxy
-              </button>
-              <button
-                onClick={() => setNzbdavProxyEnabled(false)}
-                className={clsx(
-                  "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
-                  !nzbdavProxyEnabled
-                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
-                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
-                )}
-              >
-                Direct
-              </button>
+            <label id="streaming-method-label" className="block text-sm font-medium text-slate-300">Streaming Method</label>
+            <div role="radiogroup" aria-labelledby="streaming-method-label" className="flex gap-3">
+              {(['pipe', 'proxy', 'direct'] as const).map((method) => (
+                <button
+                  key={method}
+                  role="radio"
+                  aria-checked={nzbdavStreamingMethod === method}
+                  onClick={() => setNzbdavStreamingMethod(method)}
+                  className={clsx(
+                    "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
+                    nzbdavStreamingMethod === method
+                      ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                      : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  {method === 'pipe' ? 'Pipe' : method === 'proxy' ? 'Dual-Stage Proxy' : 'Direct'}
+                </button>
+              ))}
             </div>
             <p className="text-xs text-slate-500">
-              {nzbdavProxyEnabled
-                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for most devices.'
-                : 'Player is redirected directly to the WebDAV URL. Only supported on select stremio applications.'}
+              {nzbdavStreamingMethod === 'pipe'
+                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead — recommended for most setups.'
+                : nzbdavStreamingMethod === 'proxy'
+                ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Use if pipe mode has playback issues.'
+                : 'Player is redirected directly to the WebDAV URL. Only supported on select Stremio applications.'}
             </p>
           </div>
+
+          {/* Stream Buffer — hidden for direct mode (no buffer needed); uses effectiveMethod so pipe appears when fallback is off */}
+          {effectiveMethod !== 'direct' && (
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-slate-300">{effectiveMethod === 'pipe' ? 'Pipe Stream Buffer' : 'Dual-Stage Proxy Stream Buffer'}</div>
+              <button
+                onClick={() => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(8) : setNzbdavStreamBufferMB(128)}
+                className="text-xs text-amber-400 hover:text-amber-300"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={effectiveMethod === 'pipe' ? 1 : 8}
+                max={effectiveMethod === 'pipe' ? 16 : 256}
+                step={effectiveMethod === 'pipe' ? 1 : 8}
+                value={effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB}
+                onChange={(e) => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(parseInt(e.target.value, 10)) : setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
+                className="flex-1 accent-amber-400"
+              />
+              <span className="text-sm text-slate-300 w-16 text-right">{effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB} MB</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              {effectiveMethod === 'pipe'
+                ? 'Buffer between WebDAV and the player. Absorbs network jitter with minimal memory usage.'
+                : 'Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream.'}
+            </p>
+          </div>
+          )}
 
           {/* Wait Times — combined card */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
@@ -426,7 +467,7 @@ export function FallbackOverlay({
                 setNzbdavSeasonPackTimeoutSeconds(30);
                 setNzbdavFallbackOrder('top');
                 setNzbdavMaxFallbacks(0);
-                setNzbdavProxyEnabled(true);
+                setNzbdavStreamingMethod('pipe');
                 setAutoResolveOnSearch(true);
                 setAutoResolveChains(2);
               }}
