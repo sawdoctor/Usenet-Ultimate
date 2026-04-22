@@ -89,8 +89,6 @@ export interface SearchConfig {
   useTextSearchForAnime?: boolean; // Override per-indexer search method to use text search for anime (Animation+Japan)
   skipAnimeTitleResolve?: boolean; // Skip TVDB/TMDB title resolution for anime (Animation+Japan) to avoid Japanese titles
   indexerPriorityDedup?: boolean;  // Deduplicate results across indexers, keeping only the copy from the highest-priority indexer (default false)
-  enableRemakeFiltering?: boolean;  // For shows with remakes, filter yearless results that don't contain the correct episode name (default true)
-  allowMultiEpisodeFiles?: boolean;  // Allow streaming from combined multi-episode files (e.g. S01E01E02) — default true
   urlDedup?: boolean;  // Remove duplicate results with identical download URLs (default true)
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
@@ -237,6 +235,8 @@ export interface FilterConfig {
   languagePriority?: string[];               // Language priority order for sorting
   editionPriority?: string[];                // Edition priority order for sorting (Extended, DC, etc)
   preferNonStandardEdition?: boolean;        // Prioritize all enabled non-standard editions equally over Standard
+  enableRemakeFiltering?: boolean;           // TV-only. Cross-reference TVDB to filter wrong-version results for shows with remakes. Default true. Env: ENABLE_REMAKE_DETECTION.
+  allowMultiEpisodeFiles?: boolean;          // TV-only. Allow multi-episode files (e.g. S01E01E02.mkv). Default true. Env: ALLOW_MULTI_EPISODE_FILES.
 }
 
 // Usenet provider for health checking

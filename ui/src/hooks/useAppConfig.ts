@@ -97,8 +97,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [seasonPackPagination, setSeasonPackPagination] = useState(true);
   const [seasonPackAdditionalPages, setSeasonPackAdditionalPages] = useState(1);
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
-  const [enableRemakeFiltering, setEnableRemakeFiltering] = useState(true);
-  const [allowMultiEpisodeFiles, setAllowMultiEpisodeFiles] = useState(true);
   const [urlDedup, setUrlDedup] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
@@ -365,14 +363,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         seasonPackPagination: includeSeasonPacks ? seasonPackPagination : undefined,
         seasonPackAdditionalPages: includeSeasonPacks && seasonPackPagination ? seasonPackAdditionalPages : undefined,
         indexerPriorityDedup,
-        enableRemakeFiltering,
-        allowMultiEpisodeFiles,
         urlDedup,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, urlDedup, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -523,8 +519,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setSeasonPackPagination(sc?.seasonPackPagination ?? true);
       setSeasonPackAdditionalPages(sc?.seasonPackAdditionalPages || 1);
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
-      setEnableRemakeFiltering(sc?.enableRemakeFiltering !== false);
-      setAllowMultiEpisodeFiles(sc?.allowMultiEpisodeFiles !== false);
       setUrlDedup(sc?.urlDedup !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
@@ -1204,8 +1198,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     seasonPackPagination, setSeasonPackPagination,
     seasonPackAdditionalPages, setSeasonPackAdditionalPages,
     indexerPriorityDedup, setIndexerPriorityDedup,
-    enableRemakeFiltering, setEnableRemakeFiltering,
-    allowMultiEpisodeFiles, setAllowMultiEpisodeFiles,
     urlDedup, setUrlDedup,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,

@@ -10,7 +10,7 @@ import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
 import { encodeWebdavPath, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
-import { config as globalConfig } from '../config/index.js';
+import { config as globalConfig, getTvAllowMultiEpisode } from '../config/index.js';
 
 /**
  * Find video file in WebDAV directory
@@ -55,7 +55,7 @@ export async function findVideoFile(
 
     if (videos.length > 0) {
       if (episodePattern) {
-        const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
+        const allowMultiEp = getTvAllowMultiEpisode(globalConfig);
 
         // Try exact SxxExx pattern match first
         const pattern = new RegExp(episodePattern, 'i');

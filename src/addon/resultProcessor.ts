@@ -5,7 +5,7 @@
  * priority-based sorting, and stream count limits.
  */
 
-import { config } from '../config/index.js';
+import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue, formatBytes, parseYear } from '../parsers/metadataParsers.js';
 import { isRemakeFiltered } from '../parsers/titleMatching.js';
 import type { FilterConfig } from '../types.js';
@@ -446,7 +446,7 @@ export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, 
 export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
   results = deduplicateByUrl(results);
 
-  if (type !== 'movie' && config.searchConfig?.allowMultiEpisodeFiles === false) {
+  if (type !== 'movie' && !getTvAllowMultiEpisode(config)) {
     const multiEpRegex = /S\d+[. _-]?E\d+(?:[. _-]?E\d+|-\d{1,2}(?!\d))/i;
     const filtered: string[] = [];
     results = results.filter(r => {

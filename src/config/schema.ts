@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { UsenetIndexer, UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig } from '../types.js';
+import type { UsenetIndexer, UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig, FilterConfig } from '../types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -81,17 +81,9 @@ export interface ConfigData {
   syncedIndexers?: SyncedIndexer[];
   autoPlay?: AutoPlayConfig;
   streamDisplayConfig?: StreamDisplayConfig;
-  filters?: {
-    sortOrder: string[];
-    minFileSize?: number;
-    maxFileSize?: number;
-    maxStreamsPerResolution?: number;
-    maxStreamsPerQuality?: number;
-    videoPriority?: string[];
-    encodePriority?: string[];
-  };
-  movieFilters?: any;
-  tvFilters?: any;
+  filters?: FilterConfig;
+  movieFilters?: FilterConfig;
+  tvFilters?: FilterConfig;
   healthChecks?: {
     enabled: boolean;
     mode?: 'full' | 'quick';           // Legacy — migrated to archiveInspection + sampleCount
@@ -148,11 +140,14 @@ function loadConfigFile(): ConfigData {
   };
 }
 
-// Save config to file
+// Save config to file (atomic: write to .tmp, then rename)
 export function saveConfigFile(data: ConfigData): void {
+  const tmpFile = CONFIG_FILE + '.tmp';
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpFile, CONFIG_FILE);
   } catch (error) {
+    try { fs.unlinkSync(tmpFile); } catch { /* best-effort cleanup */ }
     console.error('Error saving config file:', error);
     throw new Error('Failed to save configuration');
   }

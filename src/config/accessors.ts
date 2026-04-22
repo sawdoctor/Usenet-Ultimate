@@ -184,13 +184,9 @@ export const config: Config = {
   },
   get searchConfig(): SearchConfig {
     const sc = configData.searchConfig || { includeSeasonPacks: true };
-    const remakeEnv = envBool('ENABLE_REMAKE_DETECTION');
-    const multiEpEnv = envBool('ALLOW_MULTI_EPISODE_FILES');
     const urlDedupEnv = envBool('URL_DEDUP');
     return {
       ...sc,
-      ...(remakeEnv !== undefined && { enableRemakeFiltering: remakeEnv }),
-      ...(multiEpEnv !== undefined && { allowMultiEpisodeFiles: multiEpEnv }),
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
     };
   },
@@ -441,3 +437,19 @@ export const config: Config = {
     };
   },
 };
+
+/**
+ * Resolved TV-scope accessors for Filters-menu toggles.
+ * Precedence: env var > tvFilters > filters > default true.
+ */
+export function getTvRemakeFiltering(cfg: Config): boolean {
+  const envVal = envBool('ENABLE_REMAKE_DETECTION');
+  if (envVal !== undefined) return envVal;
+  return (cfg.tvFilters?.enableRemakeFiltering ?? cfg.filters?.enableRemakeFiltering) !== false;
+}
+
+export function getTvAllowMultiEpisode(cfg: Config): boolean {
+  const envVal = envBool('ALLOW_MULTI_EPISODE_FILES');
+  if (envVal !== undefined) return envVal;
+  return (cfg.tvFilters?.allowMultiEpisodeFiles ?? cfg.filters?.allowMultiEpisodeFiles) !== false;
+}

@@ -216,3 +216,20 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
+// Migrate enableRemakeFiltering / allowMultiEpisodeFiles from searchConfig to filters
+{
+  const sc = configData.searchConfig as any;
+  if (sc && (sc.enableRemakeFiltering !== undefined || sc.allowMultiEpisodeFiles !== undefined)) {
+    if (!configData.filters) configData.filters = { sortOrder: [] };
+    if (sc.enableRemakeFiltering !== undefined && configData.filters.enableRemakeFiltering === undefined) {
+      configData.filters.enableRemakeFiltering = sc.enableRemakeFiltering;
+    }
+    if (sc.allowMultiEpisodeFiles !== undefined && configData.filters.allowMultiEpisodeFiles === undefined) {
+      configData.filters.allowMultiEpisodeFiles = sc.allowMultiEpisodeFiles;
+    }
+    delete sc.enableRemakeFiltering;
+    delete sc.allowMultiEpisodeFiles;
+    saveConfigFile(configData);
+    console.log('✅ Migrated enableRemakeFiltering / allowMultiEpisodeFiles from searchConfig to filters');
+  }
+}

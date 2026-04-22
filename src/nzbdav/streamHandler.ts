@@ -6,7 +6,7 @@
  */
 
 import { Request, Response as ExpressResponse } from 'express';
-import { config as globalConfig } from '../config/index.js';
+import { config as globalConfig, getTvAllowMultiEpisode } from '../config/index.js';
 import { pipeline } from 'stream';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -390,7 +390,7 @@ export async function handleStream(
     episodePattern = buildEpisodePattern(
       parseInt(seasonParam, 10),
       parseInt(episodeParam, 10),
-      globalConfig.searchConfig?.allowMultiEpisodeFiles !== false,
+      getTvAllowMultiEpisode(globalConfig),
     );
   }
 
@@ -452,7 +452,7 @@ export async function handleStream(
       if (!episodePattern && group.season && group.episode) {
         const s = parseInt(group.season, 10).toString().padStart(2, '0');
         const e = parseInt(group.episode, 10).toString().padStart(2, '0');
-        const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
+        const allowMultiEp = getTvAllowMultiEpisode(globalConfig);
         episodePattern = allowMultiEp
           ? `S${s}(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${e}|-${e})(?!\\d)`
           : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d|-\\d)`;

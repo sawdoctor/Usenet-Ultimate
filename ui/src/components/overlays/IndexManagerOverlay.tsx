@@ -58,14 +58,6 @@ interface IndexManagerOverlayProps {
   seasonPackAdditionalPages: number;
   setSeasonPackAdditionalPages: React.Dispatch<React.SetStateAction<number>>;
 
-  // Remake detection
-  enableRemakeFiltering: boolean;
-  setEnableRemakeFiltering: React.Dispatch<React.SetStateAction<boolean>>;
-
-  // Multi-episode files
-  allowMultiEpisodeFiles: boolean;
-  setAllowMultiEpisodeFiles: React.Dispatch<React.SetStateAction<boolean>>;
-
   // URL dedup
   urlDedup: boolean;
   setUrlDedup: React.Dispatch<React.SetStateAction<boolean>>;
@@ -188,10 +180,6 @@ export function IndexManagerOverlay({
   setSeasonPackPagination,
   seasonPackAdditionalPages,
   setSeasonPackAdditionalPages,
-  enableRemakeFiltering,
-  setEnableRemakeFiltering,
-  allowMultiEpisodeFiles,
-  setAllowMultiEpisodeFiles,
   urlDedup,
   setUrlDedup,
   indexerPriorityDedup,
@@ -543,40 +531,6 @@ export function IndexManagerOverlay({
                     <div className="text-xs font-medium text-slate-400 mb-1">Supported Anime IDs</div>
                     <div className="text-xs text-slate-500">Kitsu · MAL · AniList · AniDB</div>
                     <div className="text-xs text-slate-500 mt-1">Incoming anime IDs from metadata addons like AIOMetadata or Anime Kitsu are automatically resolved and mapped to the search methods configured per-indexer below.</div>
-                  </div>
-                </div>
-
-                {/* Remake / Reboot Detection */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="enable-remake-filtering"
-                      checked={enableRemakeFiltering}
-                      onChange={(e) => setEnableRemakeFiltering(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                    />
-                    <label htmlFor="enable-remake-filtering" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">Remake / Reboot Detection</div>
-                      <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by cross-referencing year or episode name via TVDB. Applies to all search methods.</div>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Multi-Episode Files */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="allow-multi-episode-files"
-                      checked={allowMultiEpisodeFiles}
-                      onChange={(e) => setAllowMultiEpisodeFiles(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                    />
-                    <label htmlFor="allow-multi-episode-files" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">Allow Multi-Episode Files</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Allow results that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, multi-episode results are filtered out and won't appear in results. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
-                    </label>
                   </div>
                 </div>
 

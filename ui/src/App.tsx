@@ -574,10 +574,6 @@ function App() {
           setSeasonPackPagination={ac.setSeasonPackPagination}
           seasonPackAdditionalPages={ac.seasonPackAdditionalPages}
           setSeasonPackAdditionalPages={ac.setSeasonPackAdditionalPages}
-          enableRemakeFiltering={ac.enableRemakeFiltering}
-          setEnableRemakeFiltering={ac.setEnableRemakeFiltering}
-          allowMultiEpisodeFiles={ac.allowMultiEpisodeFiles}
-          setAllowMultiEpisodeFiles={ac.setAllowMultiEpisodeFiles}
           urlDedup={ac.urlDedup}
           setUrlDedup={ac.setUrlDedup}
           indexerPriorityDedup={ac.indexerPriorityDedup}

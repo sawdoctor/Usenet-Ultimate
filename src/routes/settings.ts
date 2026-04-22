@@ -14,6 +14,7 @@
 import { Router } from 'express';
 import type { Config } from '../types.js';
 import { configData } from '../config/schema.js';
+import { getTvAllowMultiEpisode } from '../config/accessors.js';
 import { recalculateTTLExpirations, clearMultiEpisodeDeadEntries, clearTimeoutDeadEntries } from '../nzbdav/streamCache.js';
 
 interface SettingsDeps {
@@ -121,7 +122,7 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
   // Shared handler for PUT and POST /settings
   function handleSettingsUpdate(req: any, res: any) {
     try {
-      const wasMultiEpAllowed = config.searchConfig?.allowMultiEpisodeFiles !== false;
+      const wasMultiEpAllowed = getTvAllowMultiEpisode(config);
       const wasCacheTimeoutsEnabled = config.nzbdavCacheTimeouts !== false;
       updateSettings(req.body);
       // Recalculate NZB database expirations when TTL, mode, or storage limit changes
@@ -130,8 +131,8 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
           req.body.healthyNzbDbMaxSizeMB !== undefined || req.body.deadNzbDbMaxSizeMB !== undefined) {
         recalculateTTLExpirations();
       }
-      // Flush dead NZB entries blocked for multi-episode files when the setting is enabled
-      if (!wasMultiEpAllowed && req.body.searchConfig?.allowMultiEpisodeFiles === true) {
+      // Flush dead NZB entries blocked for multi-episode files when the effective TV value transitions false → true
+      if (!wasMultiEpAllowed && getTvAllowMultiEpisode(config)) {
         clearMultiEpisodeDeadEntries();
       }
       // Flush timed-out dead NZB entries when "Include Timed-Out NZBs" is disabled

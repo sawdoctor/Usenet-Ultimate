@@ -7,7 +7,7 @@
  */
 
 import axios from 'axios';
-import { config } from '../config/index.js';
+import { config, getTvRemakeFiltering } from '../config/index.js';
 import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveRuntimeFromTmdb, detectRemake } from '../idResolver.js';
 import { isStylizedTitle } from '../parsers/titleMatching.js';
 import { isAnimeByImdbId, lookupByImdbId, getKitsuImdbEntries } from '../anime/animeDatabase.js';
@@ -195,7 +195,7 @@ export async function resolveTitle(
   }
 
   // Step 6: Detect remakes — check if another show shares the same title (for text search filtering)
-  const hasRemake = (type === 'series' && config.searchConfig?.enableRemakeFiltering !== false)
+  const hasRemake = (type === 'series' && getTvRemakeFiltering(config))
     ? await detectRemake(title)
     : undefined;
 

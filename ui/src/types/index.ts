@@ -79,8 +79,6 @@ export interface SearchConfig {
   useTextSearchForAnime?: boolean;
   skipAnimeTitleResolve?: boolean;
   indexerPriorityDedup?: boolean;
-  enableRemakeFiltering?: boolean;
-  allowMultiEpisodeFiles?: boolean;
   urlDedup?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;
@@ -236,6 +234,8 @@ export interface FiltersState {
   languagePriority: string[];
   editionPriority: string[];
   preferNonStandardEdition?: boolean;
+  enableRemakeFiltering?: boolean;
+  allowMultiEpisodeFiles?: boolean;
 }
 
 export interface NewIndexerForm {

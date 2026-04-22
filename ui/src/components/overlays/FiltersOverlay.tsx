@@ -6,6 +6,7 @@ import { useState, useCallback, useRef } from 'react';
 import { Filter, X, Check, GripVertical, ChevronDown, ArrowUpDown } from 'lucide-react';
 import clsx from 'clsx';
 import type { FiltersState } from '../../types';
+import { DEFAULT_FILTERS } from '../../constants';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 
 interface StreamFilterFieldConfig {
@@ -348,6 +349,56 @@ export default function FiltersOverlay({
                 onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
               />
             ))}
+
+            {/* TV-only result filters (hidden on Movies tab) */}
+            {filterTab !== 'movie' && (() => {
+              const enableRemake = activeFilters.enableRemakeFiltering ?? true;
+              const allowMultiEp = activeFilters.allowMultiEpisodeFiles ?? true;
+              return (
+                <>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                    <div>
+                      <div className="text-sm font-medium text-slate-300">Remake / Reboot Detection</div>
+                      <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by cross-referencing year or episode name via TVDB. Applies to all search methods.</div>
+                    </div>
+                    <button
+                      aria-label="Remake / Reboot Detection"
+                      aria-pressed={enableRemake}
+                      onClick={() => updateActiveFilters(prev => ({ ...prev, enableRemakeFiltering: !(prev.enableRemakeFiltering ?? true) }))}
+                      className={clsx(
+                        "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                        enableRemake ? "bg-purple-500" : "bg-slate-600"
+                      )}
+                    >
+                      <div className={clsx(
+                        "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                        enableRemake ? "left-5" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                    <div>
+                      <div className="text-sm font-medium text-slate-300">Allow Multi-Episode Files</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Allow results that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, multi-episode results are filtered out and won't appear in results. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
+                    </div>
+                    <button
+                      aria-label="Allow Multi-Episode Files"
+                      aria-pressed={allowMultiEp}
+                      onClick={() => updateActiveFilters(prev => ({ ...prev, allowMultiEpisodeFiles: !(prev.allowMultiEpisodeFiles ?? true) }))}
+                      className={clsx(
+                        "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                        allowMultiEp ? "bg-purple-500" : "bg-slate-600"
+                      )}
+                    >
+                      <div className={clsx(
+                        "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                        allowMultiEp ? "left-5" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
           {/* Sort Order Priority */}
@@ -658,49 +709,7 @@ export default function FiltersOverlay({
           <div className="flex gap-3">
             <button
               onClick={() => {
-                const defaults: FiltersState = {
-                  sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'],
-                  enabledSorts: {
-                    quality: true,
-                    videoTag: true,
-                    size: true,
-                    encode: true,
-                    visualTag: true,
-                    audioTag: true,
-                    language: false,
-                    edition: false,
-                    age: false,
-                    bitrate: false,
-                  },
-                  sortDirections: {},
-                  enabledPriorities: {
-                    resolution: {},
-                    video: {},
-                    encode: {},
-                    visualTag: { '3D': false },
-                    audioTag: {},
-                    language: {},
-                    edition: {}
-                  },
-                  minFileSize: undefined,
-                  maxFileSize: undefined,
-                  minSeasonPackSize: undefined,
-                  maxSeasonPackSize: undefined,
-                  minSeasonPackEpisodeSize: undefined,
-                  maxSeasonPackEpisodeSize: undefined,
-                  maxStreams: undefined,
-                  maxStreamsPerResolution: undefined,
-                  maxStreamsPerQuality: undefined,
-                  resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'],
-                  videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
-                  encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
-                  visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
-                  audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
-                  languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'],
-                  editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'],
-                  preferNonStandardEdition: false
-                };
-                updateActiveFilters(defaults);
+                updateActiveFilters({ ...DEFAULT_FILTERS, sortDirections: {} } as FiltersState);
                 setMovieFilters(null);
                 setTvFilters(null);
               }}
