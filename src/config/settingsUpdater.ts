@@ -99,6 +99,8 @@ export function updateSettings(settings: {
     archiveInspection?: boolean;
     sampleCount?: 3 | 7;
     maxCandidates?: number;
+    desiredBackups?: number;
+    backupProcessingLimit?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
 }): void {
@@ -300,7 +302,7 @@ export function updateSettings(settings: {
     configData.streamDisplayConfig = settings.streamDisplayConfig;
   }
   if (settings.ultimateResolve !== undefined) {
-    configData.ultimateResolve = settings.ultimateResolve;
+    configData.ultimateResolve = { ...configData.ultimateResolve, ...settings.ultimateResolve };
   }
 
   // Enforce minimum cacheTTL when auto play is enabled

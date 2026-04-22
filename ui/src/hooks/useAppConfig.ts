@@ -295,7 +295,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ ultimateResolve }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ultimateResolve.enabled, ultimateResolve.candidateCount, ultimateResolve.preferenceMode, ultimateResolve.archiveInspection, ultimateResolve.sampleCount, ultimateResolve.maxCandidates, ultimateResolve.healthCheckIndexers, saveSettings]);
+  }, [ultimateResolve.enabled, ultimateResolve.candidateCount, ultimateResolve.preferenceMode, ultimateResolve.archiveInspection, ultimateResolve.sampleCount, ultimateResolve.maxCandidates, ultimateResolve.desiredBackups, ultimateResolve.backupProcessingLimit, ultimateResolve.healthCheckIndexers, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {

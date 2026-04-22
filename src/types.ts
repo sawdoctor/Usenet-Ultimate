@@ -278,6 +278,8 @@ export interface UltimateResolveConfig {
   archiveInspection: boolean;
   sampleCount: 3 | 7;
   maxCandidates: number;               // Rolling replacement depth (0 = all results, 1-20 = limit)
+  desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count)
+  backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all)
   healthCheckIndexers?: Record<string, boolean>;
 }
 

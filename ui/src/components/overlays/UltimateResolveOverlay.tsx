@@ -18,6 +18,8 @@ interface UltimateResolveOverlayProps {
     archiveInspection: boolean;
     sampleCount: 3 | 7;
     maxCandidates: number;
+    desiredBackups: number;
+    backupProcessingLimit: number;
     healthCheckIndexers: Record<string, boolean>;
   };
   setUltimateResolve: React.Dispatch<React.SetStateAction<UltimateResolveOverlayProps['ultimateResolve']>>;
@@ -44,6 +46,10 @@ export function UltimateResolveOverlay({
 
   const candidateDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.max(2, prev.candidateCount - 1) })), [setUltimateResolve]));
   const candidateInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.min(10, prev.candidateCount + 1) })), [setUltimateResolve]));
+  const backupsDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.max(0, prev.desiredBackups - 1) })), [setUltimateResolve]));
+  const backupsInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.min(10, prev.desiredBackups + 1) })), [setUltimateResolve]));
+  const bplDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, backupProcessingLimit: Math.max(0, prev.backupProcessingLimit - 1) })), [setUltimateResolve]));
+  const bplInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, backupProcessingLimit: Math.min(20, prev.backupProcessingLimit + 1) })), [setUltimateResolve]));
 
   const enabledPoolProviders = healthChecks.providers.filter(p => p.enabled && p.type === 'pool').length;
   const hasProviders = enabledPoolProviders > 0 || healthChecks.providers.some(p => p.enabled && p.type === 'backup');
@@ -236,6 +242,46 @@ export function UltimateResolveOverlay({
             )}
           </div>
 
+          {/* Desired Backups */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-300 whitespace-nowrap">Desired Backups</span>
+              <div className="flex items-center gap-2">
+                <button
+                  {...backupsDec}
+                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                >−</button>
+                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-10 text-center">{ultimateResolve.desiredBackups === 0 ? 'Off' : ultimateResolve.desiredBackups}</span>
+                <button
+                  {...backupsInc}
+                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                >+</button>
+              </div>
+            </div>
+            <div className="text-xs text-slate-500">Container-matched backups to pre-resolve after the primary stream. Backups must match the primary's video container type (MKV, MP4, etc.).</div>
+            <div className="text-[11px] text-amber-400/50">0 = no extra work · max 10</div>
+          </div>
+
+          {/* Backup Processing Limit */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-300 whitespace-nowrap">Backup Processing Limit</span>
+              <div className="flex items-center gap-2">
+                <button
+                  {...bplDec}
+                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                >−</button>
+                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-8 text-center">{ultimateResolve.backupProcessingLimit === 0 ? 'All' : ultimateResolve.backupProcessingLimit}</span>
+                <button
+                  {...bplInc}
+                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                >+</button>
+              </div>
+            </div>
+            <div className="text-xs text-slate-500">Max backup NZBs attempted via NNTP after the primary. Dead and duplicate candidates count against the budget; library hits don't.</div>
+            <div className="text-[11px] text-amber-400/50">0 = all results · max 20</div>
+          </div>
+
           {/* Usenet Providers (shared with Health Checks) */}
           <div className={clsx("transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
             <ProviderManager
@@ -295,6 +341,8 @@ export function UltimateResolveOverlay({
                   archiveInspection: true,
                   sampleCount: 3,
                   maxCandidates: 0,
+                  desiredBackups: 0,
+                  backupProcessingLimit: 0,
                   healthCheckIndexers: {},
                 });
                 setNzbdavProxyEnabled(true);

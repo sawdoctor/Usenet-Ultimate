@@ -16,7 +16,7 @@ import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern } from './utils.js';
-import { getSessionPromise } from './ultimateResolve.js';
+import { getSessionPromise, getSessionBackups } from './ultimateResolve.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -515,6 +515,12 @@ export async function handleStream(
             }),
           ]).finally(() => clearTimeout(stremioTimer!));
 
+          // Check if the resolved videoPath was evicted (404/5xx) — fall through to fallback loop
+          if (isVideoPathBroken(streamData.videoPath)) {
+            console.log(`👑 Lobby: primary path no longer available — falling through to fallback`);
+            throw new Error('Primary path no longer available');
+          }
+
           // Ultimate-Resolve resolved — deliver the stream
           const mode: 'proxy' | 'direct' = globalConfig.nzbdavProxyEnabled !== false ? 'proxy' : 'direct';
           const lastLobby = lastDeliveryLog.get(streamData.videoPath);
@@ -523,7 +529,8 @@ export async function handleStream(
           if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Resolve result for ${contentKey}`);
           if (mode === 'proxy') {
             if (shouldLogLobby) console.log(`  📡 Proxy streaming: ${streamData.videoPath}`);
-            if (proxyFn) {
+            const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+            if (proxyFn && !lobbyFallbackOn) {
               await proxyFn(req, res, streamData.videoPath);
             } else {
               const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
@@ -557,7 +564,24 @@ export async function handleStream(
   const deadSkipKey = fallbackGroupId || nzbUrl;
   const logDeadSkips = !deadSkipLoggedGroups.has(deadSkipKey);
 
-  for (let i = candidateStart; i < maxCandidates; i++) {
+  // Build candidate order: try Ultimate-Resolve backups first, then sequential from after last vetted
+  const sessionBackups = contentKey ? getSessionBackups(contentKey) : null;
+  const candidateOrder: number[] = [];
+  if (sessionBackups?.backupUrls?.size && candidates.length > 0) {
+    for (let i = candidateStart; i < maxCandidates; i++) {
+      if (sessionBackups.backupUrls.has(candidates[i].nzbUrl)) candidateOrder.push(i);
+    }
+    const lastVettedIdx = sessionBackups.lastVettedUrl
+      ? candidates.findIndex(c => c.nzbUrl === sessionBackups.lastVettedUrl)
+      : -1;
+    for (let i = Math.max(candidateStart, lastVettedIdx + 1); i < maxCandidates; i++) {
+      if (!sessionBackups.backupUrls.has(candidates[i].nzbUrl)) candidateOrder.push(i);
+    }
+  } else {
+    for (let i = candidateStart; i < maxCandidates; i++) candidateOrder.push(i);
+  }
+
+  for (const i of candidateOrder) {
     // Stop processing if the client disconnected (user backed out)
     if (req.socket.destroyed) {
       console.log(`🔌 Client disconnected — stopping fallback loop at [${i + 1}/${maxCandidates}]`);
@@ -599,7 +623,7 @@ export async function handleStream(
 
     try {
       if (i > 0) {
-        if (verbose) console.log(`\u{1F504} Trying fallback [${i + 1}/${maxCandidates}]: ${candidate.title}`);
+        console.log(`🔄 Trying backup [${i + 1}/${maxCandidates}]: ${candidate.title} [${candidate.indexerName}]`);
         if (trackGrabFn && candidate.indexerName) {
           trackGrabFn(candidate.indexerName, candidate.title);
         }
@@ -641,8 +665,8 @@ export async function handleStream(
         }
       }
 
-      if (i > 0 && verbose) {
-        console.log(`\u2705 Fallback succeeded on attempt ${i + 1}/${maxCandidates}`);
+      if (i > 0) {
+        console.log(`👑 Backup stream loaded [${i + 1}/${maxCandidates}]: ${candidate.title} [${candidate.indexerName}]`);
       }
 
       // Check again after await — client may have disconnected while waiting

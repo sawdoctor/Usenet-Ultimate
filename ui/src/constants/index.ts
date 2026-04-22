@@ -177,5 +177,7 @@ export const DEFAULT_ULTIMATE_RESOLVE = {
   archiveInspection: true,
   sampleCount: 3 as 3 | 7,
   maxCandidates: 0,
+  desiredBackups: 0,
+  backupProcessingLimit: 0,
   healthCheckIndexers: {} as Record<string, boolean>,
 };

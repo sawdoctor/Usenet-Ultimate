@@ -121,6 +121,8 @@ export interface ConfigData {
     archiveInspection?: boolean;
     sampleCount?: 3 | 7;
     maxCandidates?: number;
+    desiredBackups?: number;
+    backupProcessingLimit?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
 }
@@ -196,6 +198,7 @@ const ENV_OVERRIDES: readonly string[] = [
   'ZYCLOPS_ENDPOINT',
   'ULTIMATE_RESOLVE_ENABLED', 'ULTIMATE_RESOLVE_CANDIDATE_COUNT', 'ULTIMATE_RESOLVE_PREFERENCE_MODE',
   'ULTIMATE_RESOLVE_ARCHIVE_INSPECTION', 'ULTIMATE_RESOLVE_SAMPLE_COUNT', 'ULTIMATE_RESOLVE_MAX_CANDIDATES',
+  'ULTIMATE_RESOLVE_DESIRED_BACKUPS', 'ULTIMATE_RESOLVE_BACKUP_PROCESSING_LIMIT',
 ] as const;
 const active = ENV_OVERRIDES.filter(name => process.env[name] !== undefined && process.env[name] !== '');
 if (active.length > 0) {

@@ -426,6 +426,8 @@ export const config: Config = {
     const rawSample = envInt('ULTIMATE_RESOLVE_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
     const sampleCount: 3 | 7 = rawSample === 7 ? 7 : 3;
     const maxCandidates = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_MAX_CANDIDATES') ?? ur?.maxCandidates ?? 0));
+    const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_RESOLVE_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 0));
+    const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 0));
     return {
       enabled,
       candidateCount,
@@ -433,6 +435,8 @@ export const config: Config = {
       archiveInspection,
       sampleCount,
       maxCandidates,
+      desiredBackups,
+      backupProcessingLimit,
       healthCheckIndexers: ur?.healthCheckIndexers,
     };
   },

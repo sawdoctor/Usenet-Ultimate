@@ -592,6 +592,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
           if (newUpstream.statusCode === 404 || newUpstream.statusCode === 410) {
             const evicted = evictReadyByVideoPath(videoPath);
             if (evicted) console.warn(`  🗑️ Evicted stale stream (reconnect ${newUpstream.statusCode}): ${evicted}`);
+            markVideoPathBroken(videoPath);
             if (evicted && config.nzbdavFallbackEnabled) console.log(`  🔄 Player retry will use fallback candidate`);
           } else if (newUpstream.statusCode >= 500) {
             // Mark path broken so player retry skips it via library check
@@ -662,6 +663,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         if (err instanceof WebDav404Error) {
           const evicted = evictReadyByVideoPath(videoPath);
           if (evicted) console.warn(`🗑️ Evicted stale stream (upstream ${err.statusCode}): ${evicted}`);
+          markVideoPathBroken(videoPath);
         } else {
           const evicted = evictReadyByVideoPath(videoPath, false);
           if (evicted) console.warn(`🗑️ Evicted stream for retry (upstream error): ${evicted}`);

@@ -155,7 +155,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         const ur = config.ultimateResolve;
         ultimateResolveFromCandidates(
           contentKey, fallbackCandidates, nzbdavConfig,
-          { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxCandidates: ur.maxCandidates, healthCheckIndexers: ur.healthCheckIndexers },
+          { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxCandidates: ur.maxCandidates, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, healthCheckIndexers: ur.healthCheckIndexers },
           epPattern, type, episodesInSeason,
         ).catch(err => console.error('❌ Ultimate-Resolve error:', err));
         return;
