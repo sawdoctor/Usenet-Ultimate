@@ -340,15 +340,18 @@ export default function FiltersOverlay({
                 ))}
             </div>
 
-            {/* Stream Limits */}
-            {STREAM_LIMIT_FIELDS.map(({ key, config }) => (
-              <StreamFilterField
-                key={key}
-                config={config}
-                value={activeFilters[key] as number | undefined}
-                onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
-              />
-            ))}
+            {/* Max Streams */}
+            <div className="bg-slate-800/30 rounded-lg border border-slate-700/20 p-3 space-y-4">
+              <div className="text-xs font-medium text-slate-400">Max Streams</div>
+              {STREAM_LIMIT_FIELDS.map(({ key, config }) => (
+                <StreamFilterField
+                  key={key}
+                  config={config}
+                  value={activeFilters[key] as number | undefined}
+                  onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+                />
+              ))}
+            </div>
 
             {/* TV-only result filters (hidden on Movies tab) */}
             {filterTab !== 'movie' && (() => {
