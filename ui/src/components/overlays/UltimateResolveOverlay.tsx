@@ -33,6 +33,11 @@ interface UltimateResolveOverlayProps {
   setHealthChecks: React.Dispatch<React.SetStateAction<HealthChecksState>>;
   nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
   setNzbdavStreamingMethod: React.Dispatch<React.SetStateAction<'pipe' | 'proxy' | 'direct'>>;
+  nzbdavStreamBufferMB: number;
+  setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavPipeBufferMB: number;
+  setNzbdavPipeBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavFallbackEnabled: boolean;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -44,6 +49,11 @@ export function UltimateResolveOverlay({
   setHealthChecks,
   nzbdavStreamingMethod,
   setNzbdavStreamingMethod,
+  nzbdavStreamBufferMB,
+  setNzbdavStreamBufferMB,
+  nzbdavPipeBufferMB,
+  setNzbdavPipeBufferMB,
+  nzbdavFallbackEnabled,
   apiFetch,
 }: UltimateResolveOverlayProps) {
   const update = useCallback(<K extends keyof typeof ultimateResolve>(key: K, value: (typeof ultimateResolve)[K]) => {
@@ -116,6 +126,9 @@ export function UltimateResolveOverlay({
     setHealthChecks(prev => ({ ...prev, providers }));
   }, [setHealthChecks]);
 
+  // Backend forces pipe when both fallback AND UR are off — mirror here so the UI stays truthful
+  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolve.enabled) ? 'pipe' as const : nzbdavStreamingMethod;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
@@ -185,6 +198,37 @@ export function UltimateResolveOverlay({
             </p>
           </div>
 
+          {/* Stream Buffer — hidden for direct mode (no buffer needed); uses effectiveMethod so pipe appears when UR + fallback both off */}
+          {effectiveMethod !== 'direct' && (
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-slate-300">{effectiveMethod === 'pipe' ? 'Pipe Stream Buffer' : 'Dual-Stage Proxy Stream Buffer'}</div>
+              <button
+                onClick={() => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(8) : setNzbdavStreamBufferMB(128)}
+                className="text-xs text-amber-400 hover:text-amber-300"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={effectiveMethod === 'pipe' ? 1 : 8}
+                max={effectiveMethod === 'pipe' ? 16 : 256}
+                step={effectiveMethod === 'pipe' ? 1 : 8}
+                value={effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB}
+                onChange={(e) => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(parseInt(e.target.value, 10)) : setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
+                className="flex-1 accent-amber-400"
+              />
+              <span className="text-sm text-slate-300 w-16 text-right">{effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB} MB</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              {effectiveMethod === 'pipe'
+                ? 'Buffer between WebDAV and the player. Absorbs network jitter with minimal memory usage.'
+                : 'Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream.'}
+            </p>
+          </div>
+          )}
 
           {/* Empty providers warning */}
           {ultimateResolve.enabled && !hasProviders && (

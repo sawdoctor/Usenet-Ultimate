@@ -825,6 +825,11 @@ function App() {
           setHealthChecks={ac.setHealthChecks}
           nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
           setNzbdavStreamingMethod={ac.setNzbdavStreamingMethod}
+          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
+          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
+          nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
+          setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
+          nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
           apiFetch={apiFetch}
         />
       )}
