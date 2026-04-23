@@ -475,54 +475,6 @@ export function IndexManagerOverlay({
                   </div>
                 </div>
 
-                {/* Include Season Packs */}
-                <div className="pt-3 border-t border-slate-700/30 space-y-2">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="include-season-packs"
-                      checked={includeSeasonPacks}
-                      onChange={(e) => setIncludeSeasonPacks(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                    />
-                    <label htmlFor="include-season-packs" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">Include season packs</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Include full-season downloads in episode results (size estimated per episode for sorting).</div>
-                    </label>
-                  </div>
-                  {includeSeasonPacks && (
-                    <div className="pl-7 space-y-2">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          id="season-pack-pagination"
-                          checked={seasonPackPagination}
-                          onChange={(e) => setSeasonPackPagination(e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                        />
-                        <label htmlFor="season-pack-pagination" className="flex-1 cursor-pointer">
-                          <div className="text-xs text-slate-400">Enable pagination for season pack searches</div>
-                        </label>
-                      </div>
-                      {seasonPackPagination && (
-                        <div className="pl-7 flex items-center gap-2">
-                          <label className="text-xs text-slate-400">Additional pages</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={10}
-                            value={seasonPackAdditionalPages}
-                            onChange={(e) => setSeasonPackAdditionalPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                            onFocus={(e) => e.target.select()}
-                            className="input w-20 text-sm"
-                          />
-                          <span className="text-xs text-slate-500">Extra pages for season pack searches</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
                 {/* Anime Settings */}
                 <div className="pt-3 border-t border-slate-700/30">
                   <div className="text-sm font-medium text-slate-300 mb-2">Anime</div>
@@ -534,55 +486,64 @@ export function IndexManagerOverlay({
                   </div>
                 </div>
 
+              </div>
+
+              {/* Results Deduplication — own card */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="text-sm font-medium text-slate-300">Results Deduplication</div>
+
                 {/* URL Deduplication */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="url-dedup" className="flex-1 cursor-pointer">
+                    <div className="text-sm font-medium text-slate-300">URL Deduplication</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Remove duplicate results that share the same download URL. These NZBs always reference the same articles, so keeping only the first occurrence has no effect on results.</div>
+                  </label>
+                  <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
                       id="url-dedup"
                       checked={urlDedup}
                       onChange={(e) => setUrlDedup(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                      className="sr-only peer"
                     />
-                    <label htmlFor="url-dedup" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">URL Deduplication</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Remove duplicate results that share the same download URL. These NZBs always reference the same articles, so keeping only the first occurrence has no effect on results.</div>
-                    </label>
-                  </div>
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
                 </div>
 
                 {/* Indexer Priority Dedup */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="indexer-priority-dedup"
-                      checked={indexerPriorityDedup}
-                      onChange={(e) => {
-                        const enabled = e.target.checked;
-                        setIndexerPriorityDedup(enabled);
-                        // Auto-populate priority list when first enabled and list is empty
-                        if (enabled && indexerPriority.length === 0) {
-                          const names: string[] = [];
-                          if (indexManager === 'newznab') {
-                            config?.indexers.filter(i => i.enabled).forEach(i => names.push(i.name));
-                          } else {
-                            (config?.syncedIndexers || []).filter(i => i.enabledForSearch).forEach(i => names.push(i.name));
-                          }
-                          if (easynewsEnabled) names.push('EasyNews');
-                          setIndexerPriority(names);
-                        }
-                      }}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                    />
+                <div className="pt-3 border-t border-slate-700/30 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
                     <label htmlFor="indexer-priority-dedup" className="flex-1 cursor-pointer">
                       <div className="text-sm font-medium text-slate-300">Indexer Priority Deduplication</div>
                       <div className="text-xs text-slate-500 mt-0.5">When duplicate NZBs are found across indexers (same title + size), keep only the copy from the highest-priority indexer. Note: even identical uploads may have different articles across indexers.</div>
                     </label>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="indexer-priority-dedup"
+                        checked={indexerPriorityDedup}
+                        onChange={(e) => {
+                          const enabled = e.target.checked;
+                          setIndexerPriorityDedup(enabled);
+                          if (enabled && indexerPriority.length === 0) {
+                            const names: string[] = [];
+                            if (indexManager === 'newznab') {
+                              config?.indexers.filter(i => i.enabled).forEach(i => names.push(i.name));
+                            } else {
+                              (config?.syncedIndexers || []).filter(i => i.enabledForSearch).forEach(i => names.push(i.name));
+                            }
+                            if (easynewsEnabled) names.push('EasyNews');
+                            setIndexerPriority(names);
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
                   </div>
 
                   {indexerPriorityDedup && indexerPriority.length > 0 && (
-                    <div className="mt-3 space-y-1.5">
+                    <div className="space-y-1.5">
                       <div className="text-xs text-slate-500">Drag to reorder indexer priority (top = highest priority):</div>
                       {indexerPriority.map((name, idx) => (
                         <div
@@ -621,6 +582,60 @@ export function IndexManagerOverlay({
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Season Packs — own card, separate from Search Settings */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-slate-300">Season Packs</div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeSeasonPacks}
+                      onChange={(e) => setIncludeSeasonPacks(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Include full-season downloads in episode results (size estimated per episode for sorting).
+                </p>
+
+                {includeSeasonPacks && (
+                  <div className="space-y-3 pt-2 border-t border-slate-700/30">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="season-pack-pagination" className="flex-1 cursor-pointer text-xs text-slate-400">
+                        Enable pagination for season pack searches
+                      </label>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="season-pack-pagination"
+                          checked={seasonPackPagination}
+                          onChange={(e) => setSeasonPackPagination(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                      </label>
+                    </div>
+                    {seasonPackPagination && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-slate-400">Additional pages</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={seasonPackAdditionalPages}
+                          onChange={(e) => setSeasonPackAdditionalPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                          onFocus={(e) => e.target.select()}
+                          className="input w-20 text-sm"
+                        />
+                        <span className="text-xs text-slate-500">Extra pages for season pack searches</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* EasyNews — supplemental search source */}
@@ -707,17 +722,20 @@ export function IndexManagerOverlay({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="easynews-pagination"
-                          checked={easynewsPagination}
-                          onChange={(e) => setEasynewsPagination(e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
-                        />
+                      <div className="flex items-center justify-between gap-3">
                         <label htmlFor="easynews-pagination" className="flex-1 cursor-pointer">
                           <span className="text-xs text-slate-400">Paginated search</span>
                           <span className="text-[10px] text-slate-500 ml-1.5">Fetch additional pages of results (250 results/page)</span>
+                        </label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            id="easynews-pagination"
+                            checked={easynewsPagination}
+                            onChange={(e) => setEasynewsPagination(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
                         </label>
                       </div>
                       {easynewsPagination && (
