@@ -794,6 +794,7 @@ function App() {
           setMovieFilters={ac.setMovieFilters}
           tvFilters={ac.tvFilters}
           setTvFilters={ac.setTvFilters}
+          apiFetch={apiFetch}
         />
       )}
 

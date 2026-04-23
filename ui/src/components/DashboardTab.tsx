@@ -525,7 +525,7 @@ export function DashboardTab({
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
                       <Filter className="w-5 h-5 text-purple-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
-                      <span className="text-slate-400 text-sm">Filters & Sorting</span>
+                      <span className="text-slate-400 text-sm">Filters, Rules & Sorting</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
                       {filters.sortOrder?.[0] === 'quality' ? 'Resolution First' : filters.sortOrder?.[0] === 'size' ? 'Size First' : filters.sortOrder?.[0] === 'videoTag' ? 'Quality First' : 'Resolution First'}

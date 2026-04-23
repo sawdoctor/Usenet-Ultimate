@@ -1,6 +1,7 @@
 // What this does:
-//   Filters & Sorting overlay with resolution priority, quality filtering, sort order,
-//   per-type (Movie/TV) overrides, and drag-to-reorder priority lists
+//   Filters, Rules & Sorting overlay with resolution priority, quality filtering,
+//   ranked regex/SEL rules, sort order, per-type (Movie/TV) overrides, and
+//   drag-to-reorder priority lists
 
 import { useState, useCallback, useRef } from 'react';
 import { Filter, X, Check, GripVertical, ChevronDown, ArrowUpDown } from 'lucide-react';
@@ -8,6 +9,7 @@ import clsx from 'clsx';
 import type { FiltersState } from '../../types';
 import { DEFAULT_FILTERS } from '../../constants';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
+import RulesSection from './rules/RulesSection';
 
 interface StreamFilterFieldConfig {
   label: string;
@@ -140,12 +142,16 @@ const SORT_DIRECTION_LABELS: Record<string, Record<string, string>> = {
   size: { desc: 'Largest first', asc: 'Smallest first' },
   age: { asc: 'Newest first', desc: 'Oldest first' },
   bitrate: { desc: 'Highest first', asc: 'Lowest first' },
+  regexScore: { desc: 'Highest first', asc: 'Lowest first' },
+  seScore: { desc: 'Highest first', asc: 'Lowest first' },
 };
 
 const SORT_DIRECTION_DEFAULTS: Record<string, 'asc' | 'desc'> = {
   size: 'desc',
   age: 'asc',
   bitrate: 'desc',
+  regexScore: 'desc',
+  seScore: 'desc',
 };
 
 const DISPLAY_LABELS: Record<string, string> = {
@@ -172,6 +178,7 @@ interface FiltersOverlayProps {
   setMovieFilters: React.Dispatch<React.SetStateAction<FiltersState | null>>;
   tvFilters: FiltersState | null;
   setTvFilters: React.Dispatch<React.SetStateAction<FiltersState | null>>;
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 export default function FiltersOverlay({
@@ -182,6 +189,7 @@ export default function FiltersOverlay({
   setMovieFilters,
   tvFilters,
   setTvFilters,
+  apiFetch,
 }: FiltersOverlayProps) {
   // Local drag states for sort order
   const [draggedSortItem, setDraggedSortItem] = useState<string | null>(null);
@@ -215,7 +223,7 @@ export default function FiltersOverlay({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Filter className="w-6 h-6 text-purple-400" />
-                <h3 className="text-xl font-semibold text-slate-200">Filters & Sorting</h3>
+                <h3 className="text-xl font-semibold text-slate-200">Filters, Rules & Sorting</h3>
               </div>
               <button onClick={() => onClose()} className="text-slate-400 hover:text-slate-200 transition-colors">
                 <X className="w-6 h-6" />
@@ -405,6 +413,14 @@ export default function FiltersOverlay({
             })()}
           </div>
 
+          {/* Ranked Rules */}
+          <RulesSection
+            rules={(activeFilters as any).rules}
+            onChange={(nextRules) => updateActiveFilters({ ...activeFilters, rules: nextRules } as FiltersState)}
+            apiFetch={apiFetch}
+            disabled={isReadOnly}
+          />
+
           {/* Sort Order Priority */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -426,6 +442,8 @@ export default function FiltersOverlay({
                   edition: 'Edition',
                   age: 'Age',
                   bitrate: 'Bitrate',
+                  regexScore: 'Ranked Regex Score',
+                  seScore: 'Ranked SEL Score',
                 };
                 const hasDirection = method in SORT_DIRECTION_LABELS;
                 const currentDir = activeFilters.sortDirections?.[method] ?? SORT_DIRECTION_DEFAULTS[method];
@@ -531,10 +549,10 @@ export default function FiltersOverlay({
             // Map sort method to priority section config
             const prioritySections: Record<string, { expandKey: string; title: string; subtitle: string; items: string[]; filterKey: keyof typeof activeFilters; priorityKey: string; dragState: [string | null, (v: string | null) => void]; dragOverState: [string | null, (v: string | null) => void] }> = {
               quality: { expandKey: 'resolution', title: 'Resolution Filters & Priorities', subtitle: 'Drag to reorder your preferred resolutions', items: activeFilters.resolutionPriority || ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'], filterKey: 'resolutionPriority' as keyof typeof activeFilters, priorityKey: 'resolution', dragState: [draggedResolution, setDraggedResolution], dragOverState: [dragOverResolution, setDragOverResolution] },
-              videoTag: { expandKey: 'video', title: 'Quality Filters & Priorities', subtitle: 'Drag to reorder your preferred quality sources', items: activeFilters.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'], filterKey: 'videoPriority' as keyof typeof activeFilters, priorityKey: 'video', dragState: [draggedVideoTag, setDraggedVideoTag], dragOverState: [dragOverVideoTag, setDragOverVideoTag] },
+              videoTag: { expandKey: 'video', title: 'Quality Filters & Priorities', subtitle: 'Drag to reorder your preferred quality sources', items: activeFilters.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'DCP', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'], filterKey: 'videoPriority' as keyof typeof activeFilters, priorityKey: 'video', dragState: [draggedVideoTag, setDraggedVideoTag], dragOverState: [dragOverVideoTag, setDragOverVideoTag] },
               encode: { expandKey: 'encode', title: 'Encode Filters & Priorities', subtitle: 'Drag to reorder your preferred encodes', items: activeFilters.encodePriority || ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'], filterKey: 'encodePriority' as keyof typeof activeFilters, priorityKey: 'encode', dragState: [draggedEncode, setDraggedEncode], dragOverState: [dragOverEncode, setDragOverEncode] },
               visualTag: { expandKey: 'visualTag', title: 'Visual Tag Filters & Priorities', subtitle: 'Drag to reorder your preferred visual tags', items: activeFilters.visualTagPriority || ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'], filterKey: 'visualTagPriority' as keyof typeof activeFilters, priorityKey: 'visualTag', dragState: [draggedVisualTag, setDraggedVisualTag], dragOverState: [dragOverVisualTag, setDragOverVisualTag] },
-              audioTag: { expandKey: 'audioTag', title: 'Audio Tag Filters & Priorities', subtitle: 'Drag to reorder your preferred audio tags', items: activeFilters.audioTagPriority || ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'], filterKey: 'audioTagPriority' as keyof typeof activeFilters, priorityKey: 'audioTag', dragState: [draggedAudioTag, setDraggedAudioTag], dragOverState: [dragOverAudioTag, setDragOverAudioTag] },
+              audioTag: { expandKey: 'audioTag', title: 'Audio Tag Filters & Priorities', subtitle: 'Drag to reorder your preferred audio tags', items: activeFilters.audioTagPriority || ['Atmos (TrueHD)', 'DTS:X', 'Atmos (DD+)', 'TrueHD', 'DTS-HD MA', 'FLAC', 'DTS-HD', 'DD+', 'DTS-ES', 'DTS', 'AAC', 'DD', 'Opus', 'PCM', 'MP3', 'Unknown'], filterKey: 'audioTagPriority' as keyof typeof activeFilters, priorityKey: 'audioTag', dragState: [draggedAudioTag, setDraggedAudioTag], dragOverState: [dragOverAudioTag, setDragOverAudioTag] },
               language: { expandKey: 'language', title: 'Language Filters & Priorities', subtitle: 'Drag to reorder your preferred languages', items: activeFilters.languagePriority || ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'], filterKey: 'languagePriority' as keyof typeof activeFilters, priorityKey: 'language', dragState: [draggedLanguage, setDraggedLanguage], dragOverState: [dragOverLanguage, setDragOverLanguage] },
               edition: { expandKey: 'edition', title: 'Edition Filters & Priorities', subtitle: 'Drag to reorder preferred editions (Extended, Director\'s Cut, etc.)', items: activeFilters.editionPriority || ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'], filterKey: 'editionPriority' as keyof typeof activeFilters, priorityKey: 'edition', dragState: [draggedEdition, setDraggedEdition], dragOverState: [dragOverEdition, setDragOverEdition] },
             };
