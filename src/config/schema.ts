@@ -95,6 +95,7 @@ export interface ConfigData {
     inspectionMethod?: 'fixed' | 'smart';
     smartBatchSize?: number;
     smartAdditionalRuns?: number;
+    smartMinHealthy?: number;
     autoQueueMode: 'off' | 'top' | 'all';
     hideBlocked: boolean;
     libraryPreCheck?: boolean;

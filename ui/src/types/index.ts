@@ -200,6 +200,7 @@ export interface HealthChecksState {
   inspectionMethod: 'fixed' | 'smart';
   smartBatchSize: number;
   smartAdditionalRuns: number;
+  smartMinHealthy: number;
   maxConnections: number;
   autoQueueMode: 'off' | 'top' | 'all';
   hideBlocked: boolean;

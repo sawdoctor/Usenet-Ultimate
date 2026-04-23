@@ -285,7 +285,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ healthChecks: { ...healthCheckSettings, providers: undefined } }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
+  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.smartMinHealthy, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
 
   // Auto-save: Ultimate-Resolve settings
   useEffect(() => {

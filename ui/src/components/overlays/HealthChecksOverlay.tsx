@@ -292,6 +292,9 @@ export default function HealthChecksOverlay({
                       <option value="1">1</option>
                       <option value="2">2</option>
                       <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6</option>
                     </select>
                     <p className="text-xs text-slate-500 mt-1">NZBs to check per batch</p>
                   </div>
@@ -308,10 +311,26 @@ export default function HealthChecksOverlay({
                       className="input w-full"
                     />
                     <p className="text-xs text-slate-500 mt-1">
-                      Additional batches to try if no healthy result found (0-5).{' '}
+                      Additional batches to try if threshold not met (0-5).{' '}
                       <span className="text-pink-400 font-medium">
                         ({healthChecks.smartBatchSize * (1 + (healthChecks.smartAdditionalRuns || 0))} max NZB checks)
                       </span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Minimum Healthy Results</label>
+                    <input
+                      type="number"
+                      value={healthChecks.smartMinHealthy ?? ''}
+                      onChange={(e) => setHealthChecks({ ...healthChecks, smartMinHealthy: e.target.value === '' ? ('' as any) : parseInt(e.target.value) || 1 })}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={(e) => { if (e.target.value === '' || parseInt(e.target.value) < 1) setHealthChecks(prev => ({ ...prev, smartMinHealthy: 1 })); }}
+                      min="1"
+                      max="10"
+                      className="input w-full"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Smart mode keeps searching until this many healthy candidates are found (1-10). Higher values improve fallback resilience when individual candidates fail, at a small cost to initial response time.
                     </p>
                   </div>
                 </>
@@ -436,6 +455,7 @@ export default function HealthChecksOverlay({
                     inspectionMethod: 'smart',
                     smartBatchSize: 3,
                     smartAdditionalRuns: 1,
+                    smartMinHealthy: 1,
                     maxConnections: 12,
                     autoQueueMode: 'all',
                     hideBlocked: true,

@@ -182,9 +182,10 @@ export async function coordinateHealthChecks(
     // --- SMART: Stop on Healthy ---
     const batchSize = config.healthChecks.smartBatchSize || 3;
     const additionalRuns = config.healthChecks.smartAdditionalRuns ?? 1;
+    const minHealthy = Math.max(1, config.healthChecks.smartMinHealthy ?? 1);
     const maxBatches = 1 + additionalRuns;
 
-    let foundHealthy = false;
+    let healthyCount = 0;
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const batchStart = batch * batchSize;
@@ -259,27 +260,29 @@ export async function coordinateHealthChecks(
         }
       }
 
-      // Check if at least one healthy result found in this batch
-      for (const r of batchCandidates) {
+      // Count healthy results accumulated so far
+      healthyCount = 0;
+      for (const r of allResults.slice(0, batchStart + batchCandidates.length)) {
         const health = healthResults.get(r.link);
         if (health && isVerifiedStatus(health.status)) {
-          foundHealthy = true;
-          break;
+          healthyCount++;
         }
       }
 
-      if (foundHealthy) {
-        console.log(`✅ Smart mode: found healthy result in batch ${batch + 1}, stopping.`);
+      if (healthyCount >= minHealthy) {
+        console.log(`✅ Smart mode: found ${healthyCount} healthy result(s) by batch ${batch + 1} (min: ${minHealthy}), stopping.`);
         break;
       }
 
       if (batch < maxBatches - 1) {
-        console.log(`⏳ Smart mode: no healthy result in batch ${batch + 1}, continuing...`);
+        console.log(`⏳ Smart mode: ${healthyCount}/${minHealthy} healthy after batch ${batch + 1}, continuing...`);
       }
     }
 
-    if (!foundHealthy) {
+    if (healthyCount === 0) {
       console.log(`⚠️ Smart mode: no healthy result found after checking`);
+    } else if (healthyCount < minHealthy) {
+      console.log(`⚠️ Smart mode: only found ${healthyCount}/${minHealthy} healthy result(s) after all batches`);
     }
 
   } else {

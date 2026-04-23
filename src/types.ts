@@ -261,8 +261,9 @@ export interface HealthCheckConfig {
   providers: UsenetProvider[];   // Usenet providers for article checking
   nzbsToInspect: number;         // Number of top results to health check (used in 'fixed' mode)
   inspectionMethod: 'fixed' | 'smart'; // Fixed count vs smart stop-on-healthy
-  smartBatchSize: number;        // NZBs per batch in smart mode (1, 2, or 3; default 3)
-  smartAdditionalRuns: number;   // Additional batches if no healthy found (0-5; default 1)
+  smartBatchSize: number;        // NZBs per batch in smart mode (1-6; default 3)
+  smartAdditionalRuns: number;   // Additional batches if threshold not met (0-5; default 1)
+  smartMinHealthy: number;       // Healthy results required before smart mode stops (1-10; default 1)
   maxConnections: number;        // Max concurrent health check workers
   autoQueueMode: 'off' | 'top' | 'all';  // Auto-queue mode: off, top verified result, or all verified results
   hideBlocked: boolean;          // Filter out blocked NZBs from results

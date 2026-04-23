@@ -119,6 +119,7 @@ export const DEFAULT_HEALTH_CHECKS = {
   inspectionMethod: 'smart' as const,
   smartBatchSize: 3,
   smartAdditionalRuns: 1,
+  smartMinHealthy: 1,
   maxConnections: 12,
   autoQueueMode: 'all' as 'off' | 'top' | 'all',
   hideBlocked: true,
