@@ -238,6 +238,31 @@ export interface FiltersState {
   preferNonStandardEdition?: boolean;
   enableRemakeFiltering?: boolean;
   allowMultiEpisodeFiles?: boolean;
+  rules?: RulesBlock;
+}
+
+export interface RankedRegexRule {
+  id: string;
+  name: string;
+  pattern: string;
+  flags?: string;
+  score: number;
+  enabled?: boolean;
+}
+
+export interface RankedSelRule {
+  id: string;
+  name: string;
+  expression: string;
+  score: number;
+  enabled?: boolean;
+}
+
+export interface RulesBlock {
+  rankedRegexPatterns?: RankedRegexRule[];
+  rankedStreamExpressions?: RankedSelRule[];
+  remoteRankedRegexUrls?: string[];
+  remoteRankedStreamExpressionUrls?: string[];
 }
 
 export interface NewIndexerForm {
