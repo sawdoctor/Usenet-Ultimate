@@ -175,12 +175,11 @@ export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclop
 export const DEFAULT_ULTIMATE_RESOLVE = {
   enabled: false,
   candidateCount: 3,
-  preferenceMode: 'speed' as 'priority' | 'speed',
+  preferenceMode: 'priority' as 'priority' | 'speed',
   archiveInspection: true,
   sampleCount: 3 as 3 | 7,
-  maxCandidates: 0,
-  desiredBackups: 0,
-  backupProcessingLimit: 0,
+  desiredBackups: 2,
+  backupProcessingLimit: 2,
   // Keep in sync with src/nzbdav/timeoutDefaults.ts (UR_TIMEOUT_DEFAULTS).
   priorityMoviesTimeoutSeconds: 30,
   priorityTvTimeoutSeconds: 15,

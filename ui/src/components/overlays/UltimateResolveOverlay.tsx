@@ -17,7 +17,6 @@ interface UltimateResolveOverlayProps {
     preferenceMode: 'priority' | 'speed';
     archiveInspection: boolean;
     sampleCount: 3 | 7;
-    maxCandidates: number;
     desiredBackups: number;
     backupProcessingLimit: number;
     priorityMoviesTimeoutSeconds: number;
@@ -151,21 +150,27 @@ export function UltimateResolveOverlay({
 
           {/* Description */}
           <ul className="text-xs text-slate-400 leading-relaxed list-disc list-inside space-y-1">
-            <li>Ultimate Resolve achieves the fastest theoretical resolution of a healthy NZB.</li>
-            <li>Ultimate Resolve is a 5 layer parallel process that combines WebDAV, NZBDav, NZB Fallback, Health Checking, and Priority Grab Queueing to resolve a healthy NZB.</li>
+            <li>Ultimate Resolve is the fastest way to start streaming a healthy NZB. It races multiple candidates in parallel, verifies each is alive before and during submission, and streams from the best candidate based on your preference mode, highest priority or first to resolve.</li>
+            <li>After the primary starts, the pipeline keeps running to pre-cache container-matched backups, if the stream dies mid-playback, the fallback is already loaded. No re-resolve, no search, no interruption.</li>
           </ul>
 
           {/* Enable Toggle */}
-          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={ultimateResolve.enabled}
-                onChange={(e) => update('enabled', e.target.checked)}
-                className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
-              />
-              <span className="text-sm font-medium text-slate-200">Enable Ultimate Resolve</span>
-            </label>
+          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-200">Enable Ultimate Resolve</span>
+            <button
+              aria-label="Enable Ultimate Resolve"
+              aria-pressed={ultimateResolve.enabled}
+              onClick={() => update('enabled', !ultimateResolve.enabled)}
+              className={clsx(
+                "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                ultimateResolve.enabled ? "bg-amber-500" : "bg-slate-600"
+              )}
+            >
+              <div className={clsx(
+                "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                ultimateResolve.enabled ? "left-5" : "left-1"
+              )} />
+            </button>
           </div>
 
           {/* Streaming Method */}
@@ -191,7 +196,7 @@ export function UltimateResolveOverlay({
             </div>
             <p className="text-xs text-slate-500">
               {nzbdavStreamingMethod === 'pipe'
-                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead — recommended for most setups.'
+                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead, no request modifications, recommended for most setups.'
                 : nzbdavStreamingMethod === 'proxy'
                 ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Use if pipe mode has playback issues.'
                 : 'Player is redirected directly to the WebDAV URL. Only supported on select Stremio applications.'}
@@ -239,32 +244,6 @@ export function UltimateResolveOverlay({
             </div>
           )}
 
-          {/* # of Parallel NZB Candidates */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-300 whitespace-nowrap"># of Parallel NZB Candidates</span>
-              <div className="flex items-center gap-2">
-                <button
-                  {...candidateDec}
-                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
-                >−</button>
-                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-6 text-center">{ultimateResolve.candidateCount}</span>
-                <button
-                  {...candidateInc}
-                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
-                >+</button>
-              </div>
-            </div>
-            <div className="text-xs text-slate-500">Number of NZBs to process in parallel from the top of the results list.</div>
-            <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
-              <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
-              <span>max NNTP connections ({ultimateResolve.candidateCount} candidates × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
-            </div>
-            <div className="text-[11px] text-amber-400/50 mt-1">
-              These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
-            </div>
-          </div>
-
           {/* Prefer Priority / Prefer Speed */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
             <div className="text-sm font-medium text-slate-300">Preference Mode</div>
@@ -294,14 +273,14 @@ export function UltimateResolveOverlay({
                 <p className="text-xs text-slate-500">Prefer the fastest resolving NZB, even if there are unresolved candidates with higher priority.</p>
               </div>
             </label>
-            <p className="text-xs text-slate-500 pt-1">Mode also controls Stream Wait Times below.</p>
+            <p className="text-xs text-slate-500 pt-1">Mode also controls NZBDav Wait Times below.</p>
           </div>
 
-          {/* Stream Wait Times — per-mode set */}
+          {/* NZBDav Wait Times — per-mode set */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <div className="text-sm font-medium text-slate-300">Stream Wait Times</div>
+                <div className="text-sm font-medium text-slate-300">NZBDav Wait Times</div>
                 <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300/90 font-medium">
                   Editing: {isPriority ? 'Priority' : 'Speed'}
                 </span>
@@ -455,53 +434,36 @@ export function UltimateResolveOverlay({
               </div>
             </div>
             <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
-              <li>How long to wait for a stream to become ready before giving up on this NZB. Hold the +/- buttons to accelerate. Min 1s, max 1 min 30s.</li>
-              <li>Speed mode uses a separate set of wait times — switch Preference Mode above to edit those.</li>
+              <li>The time Ultimate Resolve will wait for a health-verified NZB to finish processing in NZBDav before moving on to the next candidate.</li>
+              <li>Priority and Speed modes use a separate set of wait times, switch the Preference Mode above to edit each one.</li>
+              <li>Hold the +/- buttons to accelerate. Min 1s, max 1 min 30s.</li>
             </ul>
           </div>
 
-          {/* Max Candidates */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
-            <div className="text-sm font-medium text-slate-300">Max Candidates</div>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="maxCandidates"
-                checked={ultimateResolve.maxCandidates === 0}
-                onChange={() => update('maxCandidates', 0)}
-                className="mt-1 accent-amber-400"
-              />
-              <div>
-                <div className="text-sm text-slate-200 font-medium">All Results</div>
-                <p className="text-xs text-slate-500">Try every available NZB from the search results before giving up.</p>
+          {/* # of Parallel NZB Candidates */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-300 whitespace-nowrap"># of Parallel NZB Candidates</span>
+              <div className="flex items-center gap-2">
+                <button
+                  {...candidateDec}
+                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                >−</button>
+                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-6 text-center">{ultimateResolve.candidateCount}</span>
+                <button
+                  {...candidateInc}
+                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                >+</button>
               </div>
-            </label>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="maxCandidates"
-                checked={ultimateResolve.maxCandidates > 0}
-                onChange={() => { if (ultimateResolve.maxCandidates === 0) update('maxCandidates', 5); }}
-                className="mt-1 accent-amber-400"
-              />
-              <div>
-                <div className="text-sm text-slate-200 font-medium">Limit</div>
-                <p className="text-xs text-slate-500">Stop after a set number of candidates.</p>
-              </div>
-            </label>
-            {ultimateResolve.maxCandidates > 0 && (
-              <div className="flex items-center gap-3 ml-6">
-                <input
-                  type="range"
-                  min={1}
-                  max={20}
-                  value={ultimateResolve.maxCandidates}
-                  onChange={(e) => update('maxCandidates', parseInt(e.target.value, 10))}
-                  className="flex-1 accent-amber-400"
-                />
-                <span className="text-sm text-slate-300 w-8 text-right">{ultimateResolve.maxCandidates}</span>
-              </div>
-            )}
+            </div>
+            <div className="text-xs text-slate-500">Number of NZBs to process in parallel from the top of the results list.</div>
+            <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
+              <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
+              <span>max NNTP connections ({ultimateResolve.candidateCount} candidates × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
+            </div>
+            <div className="text-[11px] text-amber-400/50 mt-1">
+              These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
+            </div>
           </div>
 
           {/* Desired Backups */}
@@ -544,52 +506,61 @@ export function UltimateResolveOverlay({
             <div className="text-[11px] text-amber-400/50">0 = all results · max 20</div>
           </div>
 
-          {/* Usenet Providers (shared with Health Checks) */}
-          <div className={clsx("transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          {/* Health Checking — provider config, sample count, archive inspection */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="text-sm font-medium text-slate-300">Health Checking</div>
+
+            {/* Usenet Providers (shared with Health Checks) */}
             <ProviderManager
               providers={healthChecks.providers}
               onProvidersChange={handleProvidersChange}
               apiFetch={apiFetch}
               accentColor="amber"
             />
-          </div>
 
-          {/* Articles to Sample */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
-            <div className="text-sm font-medium text-slate-300">Articles to Sample</div>
-            <div className="flex gap-3">
-              {([3, 7] as const).map(count => (
-                <button
-                  key={count}
-                  onClick={() => update('sampleCount', count)}
-                  className={clsx(
-                    "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
-                    ultimateResolve.sampleCount === count
-                      ? "bg-amber-500/20 border border-amber-500/40 text-amber-300"
-                      : "bg-slate-700/40 border border-slate-600/30 text-slate-400 hover:text-slate-200 hover:border-slate-500/50"
-                  )}
-                >
-                  {count} samples
-                </button>
-              ))}
+            {/* Articles to Sample */}
+            <div className="space-y-3">
+              <div className="text-sm font-medium text-slate-300">Articles to Sample</div>
+              <div className="flex gap-3">
+                {([3, 7] as const).map(count => (
+                  <button
+                    key={count}
+                    onClick={() => update('sampleCount', count)}
+                    className={clsx(
+                      "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
+                      ultimateResolve.sampleCount === count
+                        ? "bg-amber-500/20 border border-amber-500/40 text-amber-300"
+                        : "bg-slate-700/40 border border-slate-600/30 text-slate-400 hover:text-slate-200 hover:border-slate-500/50"
+                    )}
+                  >
+                    {count} samples
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500">More samples means more accurate health checks but slightly slower.</p>
             </div>
-            <p className="text-xs text-slate-500">More samples means more accurate health checks but slightly slower.</p>
-          </div>
 
-          {/* Archive Inspection */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={ultimateResolve.archiveInspection}
-                onChange={(e) => update('archiveInspection', e.target.checked)}
-                className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
-              />
+            {/* Archive Inspection */}
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium text-slate-200">Archive Header Inspection</div>
                 <p className="text-xs text-slate-500 mt-0.5">Inspect archive headers for encryption, nested archives, and video content.</p>
               </div>
-            </label>
+              <button
+                aria-label="Archive Header Inspection"
+                aria-pressed={ultimateResolve.archiveInspection}
+                onClick={() => update('archiveInspection', !ultimateResolve.archiveInspection)}
+                className={clsx(
+                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                  ultimateResolve.archiveInspection ? "bg-amber-500" : "bg-slate-600"
+                )}
+              >
+                <div className={clsx(
+                  "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                  ultimateResolve.archiveInspection ? "left-5" : "left-1"
+                )} />
+              </button>
+            </div>
           </div>
 
           {/* Reset to Default */}
@@ -599,12 +570,11 @@ export function UltimateResolveOverlay({
                 setUltimateResolve({
                   enabled: false,
                   candidateCount: 3,
-                  preferenceMode: 'speed',
+                  preferenceMode: 'priority',
                   archiveInspection: true,
                   sampleCount: 3,
-                  maxCandidates: 0,
-                  desiredBackups: 0,
-                  backupProcessingLimit: 0,
+                  desiredBackups: 2,
+                  backupProcessingLimit: 2,
                   priorityMoviesTimeoutSeconds: 30,
                   priorityTvTimeoutSeconds: 15,
                   prioritySeasonPackTimeoutSeconds: 30,

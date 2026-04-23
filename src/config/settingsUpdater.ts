@@ -98,7 +98,6 @@ export function updateSettings(settings: {
     preferenceMode?: 'priority' | 'speed';
     archiveInspection?: boolean;
     sampleCount?: 3 | 7;
-    maxCandidates?: number;
     desiredBackups?: number;
     backupProcessingLimit?: number;
     priorityMoviesTimeoutSeconds?: number;

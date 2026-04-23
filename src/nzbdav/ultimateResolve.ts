@@ -47,7 +47,6 @@ interface UltimateResolveOptions {
   preferenceMode: 'priority' | 'speed';
   archiveInspection: boolean;
   sampleCount: 3 | 7;
-  maxCandidates: number;
   desiredBackups: number;
   backupProcessingLimit: number;
   priorityMoviesTimeoutSeconds: number;
@@ -187,9 +186,7 @@ export async function ultimateResolveFromCandidates(
       eligible = candidates.filter(c => indexerMap[c.indexerName] !== false);
     }
 
-    // Apply max candidates limit
-    const maxTotal = options.maxCandidates > 0 ? options.maxCandidates : eligible.length;
-    const allCandidates = eligible.slice(0, maxTotal);
+    const allCandidates = eligible;
 
     if (allCandidates.length === 0) {
       console.log(`${tag} No eligible candidates`);
@@ -671,7 +668,6 @@ export async function ultimateResolveFromCandidates(
     const settingsLine = [
       `pool: ${options.candidateCount}`,
       `mode: ${options.preferenceMode}`,
-      `maxCandidates: ${options.maxCandidates === 0 ? 'all' : options.maxCandidates}`,
       `desiredBackups: ${options.desiredBackups === 0 ? 'Off' : options.desiredBackups}`,
       `backupProcessingLimit: ${options.backupProcessingLimit === 0 ? 'all' : options.backupProcessingLimit}`,
       `sampleCount: ${options.sampleCount}`,

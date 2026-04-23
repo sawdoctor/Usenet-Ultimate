@@ -128,7 +128,7 @@ export function FallbackOverlay({
             </div>
             <p className="text-xs text-slate-500">
               {nzbdavStreamingMethod === 'pipe'
-                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead — recommended for most setups.'
+                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead, no request modifications, recommended for most setups.'
                 : nzbdavStreamingMethod === 'proxy'
                 ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Use if pipe mode has playback issues.'
                 : 'Player is redirected directly to the WebDAV URL. Only supported on select Stremio applications.'}

@@ -273,13 +273,12 @@ export interface HealthCheckConfig {
 // Ultimate-Resolve: combines NZB Fallback with Health Checking for fastest resolution
 export interface UltimateResolveConfig {
   enabled: boolean;
-  candidateCount: number;              // Active pool size (2-10, default 4)
+  candidateCount: number;              // Active pool size (2-10, default 3)
   preferenceMode: 'priority' | 'speed';
   archiveInspection: boolean;
   sampleCount: 3 | 7;
-  maxCandidates: number;               // Rolling replacement depth (0 = all results, 1-20 = limit)
-  desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count)
-  backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all)
+  desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count, default 2)
+  backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all, 1-20 = limit, default 2)
   // Per-mode nzbdav job-completion wait times (1-90s). Active set picked by preferenceMode at runtime.
   priorityMoviesTimeoutSeconds: number;
   priorityTvTimeoutSeconds: number;

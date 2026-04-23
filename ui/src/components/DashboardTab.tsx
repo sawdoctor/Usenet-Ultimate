@@ -71,7 +71,6 @@ export interface DashboardTabProps {
     enabled: boolean;
     candidateCount: number;
     preferenceMode: 'priority' | 'speed';
-    maxCandidates: number;
     desiredBackups: number;
   };
   statsData: any;
