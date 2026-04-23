@@ -14,14 +14,14 @@
 
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { stripBareArchiveParts, deduplicateByUrl, deduplicateByPriority } from './dedup.js';
-import { applyRemakeFilter, applyMultiEpisodeFilter, applyQualityFilters } from './filters.js';
+import { applyRemakeFilter, applyMultiEpisodeFilter, applyQualityFilters, applyRankedRules } from './filters.js';
 import { sortResults } from './sort.js';
 import { applyStreamLimits } from './limits.js';
 
 // Re-export the individual passes so downstream callers can import from
 // resultProcessor without caring about the submodule split.
 export { stripBareArchiveParts, deduplicateByUrl, deduplicateByPriority } from './dedup.js';
-export { applyRemakeFilter, applyMultiEpisodeFilter, applyQualityFilters } from './filters.js';
+export { applyRemakeFilter, applyMultiEpisodeFilter, applyQualityFilters, applyRankedRules } from './filters.js';
 export { sortResults } from './sort.js';
 export { applyStreamLimits } from './limits.js';
 
@@ -52,8 +52,11 @@ export function applyUserFilters(results: any[], type: string, now?: number, run
   }
 
   const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
+  const queryType = type === 'movie' ? 'movie' : 'series';
   results = applyQualityFilters(results, filterConfig);
-  const filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];
+  results = applyRankedRules(results, filterConfig, queryType);
+  let filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];
+  if (filteredDeprioritized.length) filteredDeprioritized = applyRankedRules(filteredDeprioritized, filterConfig, queryType);
   results = sortResults(results, filterConfig, now, runtime);
   results = [...results, ...filteredDeprioritized];
   results = applyStreamLimits(results, filterConfig);

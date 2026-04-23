@@ -11,8 +11,9 @@
  *    and enforces configurable size bounds
  */
 
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, parseYear } from '../parsers/metadataParsers.js';
+import { parseMetadata, parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, parseYear, formatBytes } from '../parsers/metadataParsers.js';
 import { isRemakeFiltered } from '../parsers/titleMatching.js';
+import { applyRules as engineApplyRules, buildStreamContext } from '../rules/rankEngine.js';
 import type { FilterConfig } from '../types.js';
 
 /**
@@ -172,4 +173,78 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
   }
 
   return results;
+}
+
+/**
+ * Apply user-defined ranked rules (regex tags + SEL set-level scoring).
+ * Decorates candidates with `_rankRegexScore`, `_rankSeScore`,
+ * `_rankTotalScore`, `_rankMatched`, `_rankRegexTags` so the sort pass can
+ * consume the scores. Exclusion is NOT done here — it lives in the existing
+ * attribute filters (encode, visualTag, etc.).
+ *
+ * The no-rules path clears any lingering `_rank*` decoration so that
+ * disabling rules doesn't leave stale scores on cached raw results.
+ *
+ * `queryType` is 'movie' or 'series' — SEL templates branch on this.
+ */
+export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig, queryType?: string): any[] {
+  const regexCount = filterConfig?.rules?.rankedRegexPatterns?.length ?? 0;
+  const selCount   = filterConfig?.rules?.rankedStreamExpressions?.length ?? 0;
+  if (!filterConfig?.rules || (regexCount === 0 && selCount === 0)) {
+    for (const r of allResults) {
+      if (r._rankTotalScore !== undefined) {
+        delete r._rankRegexScore;
+        delete r._rankSeScore;
+        delete r._rankTotalScore;
+        delete r._rankMatched;
+        delete r._rankRegexTags;
+        delete r._rankErrors;
+      }
+    }
+    return allResults;
+  }
+
+  const decorated = engineApplyRules(
+    allResults,
+    filterConfig,
+    (r) => {
+      const parsed = parseMetadata(r.title || '');
+      return buildStreamContext({
+        title: r.title,
+        filename: r.filename ?? r.title,
+        size: r.size,
+        indexer: r.indexerName,
+        age: r.pubDate ? (Date.now() - new Date(r.pubDate).getTime()) / 3600_000 : 0,
+        resolution: parsed.resolution,
+        codec: parsed.codec,
+        releaseGroup: parsed.releaseGroup,
+        visualTag: parsed.visualTag,
+        audioTag: parsed.audioTag,
+        videoTag: parsed.source,
+        edition: parsed.edition,
+        language: parsed.language,
+        seeders: null,
+      });
+    },
+    queryType,
+  );
+
+  // Observability: log the top-5 scored candidates after rules decorate so the
+  // user can confirm rules are firing on real searches (answers "how do I know
+  // rules are running vs the sorts set?"). Only emits when at least one
+  // candidate picked up a non-zero score.
+  const scored = decorated.filter(r => typeof r._rankTotalScore === 'number' && r._rankTotalScore !== 0);
+  if (scored.length > 0) {
+    const top = [...scored].sort((a, b) => (b._rankTotalScore ?? 0) - (a._rankTotalScore ?? 0)).slice(0, 5);
+    const medals = ['🏆', '🥈', '🥉', '  ', '  '];
+    console.log(`📊 Ranked rules: top ${top.length} of ${scored.length} scored candidate(s)`);
+    top.forEach((r, i) => {
+      const scoreStr = String(r._rankTotalScore).padStart(5);
+      const sizeStr = (typeof r.size === 'number' && r.size > 0 ? formatBytes(r.size) : '—').padStart(8);
+      const title = String(r.title ?? '').slice(0, 100);
+      console.log(`   ${medals[i]}  ${scoreStr}  ${sizeStr}  ${title}`);
+    });
+  }
+
+  return decorated;
 }

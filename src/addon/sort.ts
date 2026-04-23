@@ -13,15 +13,15 @@ import type { FilterConfig } from '../types.js';
  * Sort results by configured preference using the sortOrder array.
  */
 export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?: number, runtime?: number): any[] {
-  const sortOrder = filterConfig?.sortOrder || ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'];
+  const sortOrder = filterConfig?.sortOrder || ['regexScore', 'quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'seScore'];
   const enabledSorts = filterConfig?.enabledSorts || {};
   const sortDirections = filterConfig?.sortDirections || {};
   const enabledPriorities = filterConfig?.enabledPriorities || {};
   const resolutionPriority = filterConfig?.resolutionPriority || ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'];
-  const videoPriority = filterConfig?.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'];
+  const videoPriority = filterConfig?.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'DCP', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'];
   const encodePriority = filterConfig?.encodePriority || ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'];
   const visualTagPriority = filterConfig?.visualTagPriority || ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'];
-  const audioTagPriority = filterConfig?.audioTagPriority || ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'];
+  const audioTagPriority = filterConfig?.audioTagPriority || ['Atmos (TrueHD)', 'DTS:X', 'Atmos (DD+)', 'TrueHD', 'DTS-HD MA', 'FLAC', 'DTS-HD', 'DD+', 'DTS-ES', 'DTS', 'AAC', 'DD', 'Opus', 'PCM', 'MP3', 'Unknown'];
   const languagePriority = filterConfig?.languagePriority || ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'];
   const editionPriority = filterConfig?.editionPriority || ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'];
   const preferNonStandardEdition = filterConfig?.preferNonStandardEdition || false;
@@ -153,6 +153,20 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
         // Default desc = highest bitrate first
         const dir = sortDirections.bitrate === 'asc' ? 1 : -1;
         if (brA !== brB) return (brA - brB) * dir;
+      } else if (method === 'regexScore') {
+        // Ranked-rule regex score — decorated by filters.ts::applyRankedRules.
+        // Default desc = highest score first.
+        const sA = (a._rankRegexScore as number | undefined) ?? 0;
+        const sB = (b._rankRegexScore as number | undefined) ?? 0;
+        const dir = sortDirections.regexScore === 'asc' ? 1 : -1;
+        if (sA !== sB) return (sA - sB) * dir;
+      } else if (method === 'seScore') {
+        // Ranked-rule Stream Expression score — decorated by filters.ts::applyRankedRules.
+        // Default desc = highest score first.
+        const sA = (a._rankSeScore as number | undefined) ?? 0;
+        const sB = (b._rankSeScore as number | undefined) ?? 0;
+        const dir = sortDirections.seScore === 'asc' ? 1 : -1;
+        if (sA !== sB) return (sA - sB) * dir;
       }
     }
     return 0;
