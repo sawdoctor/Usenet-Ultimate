@@ -8,7 +8,30 @@
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue, formatBytes, parseYear } from '../parsers/metadataParsers.js';
 import { isRemakeFiltered } from '../parsers/titleMatching.js';
+import { isBareArchivePart, matchedJunkKind, safeLogTitle, JUNK_EMOJI } from './junkFilter.js';
 import type { FilterConfig } from '../types.js';
+
+/**
+ * Baseline junk filter — strips bare archive parts and NZB containers that
+ * leak in from older indexer databases. These are never valid releases.
+ * Runs before anything else so they don't reach parsing, dedup, or rules.
+ */
+function stripBareArchiveParts(allResults: any[]): any[] {
+  if (allResults.length === 0) return allResults;
+  const dropped: { title: string; kind: string }[] = [];
+  const kept = allResults.filter(r => {
+    if (isBareArchivePart(r.title)) {
+      dropped.push({ title: r.title, kind: matchedJunkKind(r.title) || 'junk' });
+      return false;
+    }
+    return true;
+  });
+  if (dropped.length > 0) {
+    console.log(`${JUNK_EMOJI} Junk filter: removed ${dropped.length} non-release(s) (${kept.length} remaining)`);
+    for (const d of dropped) console.log(`   ✂️  "${safeLogTitle(d.title)}" (${d.kind})`);
+  }
+  return kept;
+}
 
 /**
  * URL deduplication — removes results with identical download URLs.
@@ -430,7 +453,8 @@ export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig
  * These steps depend on the content, not user preferences — safe to cache.
  */
 export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
-  let results = deduplicateByPriority(allResults);
+  let results = stripBareArchiveParts(allResults);
+  results = deduplicateByPriority(results);
   const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year, titleYear);
   results = remakeFiltered;
 

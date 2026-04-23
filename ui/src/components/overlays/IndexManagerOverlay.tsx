@@ -486,6 +486,17 @@ export function IndexManagerOverlay({
                   </div>
                 </div>
 
+                {/* Baseline Junk Filter — display-only. Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
+                <div className="pt-3 border-t border-slate-700/30">
+                  <div className="text-sm font-medium text-slate-300 mb-2">Baseline Junk Filter</div>
+                  <div className="text-xs text-slate-500 mb-3">Bare archive parts and NZB containers are stripped from search results automatically before ranking. These are typically stray entries from older indexer databases and never represent valid releases.</div>
+                  <div className="mt-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                    <div className="text-xs font-medium text-slate-400 mb-1">Filtered Extensions</div>
+                    <div className="text-xs text-slate-500">par2 · nzb · rar · r01–r99 · 001–999</div>
+                    <div className="text-xs text-slate-500 mt-1">Results whose titles end in one of these file-part patterns are dropped before parsing, dedup, or ranking. Titles that legitimately contain "rar" or "nzb" mid-string are retained.</div>
+                  </div>
+                </div>
+
               </div>
 
               {/* Results Deduplication — own card */}
