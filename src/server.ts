@@ -42,6 +42,7 @@ import { createHealthCheckRoutes } from './routes/healthCheck.js';
 import { createExternalApiRoutes } from './routes/externalApis.js';
 import { createStatsRoutes } from './routes/stats.js';
 import { createLogRoutes } from './routes/logs.js';
+import { createRulesRoutes } from './routes/rules.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -174,6 +175,8 @@ app.use('/api/logs', createLogRoutes({
   getLogBuffer,
   subscribeToLogs,
 }));
+
+app.use('/api/rules', createRulesRoutes());
 
 // --- Key-protected proxy routes (no JWT auth, validated by manifest key) ---
 // Mounted at both /:manifestKey/ (legacy) and /stremio/:manifestKey/ (recommended for reverse proxy setups)

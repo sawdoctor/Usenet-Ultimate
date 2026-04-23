@@ -8,6 +8,7 @@
 import type { UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig } from '../types.js';
 import { configData, saveConfigFile } from './schema.js';
 import { enforceZyclopsEnabled } from './indexerCrud.js';
+import { validateRulesBlock } from '../rules/importers.js';
 
 export function updateSettings(settings: {
   addonEnabled?: boolean;
@@ -257,12 +258,15 @@ export function updateSettings(settings: {
     configData.userAgents = settings.userAgents;
   }
   if (settings.filters !== undefined) {
+    validateRulesBlock(settings.filters?.rules);
     configData.filters = settings.filters;
   }
   if (settings.movieFilters !== undefined) {
+    validateRulesBlock(settings.movieFilters?.rules);
     configData.movieFilters = settings.movieFilters;
   }
   if (settings.tvFilters !== undefined) {
+    validateRulesBlock(settings.tvFilters?.rules);
     configData.tvFilters = settings.tvFilters;
   }
   if (settings.autoPlay !== undefined) {
