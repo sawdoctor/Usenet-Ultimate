@@ -34,6 +34,14 @@ function urTileDisplay(mode: 'speed' | 'priority' | undefined): { name: string; 
   return { name: `${UR_TILE_BASE_NAME} · ⚡ Speed`, title: 'Auto-select fastest healthy stream' };
 }
 
+/** Regular-tile episode params — only emits for season packs with both season & episode set.
+ *  Carries `sp=1` so the handler's sentinel candidate honors the clicked pack semantics. */
+function buildRegularTileEpisodeParams(result: { isSeasonPack: boolean }, season: number | undefined, episode: number | undefined, episodesInSeason: number | undefined): string {
+  if (!result.isSeasonPack || season === undefined || episode === undefined) return '';
+  return `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`;
+}
+
+
 /** Resolve the base URL for stream/proxy URLs — uses the request's origin when available,
  *  falls back to BASE_URL env or localhost for background tasks (auto-queue, health checks). */
 function getBaseUrl(): string {
@@ -226,9 +234,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       const nzbProxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
 
       if (config.streamingMode === 'nzbdav') {
-        const episodeParams = result.isSeasonPack && season !== undefined && episode !== undefined
-          ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
-          : '';
+        const episodeParams = buildRegularTileEpisodeParams(result, season, episode, episodesInSeason);
         const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
         const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${skParam}${USER_PICK_FLAG}`;
         streams.push({
@@ -277,9 +283,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     } else if (config.streamingMode === 'nzbdav') {
       // Encode the NZB URL and title as a proxy URL
       // For season packs, include season/episode so the correct file is selected
-      const episodeParams = result.isSeasonPack && season !== undefined && episode !== undefined
-        ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
-        : '';
+      const episodeParams = buildRegularTileEpisodeParams(result, season, episode, episodesInSeason);
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
       const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${skParam}${USER_PICK_FLAG}`;

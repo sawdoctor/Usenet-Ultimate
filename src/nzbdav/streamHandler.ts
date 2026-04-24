@@ -17,6 +17,7 @@ import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDead
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern } from './utils.js';
 import { getSessionPromise, getSessionBackups } from './ultimateResolve.js';
+import { formatBytes } from '../parsers/metadataParsers.js';
 import { selectTimeoutMs, type TimeoutSet } from './timeoutDefaults.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
@@ -397,10 +398,15 @@ export async function handleStream(
     );
   }
 
-  // Build the list of candidates to try (primary first, then fallbacks)
-  const candidates: FallbackCandidate[] = [
-    { nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest }
-  ];
+  // Build the list of candidates to try (primary first, then fallbacks).
+  // Skip the initial candidate when nzbUrl/title are empty (UR tile request case):
+  // a sentinel with empty fields would cause prepareStream to scan the library root
+  // if it survived past the fbg-expansion block (e.g. when fbg is set but the group
+  // has expired).
+  const candidates: FallbackCandidate[] = [];
+  if (nzbUrl && title) {
+    candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest });
+  }
 
   const fallbackEnabled = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
   const maxFallbacksSetting = globalConfig.nzbdavMaxFallbacks ?? 0; // 0 = unlimited (try all)
@@ -491,6 +497,7 @@ export async function handleStream(
         // isVideoPathBroken gate above.
         if (verbose) console.log(`📦 Stream dedup hit (delivered ${Math.round((Date.now() - cached.timestamp) / 1000)}s ago)`);
         const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+        const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
         if (cached.streamingMethod === 'direct') {
           const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
           const safePath = encodeWebdavPath(cached.streamData.videoPath);
@@ -499,16 +506,21 @@ export async function handleStream(
             directUrl.username = config.webdavUser;
             directUrl.password = config.webdavPassword || '';
           }
+          console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}${sizeSuffix}`);
           res.redirect(302, directUrl.href);
         } else if (!fallbackOn && proxyFn) {
           // Inline proxy — no redirect, matches primary delivery path. Runs
           // another proxyVideoStream for this request; req.on('close') ensures
           // cleanup if the client aborts.
+          const label = cached.streamingMethod === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
+          console.log(`  ${label} streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
           await proxyFn(req, res, cached.streamData.videoPath, cached.streamingMethod !== 'proxy');
         } else {
           const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
           proxyUrl.searchParams.set('path', cached.streamData.videoPath);
           proxyUrl.searchParams.set('_fb', req.originalUrl);
+          const label = cached.streamingMethod === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
+          console.log(`  ${label} 302 streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
           res.redirect(302, proxyUrl.href);
         }
         return;
@@ -552,10 +564,11 @@ export async function handleStream(
           const shouldLogLobby = !lastLobby || lastLobby.mode !== mode;
           lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
           if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Resolve result for ${sessionKey}`);
+          const lobbySizeSuffix = streamData.videoSize ? ` (${formatBytes(streamData.videoSize)})` : '';
           if (mode !== 'direct') {
             const inline = proxyFn && !lobbyFallbackOn;
             const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
-            if (shouldLogLobby) console.log(`  ${label}${inline ? '' : ' 302'} streaming: ${streamData.videoPath}`);
+            if (shouldLogLobby) console.log(`  ${label}${inline ? '' : ' 302'} streaming: ${streamData.videoPath}${lobbySizeSuffix}`);
             if (inline) {
               await proxyFn!(req, res, streamData.videoPath, mode !== 'proxy');
             } else {
@@ -587,11 +600,40 @@ export async function handleStream(
     }
   }
 
-  // UR tile request (no nzb/title in URL) can only be resolved via the lobby.
-  // If we reach here, the lobby either timed out beyond MAX_SELF_REDIRECTS or
-  // the session was missing/rejected — no candidate fallback is possible.
+  // UR tile request (no nzb/title in URL). If the Lobby's primary is unavailable,
+  // iterate the session's UR-vetted backup streams and serve the first with an
+  // unbroken videoPath directly — no candidate loop, no re-submit, no TTL
+  // coupling. /v's _fb param bounces back to this tile URL on mid-stream break,
+  // which re-enters here and picks the next backup (previous now isVideoPathBroken).
   if (isUrTileRequest) {
-    console.log(`👑 UR tile: no session or lobby exhausted — serving failure video`);
+    const urBackups = sessionKey ? getSessionBackups(sessionKey) : null;
+    const usable = (urBackups?.backupStreams ?? []).find(b => !isVideoPathBroken(b.videoPath));
+    if (usable) {
+      console.log(`👑 UR tile: primary path no longer available — falling back to UR backup: ${usable.title} [${usable.indexerName}]`);
+      const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+      let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'pipe';
+      if (!lobbyFallbackOn) mode = 'pipe';
+      if (mode === 'direct') {
+        const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
+        const directUrl = new URL(`${webdavBase}${encodeWebdavPath(usable.videoPath)}`);
+        if (config.webdavUser) { directUrl.username = config.webdavUser; directUrl.password = config.webdavPassword || ''; }
+        res.redirect(302, directUrl.href);
+      } else if (proxyFn && !lobbyFallbackOn) {
+        await proxyFn(req, res, usable.videoPath, mode !== 'proxy');
+      } else {
+        const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+        proxyUrl.searchParams.set('path', usable.videoPath);
+        proxyUrl.searchParams.set('_fb', req.originalUrl);
+        res.redirect(302, proxyUrl.href);
+      }
+      return;
+    }
+    const backupCount = urBackups?.backupStreams?.length ?? 0;
+    if (backupCount > 0) {
+      console.log(`👑 UR tile: ${backupCount} backup(s) checked but all broken — serving failure video`);
+    } else {
+      console.log(`👑 UR tile: no session or lobby exhausted — serving failure video`);
+    }
     await sendFailureVideo(req, res);
     return;
   }
@@ -739,10 +781,11 @@ export async function handleStream(
       const dedupKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
       recentDeliveries.set(dedupKey, { streamData, streamingMethod: mode, timestamp: Date.now() });
 
+      const deliverySizeSuffix = streamData.videoSize ? ` (${formatBytes(streamData.videoSize)})` : '';
       if (mode !== 'direct') {
         const inline = !fallbackOn && proxyFn;
         const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
-        if (shouldLogDelivery) console.log(`  ${label}${inline ? '' : ' 302'} streaming: ${streamData.videoPath}`);
+        if (shouldLogDelivery) console.log(`  ${label}${inline ? '' : ' 302'} streaming: ${streamData.videoPath}${deliverySizeSuffix}`);
         if (inline) {
           // Inline proxy — no 302, broadest player compatibility. Subsequent seeks
           // come back to handleStream but hit recentDeliveries (10 min TTL) and
@@ -765,7 +808,7 @@ export async function handleStream(
           directUrl.username = config.webdavUser;
           directUrl.password = config.webdavPassword || '';
         }
-        if (shouldLogDelivery) console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}`);
+        if (shouldLogDelivery) console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}${deliverySizeSuffix}`);
         res.redirect(302, directUrl.href);
       }
       return;

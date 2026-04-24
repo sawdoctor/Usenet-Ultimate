@@ -21,6 +21,7 @@ import { checkNzbLibrary, waitForVideoFile } from './videoDiscovery.js';
 import { encodeWebdavPath, nzbdavError } from './utils.js';
 import { selectTimeoutMs, type TimeoutSet } from './timeoutDefaults.js';
 import type { FallbackCandidate, NZBDavConfig, StreamData } from './types.js';
+import { formatBytes } from '../parsers/metadataParsers.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -35,11 +36,13 @@ interface CandidateState {
   nzoId?: string;
   cancelled?: boolean;
   containerType?: string;     // Video container (e.g. 'MKV') — from health check or library hit
+  videoSize?: number;         // File size in bytes — known once primary/backup is resolved
   containerFallbackViaNzbdav?: boolean; // submitted without pre-resolved container; derive from videoPath post-resolve
   duplicate?: boolean;         // Resolved to same videoPath as another candidate
   duplicateOf?: number;        // poolIndex of the original candidate this duplicates
   replaced?: boolean;          // Replacement already pulled for this dead candidate
   nzbdavDeadWritten?: boolean; // setDeadNzbEntry already wrote a specific nzbdav-failure entry — don't shadow it with a generic URL-only one at end-of-pipeline
+  grabFailed?: boolean;        // Grab never produced an NZB (indexer/network/VPN transient) — don't persist to dead NZB DB
 }
 
 interface UltimateResolveOptions {
@@ -62,12 +65,21 @@ interface UltimateResolveOptions {
 
 const activeSessions = new Map<string, AbortController>();
 
+// UR-vetted backup metadata for in-session serving (no TTL coupling with fallback groups).
+export interface UrBackupStream {
+  nzbUrl: string;
+  videoPath: string;
+  title: string;
+  indexerName: string;
+}
+
 // Session promises — lobby awaits these to get the resolved stream
 interface DeferredStream {
   promise: Promise<StreamData>;
   resolve: (data: StreamData) => void;
   reject: (err: Error) => void;
   backupUrls?: Set<string>;   // NZB URLs of verified backups (for fallback loop prioritization)
+  backupStreams?: UrBackupStream[]; // Parallel array with videoPaths — UR tile serves these directly when primary breaks
   lastVettedUrl?: string;      // Last NZB URL pulled into pool (for sequential resume point)
 }
 const sessionPromises = new Map<string, DeferredStream>();
@@ -78,11 +90,16 @@ export function getSessionPromise(sessionKey: string): Promise<StreamData> | nul
   return sessionPromises.get(sessionKey)?.promise ?? null;
 }
 
-/** Get backup URLs and last vetted URL for a session key (used by fallback loop). */
-export function getSessionBackups(sessionKey: string): { backupUrls: Set<string>; lastVettedUrl?: string } | null {
+/** Get backup URLs, vetted streams, and last vetted URL for a session key. Used by the
+ *  fallback loop (backupUrls prioritization) and the UR tile gate (backupStreams direct serve). */
+export function getSessionBackups(sessionKey: string): { backupUrls: Set<string>; backupStreams: UrBackupStream[]; lastVettedUrl?: string } | null {
   const deferred = sessionPromises.get(sessionKey);
-  if (!deferred?.backupUrls?.size) return null;
-  return { backupUrls: deferred.backupUrls, lastVettedUrl: deferred.lastVettedUrl };
+  if (!deferred?.backupUrls?.size && !deferred?.backupStreams?.length) return null;
+  return {
+    backupUrls: deferred.backupUrls ?? new Set<string>(),
+    backupStreams: deferred.backupStreams ?? [],
+    lastVettedUrl: deferred.lastVettedUrl,
+  };
 }
 
 /** Check if any Ultimate-Resolve sessions are active. */
@@ -169,7 +186,7 @@ export async function ultimateResolveFromCandidates(
   let sessionReject!: (err: Error) => void;
   const sessionPromise = new Promise<StreamData>((res, rej) => { sessionResolve = res; sessionReject = rej; });
   sessionPromise.catch(() => {});
-  const deferred: DeferredStream = { promise: sessionPromise, resolve: sessionResolve, reject: sessionReject, backupUrls: new Set() };
+  const deferred: DeferredStream = { promise: sessionPromise, resolve: sessionResolve, reject: sessionReject, backupUrls: new Set(), backupStreams: [] };
   sessionPromises.set(sessionKey, deferred);
 
   const tag = `👑 Ultimate-Resolve [${sessionKey}]`;
@@ -214,7 +231,7 @@ export async function ultimateResolveFromCandidates(
 
     // Hoisted state — set by either library hit or event loop resolution
     let primaryResolved = false;
-    let resolvedStreamData: StreamData | null = null;
+    let resolvedStreamData = null as StreamData | null;
     const resolvedVideoPaths = new Set<string>();
     const videoPathOwner = new Map<string, number>(); // videoPath → poolIndex of first resolver
     const resolvedTitles = new Set<string>(); // titles already resolved — prevents cross-indexer duplicate submissions
@@ -231,59 +248,75 @@ export async function ultimateResolveFromCandidates(
     let failedBackupCount = 0;
     let backupLimitReached = false;
 
-    const hits = libraryResults.filter(r => r.data !== null).sort((a, b) => a.index - b.index);
-    if (hits.length > 0) {
-      const best = hits[0];
-      const libElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
-      console.log(`${tag} 📚 Library hit — ${best.candidate.title} [${best.candidate.indexerName}]`);
-      const cacheKey = getCacheKey(best.candidate.nzbUrl, best.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
-      setReadyCacheEntry(cacheKey, best.data!, best.candidate.indexerName);
-      sessionResolve(best.data!);
+    type LibraryHit = { candidate: FallbackCandidate; index: number; data: StreamData };
+    const hits: LibraryHit[] = libraryResults
+      .filter((r): r is LibraryHit => r.data !== null)
+      .sort((a, b) => a.index - b.index);
+    const hitUrls = new Set(hits.map(h => h.candidate.nzbUrl));
 
-      // Set primary resolution state — pipeline continues for backups
-      primaryResolved = true;
-      primaryPoolIndex = best.index;
-      primaryFromLibrary = true;
-      resolvedStreamData = best.data!;
-      resolvedVideoPaths.add(best.data!.videoPath);
-      videoPathOwner.set(best.data!.videoPath, best.index);
-      libraryResolvedUrls.add(best.candidate.nzbUrl);
-      resolvedTitles.add(best.candidate.title);
-      requiredContainerType = path.extname(best.data!.videoPath).slice(1).toUpperCase();
-      console.log(`${tag} 📦 Container locked: ${requiredContainerType || 'unknown'} (from library hit #${best.index + 1}, videoPath: ${best.data!.videoPath})`);
-      console.log(`${tag} ✅ Resolved via library in ${libElapsed}s`);
-
-      // Count other library hits as instant container-matched backups
-      for (let h = 1; h < hits.length; h++) {
-        const hit = hits[h];
-        if (resolvedVideoPaths.has(hit.data!.videoPath)) {
-          console.log(`${tag}   📦 #${hit.index + 1} Skipping (duplicate videoPath: ${hit.data!.videoPath}) — ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}]`);
-          continue;
-        }
-        const hitExt = path.extname(hit.data!.videoPath).slice(1).toUpperCase();
-        if (requiredContainerType && hitExt && hitExt !== requiredContainerType) {
-          console.log(`${tag}   📦 #${hit.index + 1} Library hit skipped (${hitExt} ≠ ${requiredContainerType}) — ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}]`);
-          continue;
-        }
-        resolvedVideoPaths.add(hit.data!.videoPath);
-        videoPathOwner.set(hit.data!.videoPath, hit.index);
+    // Promote a library-matched pool member to primary (if no primary yet) or backup.
+    // Caller decides whether to start a grab — promoted candidates never need one.
+    const promoteLibraryCandidate = (cs: CandidateState): 'primary' | 'backup' | 'duplicate' | 'mismatch' | 'already-promoted' | null => {
+      const hit = hits.find(h => h.candidate.nzbUrl === cs.candidate.nzbUrl);
+      if (!hit) return null;
+      if (libraryResolvedUrls.has(cs.candidate.nzbUrl)) return 'already-promoted';
+      const hitExt = path.extname(hit.data.videoPath).slice(1).toUpperCase();
+      if (!primaryResolved) {
+        const libElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
+        console.log(`${tag} 📚 Library hit — ${hit.candidate.title} [${hit.candidate.indexerName}]`);
+        const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);
+        // Assign resolvedStreamData BEFORE sessionResolve so any awaiter observing
+        // primaryResolved=true also sees resolvedStreamData populated.
+        resolvedStreamData = hit.data;
+        primaryResolved = true;
+        primaryPoolIndex = cs.poolIndex;
+        primaryFromLibrary = true;
+        resolvedVideoPaths.add(hit.data.videoPath);
+        videoPathOwner.set(hit.data.videoPath, cs.poolIndex);
         libraryResolvedUrls.add(hit.candidate.nzbUrl);
         resolvedTitles.add(hit.candidate.title);
-        deferred.backupUrls!.add(hit.candidate.nzbUrl);
-        const hitCacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
-        setReadyCacheEntry(hitCacheKey, hit.data!, hit.candidate.indexerName);
-        backupCount++;
-        libraryBackupCount++;
-        console.log(`${tag}   📦 #${hit.index + 1} Backup ready (library hit, ${hitExt || 'unknown'}, videoPath: ${hit.data!.videoPath}) — ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}]`);
+        requiredContainerType = hitExt;
+        cs.nzbdavStatus = 'skipped';
+        cs.containerType = hitExt || undefined;
+        cs.videoSize = hit.data.videoSize;
+        sessionResolve(hit.data);
+        console.log(`${tag} 📦 Container locked: ${requiredContainerType || 'unknown'} (from library hit #${cs.poolIndex + 1}, videoPath: ${hit.data.videoPath})`);
+        console.log(`${tag} ✅ Resolved via library in ${libElapsed}s`);
+        return 'primary';
       }
-      // Don't return — fall through to pipeline for remaining candidates
-    }
-
-    if (!primaryResolved) {
-      console.log(`${tag} No library hits — launching grab chain + health checks + nzbdav`);
-    } else {
-      console.log(`${tag} Continuing pipeline for backup candidates after library hit`);
-    }
+      if (resolvedVideoPaths.has(hit.data.videoPath)) {
+        cs.nzbdavStatus = 'skipped';
+        cs.duplicate = true;
+        cs.duplicateOf = videoPathOwner.get(hit.data.videoPath);
+        if (hitExt) cs.containerType = hitExt;
+        duplicateCount++;
+        console.log(`${tag}   📦 #${cs.poolIndex + 1} Skipping (duplicate videoPath: ${hit.data.videoPath}) — ${cs.candidate.title.substring(0, 60)} [${cs.candidate.indexerName}]`);
+        return 'duplicate';
+      }
+      if (requiredContainerType && hitExt && hitExt !== requiredContainerType) {
+        cs.nzbdavStatus = 'skipped';
+        cs.containerType = hitExt;
+        skippedMismatch++;
+        console.log(`${tag}   📦 #${cs.poolIndex + 1} Library hit skipped (${hitExt} ≠ ${requiredContainerType}) — ${cs.candidate.title.substring(0, 60)} [${cs.candidate.indexerName}]`);
+        return 'mismatch';
+      }
+      resolvedVideoPaths.add(hit.data.videoPath);
+      videoPathOwner.set(hit.data.videoPath, cs.poolIndex);
+      libraryResolvedUrls.add(cs.candidate.nzbUrl);
+      resolvedTitles.add(hit.candidate.title);
+      deferred.backupUrls!.add(cs.candidate.nzbUrl);
+      deferred.backupStreams!.push({ nzbUrl: cs.candidate.nzbUrl, videoPath: hit.data.videoPath, title: cs.candidate.title, indexerName: cs.candidate.indexerName });
+      const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+      setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);
+      cs.nzbdavStatus = 'skipped';
+      cs.containerType = hitExt || undefined;
+      cs.videoSize = hit.data.videoSize;
+      backupCount++;
+      libraryBackupCount++;
+      console.log(`${tag}   📦 #${cs.poolIndex + 1} Backup ready (library hit, ${hitExt || 'unknown'}, videoPath: ${hit.data.videoPath}) — ${cs.candidate.title.substring(0, 60)} [${cs.candidate.indexerName}]`);
+      return 'backup';
+    };
 
     // ── Stage 2: Stream processing pipeline ─────────────────────
     const poolSize = Math.min(options.candidateCount, allCandidates.length);
@@ -305,14 +338,24 @@ export async function ultimateResolveFromCandidates(
     for (let i = 0; i < poolSize && nextCandidateIdx < allCandidates.length; i++) {
       const c = allCandidates[nextCandidateIdx];
       if (isDeadNzbByUrl(c.nzbUrl)) { nextCandidateIdx++; i--; continue; }
-      addToPool(c, nextCandidateIdx);
+      const cs = addToPool(c, nextCandidateIdx);
       deferred.lastVettedUrl = c.nzbUrl;
+      if (hitUrls.has(c.nzbUrl)) promoteLibraryCandidate(cs);
       nextCandidateIdx++;
     }
 
     if (activePool.length === 0) {
       console.log(`${tag} All candidates are dead NZBs`);
       return;
+    }
+
+    if (primaryResolved) {
+      console.log(`${tag} Continuing pipeline for backup candidates after library hit`);
+    } else {
+      console.log(`${tag} No library hits in pool — launching grab chain + health checks + nzbdav`);
+      if (hits.length > 0) {
+        console.log(`${tag} ⚠️ Found ${hits.length} library hit(s), none in initial pool — pool may snake toward them or post-drain sweep will pick up the rest`);
+      }
     }
 
     const startGrab = (cs: CandidateState) => {
@@ -408,9 +451,9 @@ export async function ultimateResolveFromCandidates(
       if (primaryResolved) {
         if (options.desiredBackups > 0 && backupCount >= options.desiredBackups) return null;
         // Cap total backup NZBs attempted via NNTP. Library-hit pool members
-        // never grab segments (matched via cache in Stage 1) so they don't
-        // count against the grab budget. Dead, duplicate, and mismatch DO
-        // count — they each cost a grab + health check.
+        // never grab segments (promoted at pool entry) so they don't count
+        // against the grab budget. Dead, duplicate, and mismatch DO count —
+        // they each cost a grab + health check.
         if (options.backupProcessingLimit > 0) {
           const attempted = activePool.filter(cs =>
             cs.poolIndex !== primaryPoolIndex
@@ -425,7 +468,11 @@ export async function ultimateResolveFromCandidates(
         if (isDeadNzbByUrl(c.nzbUrl)) continue;
         const cs = addToPool(c, nextCandidateIdx - 1);
         deferred.lastVettedUrl = c.nzbUrl;
-        startGrab(cs);
+        if (hitUrls.has(c.nzbUrl)) {
+          promoteLibraryCandidate(cs);
+        } else {
+          startGrab(cs);
+        }
         return cs;
       }
       return null;
@@ -450,7 +497,7 @@ export async function ultimateResolveFromCandidates(
       return null;
     };
 
-    for (const cs of activePool) startGrab(cs);
+    for (const cs of activePool) { if (cs.nzbdavStatus === 'idle') startGrab(cs); }
 
     // ── Event loop (continues after primary for backup pre-caching) ──
     let activeNzbdavCs: CandidateState | null = null;
@@ -495,6 +542,7 @@ export async function ultimateResolveFromCandidates(
         if (cs.grabStatus === 'done' && cs.healthStatus === 'pending') startHealthCheck(cs);
         if (cs.grabStatus === 'failed' && cs.healthStatus === 'pending') {
           cs.healthStatus = 'dead';
+          cs.grabFailed = true;
           console.log(`${tag} ❌ Grab failed for #${cs.poolIndex + 1} ${cs.candidate.title}`);
           pullReplacement();
         }
@@ -527,6 +575,7 @@ export async function ultimateResolveFromCandidates(
           resolvedVideoPaths.add(resolvedStreamData.videoPath);
           videoPathOwner.set(resolvedStreamData.videoPath, activeNzbdavCs.poolIndex);
           resolvedTitles.add(activeNzbdavCs.candidate.title);
+          activeNzbdavCs.videoSize = resolvedStreamData.videoSize;
           const elapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
           console.log(`${tag} ✅ Resolved in ${elapsed}s — ${activeNzbdavCs.candidate.title} [${activeNzbdavCs.candidate.indexerName}]`);
           sessionResolve(resolvedStreamData);
@@ -557,8 +606,10 @@ export async function ultimateResolveFromCandidates(
             videoPathOwner.set(videoPath, activeNzbdavCs.poolIndex);
             resolvedTitles.add(activeNzbdavCs.candidate.title);
             deferred.backupUrls!.add(activeNzbdavCs.candidate.nzbUrl);
+            deferred.backupStreams!.push({ nzbUrl: activeNzbdavCs.candidate.nzbUrl, videoPath, title: activeNzbdavCs.candidate.title, indexerName: activeNzbdavCs.candidate.indexerName });
             backupCount++;
             if (!activeNzbdavCs.containerType) activeNzbdavCs.containerType = resolvedExt || undefined;
+            activeNzbdavCs.videoSize = resolvedStreamData.videoSize;
             const via = activeNzbdavCs.containerFallbackViaNzbdav ? 'via fallback, ' : '';
             const ct = activeNzbdavCs.containerType || 'unknown';
             console.log(`${tag}   📦 #${activeNzbdavCs.poolIndex + 1} Backup submitted (${via}${ct}, videoPath: ${videoPath}) — ${activeNzbdavCs.candidate.title.substring(0, 60)} [${activeNzbdavCs.candidate.indexerName}]`);
@@ -586,20 +637,6 @@ export async function ultimateResolveFromCandidates(
       if (!activeNzbdavCs || activeNzbdavCs.nzbdavStatus !== 'submitted') {
         const next = selectNext();
         if (next) {
-          // Skip candidates already resolved as library hits (already cached as backups)
-          if (primaryResolved && libraryResolvedUrls.has(next.candidate.nzbUrl)) {
-            next.nzbdavStatus = 'skipped';
-            // Populate containerType from the matching library hit so the summary
-            // can render [MKV] etc. for pool-slotted library backups.
-            const hit = hits?.find((h: any) => h.candidate.nzbUrl === next.candidate.nzbUrl);
-            if (hit?.data?.videoPath) {
-              const hitExt = path.extname(hit.data.videoPath).slice(1).toUpperCase();
-              if (hitExt) next.containerType = hitExt;
-            }
-            pullReplacement();
-            continue;
-          }
-
           // Skip cross-indexer duplicates (same release title already resolved)
           if (primaryResolved && resolvedTitles.has(next.candidate.title)) {
             next.nzbdavStatus = 'skipped';
@@ -655,6 +692,33 @@ export async function ultimateResolveFromCandidates(
       }
     }
 
+    // ── Post-drain library sweep ─────────────────────────────────
+    // Library hits cost no NNTP grabs, so fill remaining backup slots for free
+    // once the pool has drained. backupProcessingLimit is a grab budget and
+    // does not gate this sweep — desiredBackups is the only cap.
+    if (primaryResolved && options.desiredBackups > 0 && backupCount < options.desiredBackups) {
+      for (const hit of hits) {
+        if (backupCount >= options.desiredBackups) break;
+        if (libraryResolvedUrls.has(hit.candidate.nzbUrl)) continue;
+        if (hit.index === primaryPoolIndex) continue;
+        if (resolvedVideoPaths.has(hit.data.videoPath)) continue;
+        const hitExt = path.extname(hit.data.videoPath).slice(1).toUpperCase();
+        if (requiredContainerType && hitExt && hitExt !== requiredContainerType) continue;
+        resolvedVideoPaths.add(hit.data.videoPath);
+        videoPathOwner.set(hit.data.videoPath, hit.index);
+        libraryResolvedUrls.add(hit.candidate.nzbUrl);
+        resolvedTitles.add(hit.candidate.title);
+        deferred.backupUrls!.add(hit.candidate.nzbUrl);
+        deferred.backupStreams!.push({ nzbUrl: hit.candidate.nzbUrl, videoPath: hit.data.videoPath, title: hit.candidate.title, indexerName: hit.candidate.indexerName });
+        deferred.lastVettedUrl = hit.candidate.nzbUrl;
+        const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);
+        backupCount++;
+        libraryBackupCount++;
+        console.log(`${tag}   📦 #${hit.index + 1} Backup ready (library post-drain, ${hitExt || 'unknown'}, videoPath: ${hit.data.videoPath}) — ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}]`);
+      }
+    }
+
     // ── Summary ──────────────────────────────────────────────────
     const totalElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
     if (!primaryResolved) {
@@ -687,20 +751,12 @@ export async function ultimateResolveFromCandidates(
     if (primaryResolved && primaryPoolIndex >= 0) {
       const primaryCs = activePool.find(cs => cs.poolIndex === primaryPoolIndex);
       if (primaryCs) {
+        const primarySize = primaryCs.videoSize ? ` · ${formatBytes(primaryCs.videoSize)}` : '';
         rows.push({
           poolIndex: primaryPoolIndex,
           isPrimary: true,
-          line: `${tag}   👑 #${primaryPoolIndex + 1} [${requiredContainerType || '?'}] ${primaryCs.candidate.title.substring(0, 60)} [${primaryCs.candidate.indexerName}] → primary${primaryFromLibrary ? ' (library)' : ''}`,
+          line: `${tag}   👑 #${primaryPoolIndex + 1} [${requiredContainerType || '?'}${primarySize}] ${primaryCs.candidate.title.substring(0, 60)} [${primaryCs.candidate.indexerName}] → primary${primaryFromLibrary ? ' (library)' : ''}`,
         });
-      } else {
-        const hit = hits?.find((h: any) => h.index === primaryPoolIndex);
-        if (hit) {
-          rows.push({
-            poolIndex: primaryPoolIndex,
-            isPrimary: true,
-            line: `${tag}   👑 #${primaryPoolIndex + 1} [${requiredContainerType || '?'}] ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}] → primary (library)`,
-          });
-        }
       }
     }
 
@@ -713,8 +769,9 @@ export async function ultimateResolveFromCandidates(
       const isLibraryBackup = cs.nzbdavStatus === 'skipped' && libraryResolvedUrls.has(cs.candidate.nzbUrl);
       const icon = isLibraryBackup ? '📚' : cs.duplicate ? '🔁' : cs.nzbdavStatus === 'completed' ? '✅' : cs.nzbdavStatus === 'skipped' ? '⏭️' : cs.healthStatus === 'healthy' ? '💚' : cs.healthStatus === 'dead' ? '❌' : '⏳';
       const dupRef = cs.duplicate ? (cs.duplicateOf !== undefined ? ` (#${cs.duplicateOf + 1})` : '') : '';
-      const ct = cs.containerType ? `[${cs.containerType}] ` : '';
-      const status = isLibraryBackup ? 'backup (library)' : cs.duplicate ? `duplicate${dupRef}` : cs.nzbdavStatus === 'completed' ? 'backup' : cs.nzbdavStatus === 'skipped' ? `skipped (${cs.containerType || 'unknown'})` : cs.nzbdavStatus === 'submitted' ? 'cancelled' : cs.healthStatus === 'dead' ? 'dead' : 'standby';
+      const sizeStr = cs.videoSize ? ` · ${formatBytes(cs.videoSize)}` : '';
+      const ct = cs.containerType ? `[${cs.containerType}${sizeStr}] ` : '';
+      const status = isLibraryBackup ? 'backup (library)' : cs.duplicate ? `duplicate${dupRef}` : cs.nzbdavStatus === 'completed' ? 'backup' : cs.nzbdavStatus === 'skipped' ? `skipped (${cs.containerType || 'unknown'})` : cs.nzbdavStatus === 'submitted' ? 'cancelled' : cs.grabFailed ? 'grab-failed' : cs.healthStatus === 'dead' ? 'dead' : 'standby';
       rows.push({
         poolIndex: cs.poolIndex,
         isPrimary: false,
@@ -723,17 +780,17 @@ export async function ultimateResolveFromCandidates(
       poolIndicesRendered.add(cs.poolIndex);
     }
 
-    // Library hits that aren't in the active pool
-    for (let h = 1; h < hits.length; h++) {
-      const hit = hits[h];
+    // Out-of-pool library hits promoted post-drain (after event loop budget exhausted)
+    for (const hit of hits) {
       if (hit.index === primaryPoolIndex) continue;
       if (poolIndicesRendered.has(hit.index)) continue;
       if (!libraryResolvedUrls.has(hit.candidate.nzbUrl)) continue;
-      const ext = path.extname(hit.data!.videoPath).slice(1).toUpperCase();
+      const ext = path.extname(hit.data.videoPath).slice(1).toUpperCase();
+      const hitSize = hit.data.videoSize ? ` · ${formatBytes(hit.data.videoSize)}` : '';
       rows.push({
         poolIndex: hit.index,
         isPrimary: false,
-        line: `${tag}   📚 #${hit.index + 1} [${ext || '?'}] ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}] → backup (library)`,
+        line: `${tag}   📚 #${hit.index + 1} [${ext || '?'}${hitSize}] ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}] → backup (library post-drain)`,
       });
     }
 
@@ -754,13 +811,14 @@ export async function ultimateResolveFromCandidates(
       console.log(`${tag} ${divider}`);
     }
 
-    // Write dead candidates to dead NZB database so fallback loop skips them.
-    // Skip candidates whose nzbdav step already wrote a specific failure entry via setDeadNzbEntry —
-    // writing a URL-only shadow here would overwrite the real error with a generic "Health check: blocked",
-    // which defeats selective clears like clearMultiEpisodeDeadEntries / clearTimeoutDeadEntries.
+    // Write dead candidates to the dead NZB DB so the fallback loop skips them.
+    // Skip candidates whose nzbdav step already wrote a specific failure entry via setDeadNzbEntry
+    // (preserves granular errors for selective clears like clearMultiEpisodeDeadEntries /
+    // clearTimeoutDeadEntries). Also skip grab-failed candidates — grab failures are transient
+    // indexer/network/VPN issues, not NZB-liveness signals, and should never be persisted.
     let deadWrites = 0;
     for (const cs of activePool) {
-      if (cs.healthStatus === 'dead' && !cs.nzbdavDeadWritten) {
+      if (cs.healthStatus === 'dead' && !cs.nzbdavDeadWritten && !cs.grabFailed) {
         addDeadNzbByUrl(cs.candidate.nzbUrl, cs.candidate.title);
         deadWrites++;
       }
