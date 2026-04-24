@@ -244,6 +244,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         if (response.ok) {
           const data = await response.json();
           setConfig(data);
+        } else {
+          // Server rejected the save (413 payload too large, 400 validation, 5xx).
+          // Log it; leave local React state alone so the user's in-flight edits
+          // aren't stomped and the next edit re-triggers the save naturally.
+          console.error(`Failed to auto-save settings (HTTP ${response.status} ${response.statusText})`);
         }
       } catch (error) {
         console.error('Failed to auto-save settings:', error);
