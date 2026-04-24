@@ -77,7 +77,7 @@ export function AddIndexerModal({
   return (
     <div className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => {
       onClose();
-      setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+      setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30 });
       setSelectedPreset('');
       setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
       setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
@@ -92,7 +92,7 @@ export function AddIndexerModal({
             <button
               onClick={() => {
                 onClose();
-                setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+                setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30 });
                 setSelectedPreset('');
                 setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
                 setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });

@@ -9,6 +9,23 @@ import type { Config, UsenetIndexer } from '../types.js';
 import { checkZyclopsUrlConflict } from '../utils/indexerHelpers.js';
 
 /**
+ * Validate timeoutEnabled/timeout fields on an indexer payload.
+ * Returns an error message string, or null when valid. Shared by POST and PUT
+ * so creating and updating enforce identical bounds.
+ */
+function validateIndexerTimeoutFields(body: { timeout?: unknown; timeoutEnabled?: unknown }): string | null {
+  if (body.timeout !== undefined) {
+    if (typeof body.timeout !== 'number' || !Number.isFinite(body.timeout) || body.timeout < 1 || body.timeout > 45) {
+      return 'Timeout must be a number between 1 and 45 seconds';
+    }
+  }
+  if (body.timeoutEnabled !== undefined && typeof body.timeoutEnabled !== 'boolean') {
+    return 'timeoutEnabled must be a boolean';
+  }
+  return null;
+}
+
+/**
  * Ensure a Newznab URL ends with /api (the standard endpoint).
  * Users often paste just the base URL (e.g. https://indexer.example.com)
  * when they mean https://indexer.example.com/api.
@@ -50,10 +67,15 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
   router.post('/', (req, res) => {
     try {
-      const { name, url: rawUrl, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops } = req.body;
+      const { name, url: rawUrl, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops, pagination, maxPages, timeoutEnabled, timeout } = req.body;
 
       if (!name || !rawUrl || !apiKey) {
         return res.status(400).json({ error: 'Name, URL, and API key are required' });
+      }
+
+      const timeoutErr = validateIndexerTimeoutFields({ timeout, timeoutEnabled });
+      if (timeoutErr) {
+        return res.status(400).json({ error: timeoutErr });
       }
 
       const url = normalizeNewznabUrl(rawUrl);
@@ -68,7 +90,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       if (zyclops?.enabled) {
         console.log(`\u{1F916} Adding indexer ${name} with Zyclops enabled (backbone: ${zyclops.backbone?.join(',') || 'none'}, provider_host: ${zyclops.providerHosts || 'none'})`);
       }
-      const indexer = addIndexer({ name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops });
+      const indexer = addIndexer({ name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops, pagination, maxPages, timeoutEnabled, timeout });
       res.status(201).json(indexer);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -87,6 +109,11 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       // Normalize URL if provided
       if (updates.url) {
         updates.url = normalizeNewznabUrl(updates.url);
+      }
+
+      const timeoutErr = validateIndexerTimeoutFields(updates);
+      if (timeoutErr) {
+        return res.status(400).json({ error: timeoutErr });
       }
 
       // SAFETY: Check for duplicate indexer URLs when Zyclops is toggled
@@ -122,6 +149,18 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
           console.log(`\u{1F916} Zyclops disabled for ${name}`);
         } else if (willBeEnabled) {
           console.log(`\u{1F916} Zyclops config updated for ${name}: backbone=${updates.zyclops.backbone?.join(',') || 'none'}, provider_host=${updates.zyclops.providerHosts || 'none'}, show_unknown=${updates.zyclops.showUnknown ?? 'default'}, single_ip=${updates.zyclops.singleIp ?? 'default'}`);
+        }
+      }
+
+      // Log timeout state changes (audit trail for "why did searches start timing out?")
+      if (updates.timeoutEnabled !== undefined || updates.timeout !== undefined) {
+        const prev = getIndexers().find(i => i.name === name);
+        const nextEnabled = updates.timeoutEnabled ?? prev?.timeoutEnabled ?? true;
+        if (nextEnabled === false) {
+          console.log(`⏱️  Indexer "${name}" timeout disabled`);
+        } else {
+          const nextSeconds = updates.timeout ?? prev?.timeout;
+          console.log(`⏱️  Indexer "${name}" timeout updated: enabled=true, timeout=${nextSeconds ?? 'default'}s`);
         }
       }
 

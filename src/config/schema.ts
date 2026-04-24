@@ -24,10 +24,14 @@ export interface ConfigData {
   indexManager: 'newznab' | 'prowlarr' | 'nzbhydra';
   prowlarrUrl?: string;
   prowlarrApiKey?: string;
+  prowlarrTimeoutEnabled?: boolean;
+  prowlarrTimeout?: number;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
   nzbhydraUsername?: string;
   nzbhydraPassword?: string;
+  nzbhydraTimeoutEnabled?: boolean;
+  nzbhydraTimeout?: number;
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
   nzbdavWebdavUrl?: string;
@@ -61,6 +65,8 @@ export interface ConfigData {
   easynewsPassword?: string;
   easynewsPagination?: boolean;
   easynewsMaxPages?: number;
+  easynewsTimeoutEnabled?: boolean;
+  easynewsTimeout?: number;
   easynewsMode?: 'ddl' | 'nzb';
   easynewsHealthCheck?: boolean;
   indexerPriority?: string[];
@@ -188,6 +194,7 @@ const ENV_OVERRIDES: readonly string[] = [
   'NZBDAV_PROXY_ENABLED', 'NZBDAV_STREAMING_METHOD',
   'NZBDAV_STREAM_BUFFER_MB', 'STREAM_BUFFER_MB', 'NZBDAV_PIPE_BUFFER_MB', 'NZBDAV_STREAM_MAX_RECONNECTS', 'STREAM_MAX_RECONNECTS', 'NZBDAV_MAX_SELF_REDIRECTS',
   'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT', 'NZBDAV_SEASON_PACK_TIMEOUT',
+  'SEARCH_TIMEOUT',
   'PROWLARR_URL', 'PROWLARR_API_KEY',
   'NZBHYDRA_URL', 'NZBHYDRA_API_KEY', 'NZBHYDRA_USERNAME', 'NZBHYDRA_PASSWORD',
   'EASYNEWS_ENABLED', 'EASYNEWS_USERNAME', 'EASYNEWS_PASSWORD',
@@ -207,4 +214,21 @@ const ENV_OVERRIDES: readonly string[] = [
 const active = ENV_OVERRIDES.filter(name => process.env[name] !== undefined && process.env[name] !== '');
 if (active.length > 0) {
   console.log(`⚙️  Env var overrides active: ${active.join(', ')}`);
+}
+
+// Timeout summary — logs the effective per-searcher defaults so operators can trace any later timeout event back to a known baseline.
+{
+  const prowEnabled = configData.prowlarrTimeoutEnabled ?? true;
+  const prowSec = configData.prowlarrTimeout ?? 30;
+  const hydraEnabled = configData.nzbhydraTimeoutEnabled ?? true;
+  const hydraSec = configData.nzbhydraTimeout ?? 30;
+  const enEnabled = configData.easynewsTimeoutEnabled ?? true;
+  const enSec = configData.easynewsTimeout ?? 30;
+  const fmt = (on: boolean, s: number) => on ? `${s}s` : 'disabled';
+  console.log(`⏱️  Search timeouts — Prowlarr: ${fmt(prowEnabled, prowSec)}, NZBHydra: ${fmt(hydraEnabled, hydraSec)}, EasyNews: ${fmt(enEnabled, enSec)} (Newznab: per-indexer, default 30s, max 45s)`);
+  const searchTimeoutRaw = process.env.SEARCH_TIMEOUT;
+  if (searchTimeoutRaw && Number.isFinite(parseInt(searchTimeoutRaw, 10))) {
+    const clamped = Math.max(1, Math.min(45, parseInt(searchTimeoutRaw, 10)));
+    console.log(`⏱️  SEARCH_TIMEOUT=${clamped}s override active — forcing all indexer timeouts`);
+  }
 }

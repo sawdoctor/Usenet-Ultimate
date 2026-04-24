@@ -242,6 +242,8 @@ function App() {
         caps: null,
         pagination: false,
         maxPages: 3,
+        timeoutEnabled: true,
+        timeout: 30,
       });
     }
   };
@@ -272,7 +274,7 @@ function App() {
         body: JSON.stringify(ac.newIndexer),
       });
       if (response.ok) {
-        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30 });
         ac.setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setShowAddIndexer(false);
@@ -303,6 +305,8 @@ function App() {
       caps: indexer.caps || null,
       pagination: indexer.pagination === true,
       maxPages: indexer.maxPages ?? 3,
+      timeoutEnabled: indexer.timeoutEnabled !== false,
+      timeout: indexer.timeout ?? 30,
     });
   };
 
@@ -594,6 +598,10 @@ function App() {
           setEasynewsPagination={ac.setEasynewsPagination}
           easynewsMaxPages={ac.easynewsMaxPages}
           setEasynewsMaxPages={ac.setEasynewsMaxPages}
+          easynewsTimeoutEnabled={ac.easynewsTimeoutEnabled}
+          setEasynewsTimeoutEnabled={ac.setEasynewsTimeoutEnabled}
+          easynewsTimeout={ac.easynewsTimeout}
+          setEasynewsTimeout={ac.setEasynewsTimeout}
           easynewsMode={ac.easynewsMode}
           setEasynewsMode={ac.setEasynewsMode}
           showEasynewsPassword={ac.showEasynewsPassword}
@@ -608,6 +616,10 @@ function App() {
           setProwlarrApiKey={ac.setProwlarrApiKey}
           showProwlarrKey={ac.showProwlarrKey}
           setShowProwlarrKey={ac.setShowProwlarrKey}
+          prowlarrTimeoutEnabled={ac.prowlarrTimeoutEnabled}
+          setProwlarrTimeoutEnabled={ac.setProwlarrTimeoutEnabled}
+          prowlarrTimeout={ac.prowlarrTimeout}
+          setProwlarrTimeout={ac.setProwlarrTimeout}
           nzbhydraUrl={ac.nzbhydraUrl}
           setNzbhydraUrl={ac.setNzbhydraUrl}
           nzbhydraApiKey={ac.nzbhydraApiKey}
@@ -620,6 +632,10 @@ function App() {
           setNzbhydraPassword={ac.setNzbhydraPassword}
           showNzbhydraPassword={ac.showNzbhydraPassword}
           setShowNzbhydraPassword={ac.setShowNzbhydraPassword}
+          nzbhydraTimeoutEnabled={ac.nzbhydraTimeoutEnabled}
+          setNzbhydraTimeoutEnabled={ac.setNzbhydraTimeoutEnabled}
+          nzbhydraTimeout={ac.nzbhydraTimeout}
+          setNzbhydraTimeout={ac.setNzbhydraTimeout}
           syncedIndexers={ac.syncedIndexers}
           setSyncedIndexers={ac.setSyncedIndexers}
           syncStatus={ac.syncStatus}

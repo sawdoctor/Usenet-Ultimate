@@ -12,6 +12,15 @@ import { resolveExternalId } from '../idResolver.js';
 import { ProwlarrSearcher } from '../searchers/prowlarrSearcher.js';
 import { NzbhydraSearcher } from '../searchers/nzbhydraSearcher.js';
 import { EasynewsSearcher } from '../searchers/easynewsSearcher.js';
+import { UsenetIndexer } from '../types.js';
+
+// When SEARCH_TIMEOUT env is set, force it onto every Newznab indexer for this search cycle.
+// Returns the original reference when no override is active — no allocation cost in the common path.
+function applySearchTimeoutOverride(indexer: UsenetIndexer): UsenetIndexer {
+  return config.searchTimeoutOverride !== undefined
+    ? { ...indexer, timeoutEnabled: true, timeout: config.searchTimeoutOverride }
+    : indexer;
+}
 
 export interface SearchContext {
   type: string;
@@ -80,7 +89,12 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       }));
 
     const startTime = Date.now();
-    const searcher = new ProwlarrSearcher(config.prowlarrUrl, config.prowlarrApiKey, searchIndexers);
+    const timeoutEnabled = config.searchTimeoutOverride !== undefined ? true : config.prowlarrTimeoutEnabled;
+    const timeoutSeconds = config.searchTimeoutOverride ?? config.prowlarrTimeout;
+    const searcher = new ProwlarrSearcher(
+      config.prowlarrUrl, config.prowlarrApiKey, searchIndexers,
+      timeoutEnabled, timeoutSeconds,
+    );
 
     try {
       let results: any[];
@@ -153,7 +167,13 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       }));
 
     const startTime = Date.now();
-    const searcher = new NzbhydraSearcher(config.nzbhydraUrl, config.nzbhydraApiKey, searchIndexers, config.nzbhydraUsername, config.nzbhydraPassword);
+    const nzbhydraTimeoutEnabled = config.searchTimeoutOverride !== undefined ? true : config.nzbhydraTimeoutEnabled;
+    const nzbhydraTimeoutSeconds = config.searchTimeoutOverride ?? config.nzbhydraTimeout;
+    const searcher = new NzbhydraSearcher(
+      config.nzbhydraUrl, config.nzbhydraApiKey, searchIndexers,
+      config.nzbhydraUsername, config.nzbhydraPassword,
+      nzbhydraTimeoutEnabled, nzbhydraTimeoutSeconds,
+    );
 
     try {
       let results: any[];
@@ -229,6 +249,11 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         resolvedIds.set(method, result);
       }));
 
+    // Indexers that timed out during the main search pass. Scoped to this single
+    // indexManagerSearch invocation so the text-fallback and alt-title retries can
+    // skip them and avoid stacking a second timeout wait on an already-slow backend.
+    const timedOutIndexers = new Set<string>();
+
     // Search across all enabled indexers, each with its own methods and resolved IDs
     const searchPromises = effectiveIndexers
       .map(async (indexer) => {
@@ -238,7 +263,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           : (indexer.tvSearchMethod || ['imdb']);
         const methodArr = Array.isArray(methods) ? methods : [methods];
 
-        const searcher = new UsenetSearcher(indexer);
+        const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
 
         try {
           const allMethodResults: any[] = [];
@@ -269,11 +294,13 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
             }
           }
 
+          if (searcher.timedOut) timedOutIndexers.add(indexer.name);
           const responseTime = Date.now() - startTime;
           trackQuery(indexer.name, true, responseTime, allMethodResults.length);
 
           return allMethodResults.map(result => ({ ...result, indexerName: indexer.name }));
         } catch (error) {
+          if (searcher.timedOut) timedOutIndexers.add(indexer.name);
           const responseTime = Date.now() - startTime;
           trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
           console.error(`❌ Error searching ${indexer.name}:`, error);
@@ -283,21 +310,26 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
 
     let results = (await Promise.all(searchPromises)).flat();
 
-    // Zero-result text fallback: if ID-based searches returned nothing, retry with text
+    // Zero-result text fallback: if ID-based searches returned nothing, retry with text.
+    // Indexers that timed out in the main pass are skipped so we don't stack another timeout.
     if (results.length === 0 && title) {
       const nonTextIndexers = enabledIndexers.filter(indexer => {
+        if (timedOutIndexers.has(indexer.name)) return false;
         const methods = type === 'movie'
           ? (indexer.movieSearchMethod || ['imdb'])
           : (indexer.tvSearchMethod || ['imdb']);
         const methodArr = Array.isArray(methods) ? methods : [methods];
         return !methodArr.every(m => m === 'text');
       });
+      if (timedOutIndexers.size > 0) {
+        console.log(`⏱️  Skipping text fallback for ${timedOutIndexers.size} indexer(s) — prior timeout: ${[...timedOutIndexers].map(n => `"${n}"`).join(', ')}`);
+      }
 
       if (nonTextIndexers.length > 0) {
         console.log(`🔄 ID search returned 0 — text fallback for ${nonTextIndexers.length} indexer(s)`);
         const fallbackPromises = nonTextIndexers.map(async (indexer) => {
           const startTime = Date.now();
-          const searcher = new UsenetSearcher(indexer);
+          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
           try {
             let fbResults: any[] = [];
             if (type === 'movie') {
@@ -305,10 +337,12 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
             } else if (type === 'series' && season !== undefined && episode !== undefined) {
               fbResults = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles, titleYear);
             }
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, true, responseTime, fbResults.length);
             return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
           } catch (error) {
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
             console.error(`❌ Error in text fallback for ${indexer.name}:`, error);
@@ -322,13 +356,20 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       }
     }
 
-    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each.
+    // Skip indexers that have timed out at any prior point in this cycle.
     if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0) {
+      const altIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
+      const skipped = enabledIndexers.length - altIndexers.length;
+      if (skipped > 0) {
+        console.log(`⏱️  Skipping alt-title retry for ${skipped} indexer(s) — prior timeout: ${[...timedOutIndexers].map(n => `"${n}"`).join(', ')}`);
+      }
       for (const altTitle of additionalTitles) {
-        console.log(`🔄 Retrying with alternative title for ${enabledIndexers.length} indexer(s): "${altTitle}"`);
-        const altPromises = enabledIndexers.map(async (indexer) => {
+        if (altIndexers.length === 0) break;
+        console.log(`🔄 Retrying with alternative title for ${altIndexers.length} indexer(s): "${altTitle}"`);
+        const altPromises = altIndexers.map(async (indexer) => {
           const startTime = Date.now();
-          const searcher = new UsenetSearcher(indexer);
+          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
           try {
             let altResults: any[] = [];
             if (type === 'movie') {
@@ -336,10 +377,12 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
             } else if (type === 'series' && season !== undefined && episode !== undefined) {
               altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear);
             }
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, true, responseTime, altResults.length);
             return altResults.map(result => ({ ...result, indexerName: indexer.name }));
           } catch (error) {
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
             console.error(`❌ Error in alt-title retry for ${indexer.name}:`, error);
@@ -370,10 +413,13 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
 
   const { type, title, year, country, season, episode, episodesInSeason, additionalTitles, titleYear } = ctx;
   const easynewsStartTime = Date.now();
+  const easynewsTimeoutEnabled = config.searchTimeoutOverride !== undefined ? true : config.easynewsTimeoutEnabled;
+  const easynewsTimeoutSeconds = config.searchTimeoutOverride ?? config.easynewsTimeout;
   const searcher = new EasynewsSearcher(
     config.easynewsUsername,
     config.easynewsPassword,
     config.easynewsPagination ? config.easynewsMaxPages : 1,
+    easynewsTimeoutEnabled, easynewsTimeoutSeconds,
   );
 
   try {

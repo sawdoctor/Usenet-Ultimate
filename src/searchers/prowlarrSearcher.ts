@@ -20,6 +20,7 @@
 
 import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult, ProwlarrSearchResult } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
 import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
 import { config } from '../config/index.js';
@@ -39,11 +40,24 @@ interface NewznabParams {
 }
 
 export class ProwlarrSearcher {
+  private timedOut = false;
+
   constructor(
     private url: string,
     private apiKey: string,
     private indexers: SyncedIndexer[],
+    private timeoutEnabled: boolean = true,
+    private timeoutSeconds: number = DEFAULT_INDEXER_TIMEOUT_SECONDS,
   ) {}
+
+  private getTimeoutMs(): number | undefined {
+    if (!this.timeoutEnabled) return undefined;
+    return this.timeoutSeconds * 1000;
+  }
+
+  private timeoutLabel(): string {
+    return `[timeout=${this.timeoutEnabled ? `${this.timeoutSeconds}s` : 'disabled'}]`;
+  }
 
   async searchMovie(
     imdbId: string,
@@ -63,7 +77,7 @@ export class ProwlarrSearcher {
       if (method === 'text') {
         // Aggregate text search — one request for all text-method indexers
         const query = stripDiacritics(year ? `${title} ${year}` : title);
-        console.log(`🔍 Prowlarr movie text search for ${indexerIds.length} indexer(s): "${query}"`);
+        console.log(`🔍 Prowlarr movie text search for ${indexerIds.length} indexer(s) ${this.timeoutLabel()}: "${query}"`);
         searches.push(
           this.doAggregateSearch(indexerIds, 'search', query, ['2000']).then(results => {
             const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
@@ -95,7 +109,7 @@ export class ProwlarrSearcher {
             continue;
           }
 
-          console.log(`🔍 Prowlarr movie ${method} search for "${indexerName}" (id=${indexerId})`);
+          console.log(`🔍 Prowlarr movie ${method} search for "${indexerName}" (id=${indexerId}) ${this.timeoutLabel()}`);
           searches.push(this.doNewznabSearch(indexerId, indexerName, params));
           idSearchedIndexerIds.push(indexerId);
         }
@@ -123,7 +137,10 @@ export class ProwlarrSearcher {
     let allResults = resultSets.flat();
 
     // Zero-result text fallback: if ID-based searches returned nothing, retry with text
-    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title) {
+    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && this.timedOut) {
+      console.log(`   ⏱️  Prowlarr: skipping text fallback (prior timeout)`);
+    }
+    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && !this.timedOut) {
       const query = stripDiacritics(year ? `${title} ${year}` : title);
       console.log(`🔄 ID search returned 0 — falling back to text for ${idSearchedIndexerIds.length} indexer(s): "${query}"`);
       const fallbackResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', query, ['2000']);
@@ -137,7 +154,10 @@ export class ProwlarrSearcher {
     }
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
-    if (allResults.length === 0 && additionalTitles?.length) {
+    if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
+      console.log(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
+    }
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
       const allIndexerIds = [...new Set([...idSearchedIndexerIds, ...textFallbackIds])];
       if (allIndexerIds.length > 0) {
         for (const altTitle of additionalTitles) {
@@ -186,7 +206,7 @@ export class ProwlarrSearcher {
       if (method === 'text') {
         // Aggregate text search with SxxExx format
         const query = stripDiacritics(`${title} S${s}E${e}`);
-        console.log(`🔍 Prowlarr TV text search for ${indexerIds.length} indexer(s): "${query}"`);
+        console.log(`🔍 Prowlarr TV text search for ${indexerIds.length} indexer(s) ${this.timeoutLabel()}: "${query}"`);
         searches.push(
           this.doAggregateSearch(indexerIds, 'search', query, ['5000']).then(async results => {
             const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
@@ -248,7 +268,7 @@ export class ProwlarrSearcher {
             continue;
           }
 
-          console.log(`🔍 Prowlarr TV ${method} search S${season}E${episode} for "${indexerName}" (id=${indexerId})`);
+          console.log(`🔍 Prowlarr TV ${method} search S${season}E${episode} for "${indexerName}" (id=${indexerId}) ${this.timeoutLabel()}`);
           searches.push(this.doNewznabSearch(indexerId, indexerName, params));
           idSearchedIndexerIds.push(indexerId);
         }
@@ -321,7 +341,10 @@ export class ProwlarrSearcher {
     }
 
     // Text fallback: if ID-based searches returned 0 results, retry those indexers with text
-    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title) {
+    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && this.timedOut) {
+      console.log(`   ⏱️  Prowlarr: skipping text fallback (prior timeout)`);
+    }
+    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && !this.timedOut) {
       const query = stripDiacritics(`${title} S${s}E${e}`);
       console.log(`🔄 ID search returned 0 — falling back to text for ${idSearchedIndexerIds.length} indexer(s): "${query}"`);
       const fallbackResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', query, ['5000']);
@@ -360,7 +383,10 @@ export class ProwlarrSearcher {
     }
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
-    if (allResults.length === 0 && additionalTitles?.length) {
+    if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
+      console.log(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
+    }
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
       const allIndexerIds = [...new Set([...idSearchedIndexerIds, ...textFallbackIds])];
       if (allIndexerIds.length > 0) {
         for (const altTitle of additionalTitles) {
@@ -428,7 +454,7 @@ export class ProwlarrSearcher {
 
       const response = await axios.get(searchUrl, {
         headers: { 'X-Api-Key': this.apiKey, 'User-Agent': userAgent },
-        timeout: 30000,
+        timeout: this.getTimeoutMs(),
       });
 
       if (!Array.isArray(response.data)) {
@@ -464,7 +490,7 @@ export class ProwlarrSearcher {
             const pageUrl = `${this.url}/api/v1/search?${pageParams.toString()}`;
             const pageResp = await axios.get(pageUrl, {
               headers: { 'X-Api-Key': this.apiKey, 'User-Agent': userAgent },
-              timeout: 30000,
+              timeout: this.getTimeoutMs(),
             });
             if (!Array.isArray(pageResp.data) || pageResp.data.length === 0) break;
             const pageResults = pageResp.data.map((item: ProwlarrSearchResult) => ({
@@ -480,7 +506,12 @@ export class ProwlarrSearcher {
             console.log(`   📄 Page ${page}: +${pageResults.length} (total so far: ${results.length})`);
             if (pageResp.data.length < 1000) break; // Last page
           } catch (pageError: any) {
-            console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              console.warn(`⏱️  Prowlarr pagination page ${page} timed out after ${this.timeoutSeconds}s`);
+            } else {
+              console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            }
             break;
           }
         }
@@ -488,6 +519,10 @@ export class ProwlarrSearcher {
 
       return results;
     } catch (error: any) {
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        console.warn(`⏱️  Prowlarr request timed out after ${this.timeoutSeconds}s`);
+      }
       console.error(`❌ Prowlarr aggregate search error:`);
       if (error.response) {
         console.error(`   Status: ${error.response.status}`);
@@ -520,7 +555,7 @@ export class ProwlarrSearcher {
       const response = await axios.get(searchUrl, {
         params,
         headers: { 'X-Api-Key': this.apiKey, 'User-Agent': userAgent },
-        timeout: 30000,
+        timeout: this.getTimeoutMs(),
       });
 
       const rawData = typeof response.data === 'string' ? response.data : '';
@@ -557,7 +592,7 @@ export class ProwlarrSearcher {
             const pageResp = await axios.get(searchUrl, {
               params: { ...params, offset: currentOffset },
               headers: { 'X-Api-Key': this.apiKey, 'User-Agent': userAgent },
-              timeout: 30000,
+              timeout: this.getTimeoutMs(),
             });
             const pageData = await parseNewznabXmlWithMeta(typeof pageResp.data === 'string' ? pageResp.data : '');
             if (pageData.results.length === 0) break;
@@ -565,7 +600,12 @@ export class ProwlarrSearcher {
             currentOffset += pageData.results.length;
             console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
-            console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              console.warn(`⏱️  Prowlarr pagination page ${page} timed out after ${this.timeoutSeconds}s (${indexerName})`);
+            } else {
+              console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            }
             break;
           }
         }
@@ -573,6 +613,9 @@ export class ProwlarrSearcher {
 
       return results.map(r => ({ ...r, indexerName }));
     } catch (error: any) {
+      if (error.code === 'ECONNABORTED') {
+        console.warn(`⏱️  Prowlarr request for ${indexerName} timed out after ${this.timeoutSeconds}s`);
+      }
       console.error(`❌ Prowlarr newznab search error (${indexerName}):`);
       if (error.response) {
         console.error(`   Status: ${error.response.status}`);

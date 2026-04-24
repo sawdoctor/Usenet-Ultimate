@@ -10,6 +10,33 @@ import { configData, saveConfigFile } from './schema.js';
 import { enforceZyclopsEnabled } from './indexerCrud.js';
 import { validateRulesBlock } from '../rules/importers.js';
 
+// Clamp a timeout value to the integer-seconds domain. Rejects non-finite/non-number input.
+function coerceTimeoutSeconds(raw: unknown): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  return Math.max(1, Math.min(45, Math.round(raw)));
+}
+
+// Emit a one-line audit log when a top-level searcher's timeout changed.
+function logTimeoutChange(
+  label: string,
+  prevEnabled: boolean | undefined,
+  prevSeconds: number | undefined,
+  nextEnabled: boolean | undefined,
+  nextSeconds: number | undefined,
+): void {
+  const enabledChanged = nextEnabled !== undefined && nextEnabled !== prevEnabled;
+  const secondsChanged = nextSeconds !== undefined && nextSeconds !== prevSeconds;
+  if (!enabledChanged && !secondsChanged) return;
+
+  const effEnabled = nextEnabled ?? prevEnabled ?? true;
+  if (effEnabled === false) {
+    console.log(`⏱️  ${label} timeout disabled`);
+  } else {
+    const effSeconds = nextSeconds ?? prevSeconds;
+    console.log(`⏱️  ${label} timeout updated: enabled=true, timeout=${effSeconds ?? 'default'}s`);
+  }
+}
+
 export function updateSettings(settings: {
   addonEnabled?: boolean;
   cacheEnabled?: boolean;
@@ -18,10 +45,14 @@ export function updateSettings(settings: {
   indexManager?: 'newznab' | 'prowlarr' | 'nzbhydra';
   prowlarrUrl?: string;
   prowlarrApiKey?: string;
+  prowlarrTimeoutEnabled?: boolean;
+  prowlarrTimeout?: number;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
   nzbhydraUsername?: string;
   nzbhydraPassword?: string;
+  nzbhydraTimeoutEnabled?: boolean;
+  nzbhydraTimeout?: number;
   zyclopsEndpoint?: string;
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
@@ -73,6 +104,8 @@ export function updateSettings(settings: {
   easynewsPassword?: string;
   easynewsPagination?: boolean;
   easynewsMaxPages?: number;
+  easynewsTimeoutEnabled?: boolean;
+  easynewsTimeout?: number;
   easynewsMode?: 'ddl' | 'nzb';
   easynewsHealthCheck?: boolean;
   indexerPriority?: string[];
@@ -131,6 +164,19 @@ export function updateSettings(settings: {
   if (settings.prowlarrApiKey !== undefined) {
     configData.prowlarrApiKey = settings.prowlarrApiKey;
   }
+  if (settings.prowlarrTimeoutEnabled !== undefined || settings.prowlarrTimeout !== undefined) {
+    const prevEnabled = configData.prowlarrTimeoutEnabled;
+    const prevSeconds = configData.prowlarrTimeout;
+    let nextSeconds: number | undefined;
+    if (settings.prowlarrTimeoutEnabled !== undefined && typeof settings.prowlarrTimeoutEnabled === 'boolean') {
+      configData.prowlarrTimeoutEnabled = settings.prowlarrTimeoutEnabled;
+    }
+    if (settings.prowlarrTimeout !== undefined) {
+      nextSeconds = coerceTimeoutSeconds(settings.prowlarrTimeout);
+      if (nextSeconds !== undefined) configData.prowlarrTimeout = nextSeconds;
+    }
+    logTimeoutChange('Prowlarr', prevEnabled, prevSeconds, configData.prowlarrTimeoutEnabled, configData.prowlarrTimeout);
+  }
   if (settings.nzbhydraUrl !== undefined) {
     configData.nzbhydraUrl = settings.nzbhydraUrl;
   }
@@ -142,6 +188,18 @@ export function updateSettings(settings: {
   }
   if (settings.nzbhydraPassword !== undefined) {
     configData.nzbhydraPassword = settings.nzbhydraPassword;
+  }
+  if (settings.nzbhydraTimeoutEnabled !== undefined || settings.nzbhydraTimeout !== undefined) {
+    const prevEnabled = configData.nzbhydraTimeoutEnabled;
+    const prevSeconds = configData.nzbhydraTimeout;
+    if (settings.nzbhydraTimeoutEnabled !== undefined && typeof settings.nzbhydraTimeoutEnabled === 'boolean') {
+      configData.nzbhydraTimeoutEnabled = settings.nzbhydraTimeoutEnabled;
+    }
+    if (settings.nzbhydraTimeout !== undefined) {
+      const nextSeconds = coerceTimeoutSeconds(settings.nzbhydraTimeout);
+      if (nextSeconds !== undefined) configData.nzbhydraTimeout = nextSeconds;
+    }
+    logTimeoutChange('NZBHydra', prevEnabled, prevSeconds, configData.nzbhydraTimeoutEnabled, configData.nzbhydraTimeout);
   }
   if (settings.zyclopsEndpoint !== undefined) {
     configData.zyclopsEndpoint = settings.zyclopsEndpoint;
@@ -289,6 +347,18 @@ export function updateSettings(settings: {
   }
   if (settings.easynewsMaxPages !== undefined) {
     configData.easynewsMaxPages = settings.easynewsMaxPages;
+  }
+  if (settings.easynewsTimeoutEnabled !== undefined || settings.easynewsTimeout !== undefined) {
+    const prevEnabled = configData.easynewsTimeoutEnabled;
+    const prevSeconds = configData.easynewsTimeout;
+    if (settings.easynewsTimeoutEnabled !== undefined && typeof settings.easynewsTimeoutEnabled === 'boolean') {
+      configData.easynewsTimeoutEnabled = settings.easynewsTimeoutEnabled;
+    }
+    if (settings.easynewsTimeout !== undefined) {
+      const nextSeconds = coerceTimeoutSeconds(settings.easynewsTimeout);
+      if (nextSeconds !== undefined) configData.easynewsTimeout = nextSeconds;
+    }
+    logTimeoutChange('EasyNews', prevEnabled, prevSeconds, configData.easynewsTimeoutEnabled, configData.easynewsTimeout);
   }
   if (settings.easynewsMode !== undefined) {
     configData.easynewsMode = settings.easynewsMode;

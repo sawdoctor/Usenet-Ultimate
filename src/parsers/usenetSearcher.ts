@@ -7,7 +7,7 @@
  */
 
 import axios from 'axios';
-import { UsenetIndexer, NZBSearchResult } from '../types.js';
+import { UsenetIndexer, NZBSearchResult, DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
@@ -15,7 +15,27 @@ import { parseNewznabXmlWithMeta } from './newznabClient.js';
 import { stripDiacritics, isTextSearchMatch } from './titleMatching.js';
 
 export class UsenetSearcher {
+  public timedOut = false;
+
   constructor(private indexer: UsenetIndexer) {}
+
+  // Resolved timeout in ms, or undefined when timeouts are disabled.
+  private getTimeoutMs(): number | undefined {
+    if (this.indexer.timeoutEnabled === false) return undefined;
+    return (this.indexer.timeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS) * 1000;
+  }
+
+  // Effective timeout in seconds (for log lines); undefined when disabled.
+  private getTimeoutSeconds(): number | undefined {
+    if (this.indexer.timeoutEnabled === false) return undefined;
+    return this.indexer.timeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  }
+
+  // Formatted `[timeout=Ns]` or `[timeout=disabled]` label for inline log lines.
+  private timeoutLabel(): string {
+    const s = this.getTimeoutSeconds();
+    return `[timeout=${s === undefined ? 'disabled' : `${s}s`}]`;
+  }
 
   /**
    * Compute the effective URL and extra params for this indexer.
@@ -75,7 +95,7 @@ export class UsenetSearcher {
         params.cat = category;
       }
 
-      console.log(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}${isZyclops ? ' (via Zyclops)' : ''}`);
+      console.log(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       console.log(`   Query: "${query}", Category: ${category || 'all'}`);
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
@@ -86,7 +106,7 @@ export class UsenetSearcher {
       }
       const response = await axios.get(effectiveUrl, {
         params,
-        timeout: isZyclops ? 30000 : 10000,
+        timeout: this.getTimeoutMs(),
         headers: { 'User-Agent': userAgent },
         ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
       });
@@ -115,7 +135,7 @@ export class UsenetSearcher {
           try {
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
-              timeout: isZyclops ? 30000 : 10000,
+              timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
               ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
             });
@@ -134,6 +154,10 @@ export class UsenetSearcher {
             currentOffset += pageData.results.length;
             console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              console.warn(`⏱️  ${this.indexer.name} pagination page ${page} timed out after ${this.getTimeoutSeconds()}s`);
+            }
             console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             break;
           }
@@ -142,12 +166,17 @@ export class UsenetSearcher {
 
       return results;
     } catch (error: any) {
-      console.error(`❌ Search error for ${this.indexer.name}:`);
-      if (error.response) {
-        console.error(`   Status: ${error.response.status}`);
-        console.error(`   Data:`, error.response.data?.substring?.(0, 200));
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        console.warn(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
       } else {
-        console.error(`   ${error.message}`);
+        console.error(`❌ Search error for ${this.indexer.name}:`);
+        if (error.response) {
+          console.error(`   Status: ${error.response.status}`);
+          console.error(`   Data:`, error.response.data?.substring?.(0, 200));
+        } else {
+          console.error(`   ${error.message}`);
+        }
       }
       return [];
     }
@@ -203,10 +232,10 @@ export class UsenetSearcher {
 
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
-        console.log(`🎬 Movie search for ${externalId.idParam}: ${externalId.idValue}${isZyclops ? ' (via Zyclops)' : ''}`);
+        console.log(`🎬 Movie search for ${externalId.idParam}: ${externalId.idValue}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       } else {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
-        console.log(`🎬 Movie search for IMDB: ${imdbId}${isZyclops ? ' (via Zyclops)' : ''}`);
+        console.log(`🎬 Movie search for IMDB: ${imdbId}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       }
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
@@ -217,7 +246,7 @@ export class UsenetSearcher {
       }
       const response = await axios.get(effectiveUrl, {
         params,
-        timeout: isZyclops ? 30000 : 10000,
+        timeout: this.getTimeoutMs(),
         headers: { 'User-Agent': userAgent },
         ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
       });
@@ -246,7 +275,7 @@ export class UsenetSearcher {
           try {
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
-              timeout: isZyclops ? 30000 : 10000,
+              timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
               ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
             });
@@ -264,6 +293,10 @@ export class UsenetSearcher {
             currentOffset += pageData.results.length;
             console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              console.warn(`⏱️  ${this.indexer.name} pagination page ${page} timed out after ${this.getTimeoutSeconds()}s`);
+            }
             console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             break;
           }
@@ -272,11 +305,16 @@ export class UsenetSearcher {
 
       return results;
     } catch (error: any) {
-      console.error(`❌ Movie search error for ${this.indexer.name}:`);
-      if (error.response) {
-        console.error(`   Status: ${error.response.status}`);
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        console.warn(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
       } else {
-        console.error(`   ${error.message}`);
+        console.error(`❌ Movie search error for ${this.indexer.name}:`);
+        if (error.response) {
+          console.error(`   Status: ${error.response.status}`);
+        } else {
+          console.error(`   ${error.message}`);
+        }
       }
       return [];
     }
@@ -415,10 +453,10 @@ export class UsenetSearcher {
 
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
-        console.log(`📺 TV search for ${externalId.idParam}: ${externalId.idValue} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops)' : ''}`);
+        console.log(`📺 TV search for ${externalId.idParam}: ${externalId.idValue} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       } else {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
-        console.log(`📺 TV search for IMDB: ${imdbId} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops)' : ''}`);
+        console.log(`📺 TV search for IMDB: ${imdbId} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       }
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
@@ -427,24 +465,43 @@ export class UsenetSearcher {
       if (!isZyclops) {
         await logProxyExitIp(this.indexer.url, 'tv-search');
       }
-      const response = await axios.get(effectiveUrl, {
-        params,
-        timeout: isZyclops ? 30000 : 10000,
-        headers: { 'User-Agent': userAgent },
-        ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
-      });
 
-      console.log(`✅ Response received (${response.status}), parsing...`);
+      // Absorb timeout on the main request so the outer flow still reaches the
+      // season-pack block below. A season-pack query is semantically a different
+      // search (`S01` vs `S01E01`), not a retry — it deserves its own attempt
+      // even when the episode search timed out.
+      let results: NZBSearchResult[] = [];
+      let total: number | undefined;
+      try {
+        const response = await axios.get(effectiveUrl, {
+          params,
+          timeout: this.getTimeoutMs(),
+          headers: { 'User-Agent': userAgent },
+          ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+        });
 
-      const { results, total } = await parseNewznabXmlWithMeta(response.data);
-      console.log(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
+        console.log(`✅ Response received (${response.status}), parsing...`);
 
-      // Tag results from Zyclops as pre-verified healthy
-      if (isZyclops) {
-        for (const result of results) {
-          result.zyclopsVerified = true;
+        const parsed = await parseNewznabXmlWithMeta(response.data);
+        results = parsed.results;
+        total = parsed.total;
+        console.log(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
+
+        // Tag results from Zyclops as pre-verified healthy
+        if (isZyclops) {
+          for (const result of results) {
+            result.zyclopsVerified = true;
+          }
+          console.log(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
         }
-        console.log(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
+      } catch (error: any) {
+        if (error.code === 'ECONNABORTED') {
+          this.timedOut = true;
+          console.warn(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
+          // results stays []; outer flow continues to pagination + season-pack
+        } else {
+          throw error; // bubble non-timeout errors to the outer catch
+        }
       }
 
       // Pagination: fetch additional pages if enabled and more results available
@@ -458,7 +515,7 @@ export class UsenetSearcher {
           try {
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
-              timeout: isZyclops ? 30000 : 10000,
+              timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
               ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
             });
@@ -476,6 +533,10 @@ export class UsenetSearcher {
             currentOffset += pageData.results.length;
             console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              console.warn(`⏱️  ${this.indexer.name} pagination page ${page} timed out after ${this.getTimeoutSeconds()}s`);
+            }
             console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             break;
           }
@@ -514,11 +575,16 @@ export class UsenetSearcher {
 
       return results;
     } catch (error: any) {
-      console.error(`❌ TV search error for ${this.indexer.name}:`);
-      if (error.response) {
-        console.error(`   Status: ${error.response.status}`);
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        console.warn(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
       } else {
-        console.error(`   ${error.message}`);
+        console.error(`❌ TV search error for ${this.indexer.name}:`);
+        if (error.response) {
+          console.error(`   Status: ${error.response.status}`);
+        } else {
+          console.error(`   ${error.message}`);
+        }
       }
       return [];
     }

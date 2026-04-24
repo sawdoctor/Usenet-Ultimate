@@ -12,6 +12,7 @@
 
 import axios from 'axios';
 import type { NZBSearchResult } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
@@ -45,13 +46,25 @@ interface EasynewsSearchResponse {
 
 export class EasynewsSearcher {
   private authHeader: string;
+  private timedOut = false;
 
   constructor(
     private username: string,
     private password: string,
     private maxPages: number = 1,
+    private timeoutEnabled: boolean = true,
+    private timeoutSeconds: number = DEFAULT_INDEXER_TIMEOUT_SECONDS,
   ) {
     this.authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+  }
+
+  private getTimeoutMs(): number | undefined {
+    if (!this.timeoutEnabled) return undefined;
+    return this.timeoutSeconds * 1000;
+  }
+
+  private timeoutLabel(): string {
+    return `[timeout=${this.timeoutEnabled ? `${this.timeoutSeconds}s` : 'disabled'}]`;
   }
 
   async searchMovie(
@@ -62,7 +75,7 @@ export class EasynewsSearcher {
     titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const query = year ? `${title} ${year}` : title;
-    console.log(`🔍 EasyNews movie search: "${query}"`);
+    console.log(`🔍 EasyNews movie search ${this.timeoutLabel()}: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
     const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
@@ -73,7 +86,10 @@ export class EasynewsSearcher {
     }
 
     // Alternative-title retry: if 0 results and alternative titles exist, retry with each
-    if (filtered.length === 0 && additionalTitles?.length) {
+    if (filtered.length === 0 && additionalTitles?.length && this.timedOut) {
+      console.log(`   ⏱️  EasyNews: skipping alt-title retry (prior timeout)`);
+    }
+    if (filtered.length === 0 && additionalTitles?.length && !this.timedOut) {
       for (const altTitle of additionalTitles) {
         const altQuery = year ? `${altTitle} ${year}` : altTitle;
         console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
@@ -103,7 +119,7 @@ export class EasynewsSearcher {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
     const query = `${title} S${s}E${e}`;
-    console.log(`🔍 EasyNews TV search: "${query}"`);
+    console.log(`🔍 EasyNews TV search ${this.timeoutLabel()}: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
     const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
@@ -113,7 +129,9 @@ export class EasynewsSearcher {
         .forEach(r => console.log(`      ✂️  ${r.title}`));
     }
 
-    // Season pack search if enabled
+    // Season pack search if enabled. Runs independently of prior timeouts:
+    // it's a different query (whole-season `S01`, not an `S01E01` retry) and
+    // deserves its own per-request timeout budget.
     const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
     if (includeSeasonPacks && episodesInSeason) {
       const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
@@ -147,7 +165,10 @@ export class EasynewsSearcher {
     }
 
     // Alternative-title retry: if 0 results and alternative titles exist, retry with each
-    if (filtered.length === 0 && additionalTitles?.length) {
+    if (filtered.length === 0 && additionalTitles?.length && this.timedOut) {
+      console.log(`   ⏱️  EasyNews: skipping alt-title retry (prior timeout)`);
+    }
+    if (filtered.length === 0 && additionalTitles?.length && !this.timedOut) {
       for (const altTitle of additionalTitles) {
         const altQuery = `${altTitle} S${s}E${e}`;
         console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
@@ -229,7 +250,7 @@ export class EasynewsSearcher {
             Accept: 'application/json, text/javascript, */*; q=0.9',
             'User-Agent': userAgent,
           },
-          timeout: 30000,
+          timeout: this.getTimeoutMs(),
         });
 
         const data = (typeof response.data === 'object' ? response.data : (() => { try { return JSON.parse(response.data); } catch { return {}; } })()) as EasynewsSearchResponse;
@@ -264,7 +285,10 @@ export class EasynewsSearcher {
         const numPages = data.numPages || 1;
         if (page >= numPages) break;
       } catch (error: any) {
-        if (error.response?.status === 401) {
+        if (error.code === 'ECONNABORTED') {
+          this.timedOut = true;
+          console.warn(`⏱️  EasyNews timed out after ${this.timeoutSeconds}s`);
+        } else if (error.response?.status === 401) {
           console.error('❌ EasyNews authentication failed');
         } else {
           console.error(`❌ EasyNews search error (page ${page}):`, error.message);

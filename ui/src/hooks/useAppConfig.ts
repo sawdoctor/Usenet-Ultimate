@@ -43,14 +43,14 @@ const DEFAULT_NEW_INDEXER: NewIndexerForm = {
   name: '', url: '', apiKey: '', website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
   animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
-  caps: null, pagination: false, maxPages: 3,
+  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30,
 };
 
 const DEFAULT_EDIT_FORM: EditIndexerForm = {
   name: '', url: '', apiKey: '', enabled: true, website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
   animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
-  caps: null, pagination: false, maxPages: 3,
+  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30,
 };
 
 export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
@@ -113,10 +113,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // ─── Prowlarr / NZBHydra ───────────────────────────────────────────
   const [prowlarrUrl, setProwlarrUrl] = useState('http://localhost:9696');
   const [prowlarrApiKey, setProwlarrApiKey] = useState('');
+  const [prowlarrTimeoutEnabled, setProwlarrTimeoutEnabled] = useState(true);
+  const [prowlarrTimeout, setProwlarrTimeout] = useState(30);
   const [nzbhydraUrl, setNzbhydraUrl] = useState('http://localhost:5076');
   const [nzbhydraApiKey, setNzbhydraApiKey] = useState('');
   const [nzbhydraUsername, setNzbhydraUsername] = useState('');
   const [nzbhydraPassword, setNzbhydraPassword] = useState('');
+  const [nzbhydraTimeoutEnabled, setNzbhydraTimeoutEnabled] = useState(true);
+  const [nzbhydraTimeout, setNzbhydraTimeout] = useState(30);
 
   // ─── NZBDav ─────────────────────────────────────────────────────────
   const [nzbdavUrl, setNzbdavUrl] = useState('http://localhost:3000');
@@ -155,6 +159,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [easynewsPassword, setEasynewsPassword] = useState('');
   const [easynewsPagination, setEasynewsPagination] = useState(false);
   const [easynewsMaxPages, setEasynewsMaxPages] = useState(3);
+  const [easynewsTimeoutEnabled, setEasynewsTimeoutEnabled] = useState(true);
+  const [easynewsTimeout, setEasynewsTimeout] = useState(30);
   const [easynewsMode, setEasynewsMode] = useState<'ddl' | 'nzb'>('nzb');
   const [easynewsHealthCheck, setEasynewsHealthCheck] = useState(true);
   const [showEasynewsPassword, setShowEasynewsPassword] = useState(false);
@@ -341,9 +347,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: easynews settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages: easynewsPagination ? easynewsMaxPages : undefined, easynewsMode, easynewsHealthCheck }), 500);
+    const timer = setTimeout(() => saveSettings({ easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages: easynewsPagination ? easynewsMaxPages : undefined, easynewsTimeoutEnabled, easynewsTimeout, easynewsMode, easynewsHealthCheck }), 500);
     return () => clearTimeout(timer);
-  }, [easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages, easynewsMode, easynewsHealthCheck, saveSettings]);
+  }, [easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages, easynewsTimeoutEnabled, easynewsTimeout, easynewsMode, easynewsHealthCheck, saveSettings]);
 
   // Auto-save: zyclops endpoint
   useEffect(() => {
@@ -421,16 +427,16 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: prowlarr settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ indexManager, prowlarrUrl, prowlarrApiKey }), 500);
+    const timer = setTimeout(() => saveSettings({ indexManager, prowlarrUrl, prowlarrApiKey, prowlarrTimeoutEnabled, prowlarrTimeout }), 500);
     return () => clearTimeout(timer);
-  }, [indexManager, prowlarrUrl, prowlarrApiKey, saveSettings]);
+  }, [indexManager, prowlarrUrl, prowlarrApiKey, prowlarrTimeoutEnabled, prowlarrTimeout, saveSettings]);
 
   // Auto-save: nzbhydra settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword }), 500);
+    const timer = setTimeout(() => saveSettings({ indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword, nzbhydraTimeoutEnabled, nzbhydraTimeout }), 500);
     return () => clearTimeout(timer);
-  }, [indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword, saveSettings]);
+  }, [indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword, nzbhydraTimeoutEnabled, nzbhydraTimeout, saveSettings]);
 
   // Auto-save: synced indexers (Prowlarr/NZBHydra per-indexer settings)
   useEffect(() => {
@@ -467,7 +473,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), JSON.stringify(editForm.animeMovieSearchMethod), JSON.stringify(editForm.animeTvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, expandedIndexer]);
+  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), JSON.stringify(editForm.animeMovieSearchMethod), JSON.stringify(editForm.animeTvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, editForm.timeoutEnabled, editForm.timeout, expandedIndexer]);
 
   // Reset NZBDav connection status when fields change after initial load
   useEffect(() => {
@@ -526,6 +532,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setEasynewsPassword(data.easynewsPassword || '');
       setEasynewsPagination(data.easynewsPagination || false);
       setEasynewsMaxPages(data.easynewsMaxPages || 3);
+      setEasynewsTimeoutEnabled(data.easynewsTimeoutEnabled !== false);
+      setEasynewsTimeout(data.easynewsTimeout ?? 30);
       setEasynewsMode(data.easynewsMode || 'nzb');
       setEasynewsHealthCheck(data.easynewsHealthCheck ?? true);
       setZyclopsEndpoint(data.zyclopsEndpoint || 'https://zyclops.elfhosted.com');
@@ -782,10 +790,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
 
       setProwlarrUrl(data.prowlarrUrl || 'http://localhost:9696');
       setProwlarrApiKey(data.prowlarrApiKey || '');
+      setProwlarrTimeoutEnabled(data.prowlarrTimeoutEnabled !== false);
+      setProwlarrTimeout(data.prowlarrTimeout ?? 30);
       setNzbhydraUrl(data.nzbhydraUrl || 'http://localhost:5076');
       setNzbhydraApiKey(data.nzbhydraApiKey || '');
       setNzbhydraUsername(data.nzbhydraUsername || '');
       setNzbhydraPassword(data.nzbhydraPassword || '');
+      setNzbhydraTimeoutEnabled(data.nzbhydraTimeoutEnabled !== false);
+      setNzbhydraTimeout(data.nzbhydraTimeout ?? 30);
       setNzbdavUrl(data.nzbdavUrl || 'http://localhost:3000');
       setNzbdavApiKey(data.nzbdavApiKey || '');
       setNzbdavWebdavUrl(data.nzbdavWebdavUrl || 'http://localhost:3000');
@@ -1236,10 +1248,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     // Prowlarr / NZBHydra
     prowlarrUrl, setProwlarrUrl,
     prowlarrApiKey, setProwlarrApiKey,
+    prowlarrTimeoutEnabled, setProwlarrTimeoutEnabled,
+    prowlarrTimeout, setProwlarrTimeout,
     nzbhydraUrl, setNzbhydraUrl,
     nzbhydraApiKey, setNzbhydraApiKey,
     nzbhydraUsername, setNzbhydraUsername,
     nzbhydraPassword, setNzbhydraPassword,
+    nzbhydraTimeoutEnabled, setNzbhydraTimeoutEnabled,
+    nzbhydraTimeout, setNzbhydraTimeout,
 
     // NZBDav
     nzbdavUrl, setNzbdavUrl,
@@ -1278,6 +1294,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     easynewsPassword, setEasynewsPassword,
     easynewsPagination, setEasynewsPagination,
     easynewsMaxPages, setEasynewsMaxPages,
+    easynewsTimeoutEnabled, setEasynewsTimeoutEnabled,
+    easynewsTimeout, setEasynewsTimeout,
     easynewsMode, setEasynewsMode,
     easynewsHealthCheck, setEasynewsHealthCheck,
     showEasynewsPassword, setShowEasynewsPassword,

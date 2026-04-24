@@ -11,6 +11,7 @@
 
 import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
 import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
 import { config } from '../config/index.js';
@@ -18,6 +19,7 @@ import { getLatestVersions } from '../versionFetcher.js';
 
 export class NzbhydraSearcher {
   private authHeader?: string;
+  private timedOut = false;
 
   constructor(
     private url: string,
@@ -25,10 +27,21 @@ export class NzbhydraSearcher {
     private indexers: SyncedIndexer[],
     username?: string,
     password?: string,
+    private timeoutEnabled: boolean = true,
+    private timeoutSeconds: number = DEFAULT_INDEXER_TIMEOUT_SECONDS,
   ) {
     if (username && password) {
       this.authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
     }
+  }
+
+  private getTimeoutMs(): number | undefined {
+    if (!this.timeoutEnabled) return undefined;
+    return this.timeoutSeconds * 1000;
+  }
+
+  private timeoutLabel(): string {
+    return `[timeout=${this.timeoutEnabled ? `${this.timeoutSeconds}s` : 'disabled'}]`;
   }
 
   async searchMovie(
@@ -78,7 +91,7 @@ export class NzbhydraSearcher {
         continue;
       }
 
-      console.log(`🔍 NZBHydra movie search (${method}) for ${indexerNames.length} indexer(s)`);
+      console.log(`🔍 NZBHydra movie search (${method}) for ${indexerNames.length} indexer(s) ${this.timeoutLabel()}`);
       const results = await this.doSearch(params);
 
       if (method === 'text') {
@@ -116,7 +129,10 @@ export class NzbhydraSearcher {
     }
 
     // Zero-result text fallback: if ID-based searches returned nothing, retry with text
-    if (allResults.length === 0 && idSearchedNames.length > 0 && title) {
+    if (allResults.length === 0 && idSearchedNames.length > 0 && title && this.timedOut) {
+      console.log(`   ⏱️  NZBHydra: skipping text fallback (prior timeout)`);
+    }
+    if (allResults.length === 0 && idSearchedNames.length > 0 && title && !this.timedOut) {
       const params: Record<string, string> = {
         apikey: this.apiKey,
         extended: '1',
@@ -137,7 +153,10 @@ export class NzbhydraSearcher {
     }
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
-    if (allResults.length === 0 && additionalTitles?.length) {
+    if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
+      console.log(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
+    }
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
       const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
@@ -224,7 +243,7 @@ export class NzbhydraSearcher {
         continue;
       }
 
-      console.log(`🔍 NZBHydra TV search (${method}) S${season}E${episode} for ${indexerNames.length} indexer(s)`);
+      console.log(`🔍 NZBHydra TV search (${method}) S${season}E${episode} for ${indexerNames.length} indexer(s) ${this.timeoutLabel()}`);
       const results = await this.doSearch(params);
 
       if (method === 'text') {
@@ -342,7 +361,10 @@ export class NzbhydraSearcher {
     }
 
     // Zero-result text fallback: if ID-based searches returned nothing, retry with text
-    if (allResults.length === 0 && idSearchedNames.length > 0 && title) {
+    if (allResults.length === 0 && idSearchedNames.length > 0 && title && this.timedOut) {
+      console.log(`   ⏱️  NZBHydra: skipping text fallback (prior timeout)`);
+    }
+    if (allResults.length === 0 && idSearchedNames.length > 0 && title && !this.timedOut) {
       const params: Record<string, string> = {
         apikey: this.apiKey,
         extended: '1',
@@ -385,7 +407,10 @@ export class NzbhydraSearcher {
     }
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
-    if (allResults.length === 0 && additionalTitles?.length) {
+    if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
+      console.log(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
+    }
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
       const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
@@ -447,7 +472,7 @@ export class NzbhydraSearcher {
 
       const response = await axios.get(url, {
         params,
-        timeout: 30000,
+        timeout: this.getTimeoutMs(),
         headers,
       });
 
@@ -467,7 +492,7 @@ export class NzbhydraSearcher {
           try {
             const pageResp = await axios.get(url, {
               params: { ...params, offset: currentOffset },
-              timeout: 30000,
+              timeout: this.getTimeoutMs(),
               headers,
             });
             const pageData = await parseNewznabXmlWithMeta(pageResp.data);
@@ -476,7 +501,12 @@ export class NzbhydraSearcher {
             currentOffset += pageData.results.length;
             console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
-            console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              console.warn(`⏱️  NZBHydra pagination page ${page} timed out after ${this.timeoutSeconds}s`);
+            } else {
+              console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            }
             break;
           }
         }
@@ -489,6 +519,10 @@ export class NzbhydraSearcher {
         indexerName: NzbhydraSearcher.resolveIndexerName(r.attributes) || 'NZBHydra',
       }));
     } catch (error: any) {
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        console.warn(`⏱️  NZBHydra request timed out after ${this.timeoutSeconds ?? DEFAULT_INDEXER_TIMEOUT_SECONDS}s`);
+      }
       console.error(`❌ NZBHydra search error:`);
       if (error.response) {
         console.error(`   Status: ${error.response.status}`);

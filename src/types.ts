@@ -49,6 +49,8 @@ export interface UsenetIndexer {
   caps?: IndexerCaps;  // Discovered capabilities from ?t=caps
   pagination?: boolean; // Enable paginated search (default false)
   maxPages?: number;    // Max extra pages to fetch when pagination enabled (1-10, default 3)
+  timeoutEnabled?: boolean; // Enable request timeout (default true)
+  timeout?: number;         // Request timeout in seconds, 0.5s steps (1-120, default 8)
   zyclops?: ZyclopsIndexerConfig;  // Zyclops health-check proxy settings (Newznab mode only)
 }
 
@@ -71,6 +73,11 @@ export interface ZyclopsIndexerConfig {
     healthCheck: boolean;
   };
 }
+
+// Default timeout for indexer search requests (seconds).
+// Also the default for Zyclops-routed requests — Zyclops runs NNTP health checks
+// through a remote proxy, so 30s leaves headroom while staying below the 45s max.
+export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 30;
 
 // Valid Zyclops backbone identifiers
 export const ZYCLOPS_BACKBONES = [
@@ -120,10 +127,16 @@ export interface Config {
   syncedIndexers?: SyncedIndexer[]; // Indexers synced from Prowlarr or NZBHydra
   prowlarrUrl?: string;
   prowlarrApiKey?: string;
+  // Accessor applies defaults — always defined at runtime even when absent from config.json.
+  prowlarrTimeoutEnabled: boolean;
+  prowlarrTimeout: number;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
   nzbhydraUsername?: string;
   nzbhydraPassword?: string;
+  // Accessor applies defaults — always defined at runtime.
+  nzbhydraTimeoutEnabled: boolean;
+  nzbhydraTimeout: number;
   zyclopsEndpoint?: string;            // Zyclops API endpoint URL (default: https://zyclops.elfhosted.com)
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
@@ -157,9 +170,13 @@ export interface Config {
   easynewsPassword?: string;
   easynewsPagination?: boolean;  // Enable paginated search (default false)
   easynewsMaxPages?: number;     // Additional pages when pagination enabled (1-10, default 3)
+  // Accessor applies defaults — always defined at runtime.
+  easynewsTimeoutEnabled: boolean;
+  easynewsTimeout: number;
   easynewsMode?: 'ddl' | 'nzb'; // DDL = direct download/stream, NZB = send to download client
   easynewsHealthCheck?: boolean; // Include EasyNews NZB results in health checks (default true)
   indexerPriority?: string[];    // Ordered indexer names for dedup priority (position 0 = highest priority)
+  searchTimeoutOverride?: number; // SEARCH_TIMEOUT env var override (seconds, 1-120)
 }
 
 // Auto-play / binge group configuration

@@ -22,9 +22,13 @@ import {
   Settings,
   ChevronDown,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import clsx from 'clsx';
 import type { Config, Indexer, SyncedIndexer, IndexerCaps } from '../../types';
+import { useHoldRepeat } from '../../hooks/useHoldRepeat';
+import { TimeoutStepper } from '../shared/TimeoutStepper';
+
+const DEFAULT_TIMEOUT_SECONDS = 30;
 
 interface IndexManagerOverlayProps {
   onClose: () => void;
@@ -83,6 +87,10 @@ interface IndexManagerOverlayProps {
   setEasynewsPagination: React.Dispatch<React.SetStateAction<boolean>>;
   easynewsMaxPages: number;
   setEasynewsMaxPages: React.Dispatch<React.SetStateAction<number>>;
+  easynewsTimeoutEnabled: boolean;
+  setEasynewsTimeoutEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  easynewsTimeout: number;
+  setEasynewsTimeout: React.Dispatch<React.SetStateAction<number>>;
   easynewsMode: 'ddl' | 'nzb';
   setEasynewsMode: React.Dispatch<React.SetStateAction<'ddl' | 'nzb'>>;
   showEasynewsPassword: boolean;
@@ -99,6 +107,10 @@ interface IndexManagerOverlayProps {
   setProwlarrApiKey: React.Dispatch<React.SetStateAction<string>>;
   showProwlarrKey: boolean;
   setShowProwlarrKey: React.Dispatch<React.SetStateAction<boolean>>;
+  prowlarrTimeoutEnabled: boolean;
+  setProwlarrTimeoutEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  prowlarrTimeout: number;
+  setProwlarrTimeout: React.Dispatch<React.SetStateAction<number>>;
 
   // NZBHydra
   nzbhydraUrl: string;
@@ -113,6 +125,10 @@ interface IndexManagerOverlayProps {
   setNzbhydraPassword: React.Dispatch<React.SetStateAction<string>>;
   showNzbhydraPassword: boolean;
   setShowNzbhydraPassword: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbhydraTimeoutEnabled: boolean;
+  setNzbhydraTimeoutEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbhydraTimeout: number;
+  setNzbhydraTimeout: React.Dispatch<React.SetStateAction<number>>;
 
   // Sync state
   syncedIndexers: SyncedIndexer[];
@@ -200,6 +216,10 @@ export function IndexManagerOverlay({
   setEasynewsPagination,
   easynewsMaxPages,
   setEasynewsMaxPages,
+  easynewsTimeoutEnabled,
+  setEasynewsTimeoutEnabled,
+  easynewsTimeout,
+  setEasynewsTimeout,
   easynewsMode,
   setEasynewsMode,
   showEasynewsPassword,
@@ -214,6 +234,10 @@ export function IndexManagerOverlay({
   setProwlarrApiKey,
   showProwlarrKey,
   setShowProwlarrKey,
+  prowlarrTimeoutEnabled,
+  setProwlarrTimeoutEnabled,
+  prowlarrTimeout,
+  setProwlarrTimeout,
   nzbhydraUrl,
   setNzbhydraUrl,
   nzbhydraApiKey,
@@ -226,6 +250,10 @@ export function IndexManagerOverlay({
   setNzbhydraPassword,
   showNzbhydraPassword,
   setShowNzbhydraPassword,
+  nzbhydraTimeoutEnabled,
+  setNzbhydraTimeoutEnabled,
+  nzbhydraTimeout,
+  setNzbhydraTimeout,
   syncedIndexers,
   setSyncedIndexers,
   syncStatus,
@@ -258,6 +286,15 @@ export function IndexManagerOverlay({
   fetchIndexers,
 }: IndexManagerOverlayProps) {
   const [showNzbhydraAdvanced, setShowNzbhydraAdvanced] = useState(false);
+
+  // Hold-to-accelerate +/− handlers for the 3 top-level searcher timeouts.
+  // Mirrors the wait-time stepper pattern from UltimateResolveOverlay / FallbackOverlay.
+  const prowlarrTimeoutDec = useHoldRepeat(useCallback(() => setProwlarrTimeout(p => Math.max(1, p - 1)), [setProwlarrTimeout]));
+  const prowlarrTimeoutInc = useHoldRepeat(useCallback(() => setProwlarrTimeout(p => Math.min(45, p + 1)), [setProwlarrTimeout]));
+  const nzbhydraTimeoutDec = useHoldRepeat(useCallback(() => setNzbhydraTimeout(p => Math.max(1, p - 1)), [setNzbhydraTimeout]));
+  const nzbhydraTimeoutInc = useHoldRepeat(useCallback(() => setNzbhydraTimeout(p => Math.min(45, p + 1)), [setNzbhydraTimeout]));
+  const easynewsTimeoutDec = useHoldRepeat(useCallback(() => setEasynewsTimeout(p => Math.max(1, p - 1)), [setEasynewsTimeout]));
+  const easynewsTimeoutInc = useHoldRepeat(useCallback(() => setEasynewsTimeout(p => Math.min(45, p + 1)), [setEasynewsTimeout]));
 
   /** Reset all sync-related UI state (called when credentials change or manager switches) */
   const resetSyncState = () => {
@@ -734,6 +771,36 @@ export function IndexManagerOverlay({
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-3">
+                        <label htmlFor="easynews-timeout-enabled" className="flex-1 cursor-pointer">
+                          <span className="text-xs text-slate-400">Request timeout</span>
+                          <span className="text-[10px] text-slate-500 ml-1.5">Limit how long to wait for EasyNews responses</span>
+                        </label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            id="easynews-timeout-enabled"
+                            checked={easynewsTimeoutEnabled}
+                            onChange={(e) => setEasynewsTimeoutEnabled(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                        </label>
+                      </div>
+                      {easynewsTimeoutEnabled && (
+                        <div className="pl-6">
+                          <TimeoutStepper
+                            value={easynewsTimeout}
+                            defaultValue={DEFAULT_TIMEOUT_SECONDS}
+                            decProps={easynewsTimeoutDec}
+                            incProps={easynewsTimeoutInc}
+                            onChange={setEasynewsTimeout}
+                            inputId="easynews-timeout-seconds"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
                         <label htmlFor="easynews-pagination" className="flex-1 cursor-pointer">
                           <span className="text-xs text-slate-400">Paginated search</span>
                           <span className="text-[10px] text-slate-500 ml-1.5">Fetch additional pages of results (250 results/page)</span>
@@ -837,6 +904,36 @@ export function IndexManagerOverlay({
                         </button>
                       )}
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="prowlarr-timeout-enabled" className="flex-1 cursor-pointer">
+                        <span className="text-sm text-slate-300">Request timeout</span>
+                        <span className="text-xs text-slate-500 ml-2">Limit how long to wait for Prowlarr responses</span>
+                      </label>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="prowlarr-timeout-enabled"
+                          checked={prowlarrTimeoutEnabled}
+                          onChange={(e) => setProwlarrTimeoutEnabled(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                      </label>
+                    </div>
+                    {prowlarrTimeoutEnabled && (
+                      <div className="pl-6">
+                        <TimeoutStepper
+                          value={prowlarrTimeout}
+                          defaultValue={DEFAULT_TIMEOUT_SECONDS}
+                          decProps={prowlarrTimeoutDec}
+                          incProps={prowlarrTimeoutInc}
+                          onChange={setProwlarrTimeout}
+                          inputId="prowlarr-timeout-seconds"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <button
@@ -1148,6 +1245,36 @@ export function IndexManagerOverlay({
                             )}
                           </div>
                         </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="nzbhydra-timeout-enabled" className="flex-1 cursor-pointer">
+                        <span className="text-sm text-slate-300">Request timeout</span>
+                        <span className="text-xs text-slate-500 ml-2">Limit how long to wait for NZBHydra responses</span>
+                      </label>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="nzbhydra-timeout-enabled"
+                          checked={nzbhydraTimeoutEnabled}
+                          onChange={(e) => setNzbhydraTimeoutEnabled(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                      </label>
+                    </div>
+                    {nzbhydraTimeoutEnabled && (
+                      <div className="pl-6">
+                        <TimeoutStepper
+                          value={nzbhydraTimeout}
+                          defaultValue={DEFAULT_TIMEOUT_SECONDS}
+                          decProps={nzbhydraTimeoutDec}
+                          incProps={nzbhydraTimeoutInc}
+                          onChange={setNzbhydraTimeout}
+                          inputId="nzbhydra-timeout-seconds"
+                        />
                       </div>
                     )}
                   </div>

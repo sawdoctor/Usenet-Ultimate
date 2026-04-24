@@ -40,6 +40,8 @@ export interface Indexer {
   caps?: IndexerCaps;
   pagination?: boolean;
   maxPages?: number;
+  timeoutEnabled?: boolean;
+  timeout?: number;
   zyclops?: ZyclopsIndexerConfig;
 }
 
@@ -139,10 +141,14 @@ export interface Config {
   syncedIndexers?: SyncedIndexer[];
   prowlarrUrl?: string;
   prowlarrApiKey?: string;
+  prowlarrTimeoutEnabled?: boolean;
+  prowlarrTimeout?: number;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
   nzbhydraUsername?: string;
   nzbhydraPassword?: string;
+  nzbhydraTimeoutEnabled?: boolean;
+  nzbhydraTimeout?: number;
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
   nzbdavWebdavUrl?: string;
@@ -166,6 +172,8 @@ export interface Config {
   easynewsPassword?: string;
   easynewsPagination?: boolean;
   easynewsMaxPages?: number;
+  easynewsTimeoutEnabled?: boolean;
+  easynewsTimeout?: number;
   easynewsMode?: 'ddl' | 'nzb';
   easynewsHealthCheck?: boolean;
   indexerPriority?: string[];
@@ -278,6 +286,8 @@ export interface NewIndexerForm {
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;
+  timeoutEnabled: boolean;
+  timeout: number;
 }
 
 export interface EditIndexerForm {
@@ -294,6 +304,8 @@ export interface EditIndexerForm {
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;
+  timeoutEnabled: boolean;
+  timeout: number;
 }
 
 export interface ElementDragState {

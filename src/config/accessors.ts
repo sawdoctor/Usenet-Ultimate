@@ -10,6 +10,7 @@
  */
 
 import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateResolveConfig } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
 import { UR_TIMEOUT_DEFAULTS } from '../nzbdav/timeoutDefaults.js';
@@ -378,6 +379,12 @@ export const config: Config = {
   get prowlarrApiKey() {
     return envStr('PROWLARR_API_KEY') || configData.prowlarrApiKey;
   },
+  get prowlarrTimeoutEnabled() {
+    return configData.prowlarrTimeoutEnabled ?? true;
+  },
+  get prowlarrTimeout() {
+    return configData.prowlarrTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  },
   get nzbhydraUrl() {
     return envStr('NZBHYDRA_URL') || configData.nzbhydraUrl;
   },
@@ -389,6 +396,12 @@ export const config: Config = {
   },
   get nzbhydraPassword() {
     return envStr('NZBHYDRA_PASSWORD') || configData.nzbhydraPassword || '';
+  },
+  get nzbhydraTimeoutEnabled() {
+    return configData.nzbhydraTimeoutEnabled ?? true;
+  },
+  get nzbhydraTimeout() {
+    return configData.nzbhydraTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
   },
   get zyclopsEndpoint() {
     return configData.zyclopsEndpoint || ZYCLOPS_DEFAULT_ENDPOINT;
@@ -407,6 +420,16 @@ export const config: Config = {
   },
   get easynewsMaxPages() {
     return configData.easynewsMaxPages || 3;
+  },
+  get easynewsTimeoutEnabled() {
+    return configData.easynewsTimeoutEnabled ?? true;
+  },
+  get easynewsTimeout() {
+    return configData.easynewsTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  },
+  get searchTimeoutOverride() {
+    const raw = envInt('SEARCH_TIMEOUT');
+    return raw !== undefined ? Math.max(1, Math.min(45, raw)) : undefined;
   },
   get easynewsMode() {
     return configData.easynewsMode || 'nzb';
