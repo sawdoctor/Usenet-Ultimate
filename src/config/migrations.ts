@@ -254,20 +254,23 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
-// Insert 'DCP' (Digital Cinema Package leaks) into videoPriority at the correct
-// tier: just after 'BluRay', above 'WEB-DL'. DCP releases are theatrical-master
-// transcodes — BluRay-adjacent quality, not screener-grade. Also reposition DCP
-// for users who got the old beta placement (between TeleCine and TeleSync).
+// Pin 'DCP' (Digital Cinema Package leaks) into videoPriority just above
+// 'WEBCap' — theatrical-master transcodes sit between standard web/BDRip
+// sources and screener-grade captures. Also catches old placements
+// (BluRay-adjacent, or between TeleCine and TeleSync) and repositions them.
+// correctIndex runs on the DCP-removed array, so returning WEBCap's index
+// splices DCP in right before WEBCap.
 {
   const correctIndex = (arr: string[]): number => {
-    const bluray = arr.indexOf('BluRay');
-    return bluray >= 0 ? bluray + 1 : 0;
+    const webcap = arr.indexOf('WEBCap');
+    return webcap >= 0 ? webcap : arr.length;
   };
   const needsUpdate = (arr: string[] | undefined): boolean => {
     if (!arr || arr.length === 0) return false;
     const dcpIdx = arr.indexOf('DCP');
     if (dcpIdx < 0) return true; // DCP missing, insert it
-    return dcpIdx !== correctIndex(arr); // DCP present but at wrong tier
+    const copy = arr.filter(v => v !== 'DCP');
+    return dcpIdx !== correctIndex(copy); // DCP present but at wrong tier
   };
   let migrated = false;
   for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
@@ -281,7 +284,7 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
   if (migrated) {
     saveConfigFile(configData);
-    console.log('✅ DCP ranked above WEB-DL in videoPriority');
+    console.log('✅ DCP ranked above WEBCap in videoPriority');
   }
 }
 
@@ -329,8 +332,8 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
-// Ensure regexScore / seScore sort methods are present, and put regexScore at
-// position 0 so that once a user enables it, rule-based ranking takes precedence
+// Ensure seScore / regexScore sort methods are present, and put seScore at
+// position 0 so that once a user enables it, SE-based ranking takes precedence
 // over every other sort method. Both remain disabled by default.
 {
   let migrated = false;
@@ -338,21 +341,21 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     const f = configData[key] as any;
     if (!Array.isArray(f?.sortOrder) || f.sortOrder.length === 0) continue;
     const so: string[] = f.sortOrder;
-    const needsRegexReposition = so.indexOf('regexScore') !== 0;
-    const needsSeAppend = !so.includes('seScore');
-    if (!needsRegexReposition && !needsSeAppend) continue;
-    const withoutRegex = so.filter(m => m !== 'regexScore');
-    const next = ['regexScore', ...withoutRegex];
-    if (!next.includes('seScore')) next.push('seScore');
+    const needsSeReposition = so.indexOf('seScore') !== 0;
+    const needsRegexAppend = !so.includes('regexScore');
+    if (!needsSeReposition && !needsRegexAppend) continue;
+    const withoutSe = so.filter(m => m !== 'seScore');
+    const next = ['seScore', ...withoutSe];
+    if (!next.includes('regexScore')) next.push('regexScore');
     f.sortOrder = next;
     if (f.enabledSorts) {
-      if (f.enabledSorts.regexScore === undefined) f.enabledSorts.regexScore = false;
       if (f.enabledSorts.seScore === undefined) f.enabledSorts.seScore = false;
+      if (f.enabledSorts.regexScore === undefined) f.enabledSorts.regexScore = false;
     }
     migrated = true;
   }
   if (migrated) {
     saveConfigFile(configData);
-    console.log('✅ regexScore sort method ranked first');
+    console.log('✅ seScore sort method ranked first');
   }
 }
