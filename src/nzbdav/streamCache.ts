@@ -160,7 +160,7 @@ function loadCacheFromDisk(): void {
           const title = extractTitle(key);
           const url = key.substring(0, key.indexOf('::'));
           const afterSep = key.substring(key.indexOf('::') + 2);
-          const epMatch = afterSep.match(/:S\d+[\[. _-]/);
+          const epMatch = afterSep.match(/:S\d+(?:[\[(. _-]|E\d)/);
           const episodePattern = epMatch ? afterSep.substring(epMatch.index! + 1) : undefined;
           const newKey = getDeadCacheKey(url, episodePattern);
           deadNzbCache.set(newKey, { title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
@@ -501,8 +501,9 @@ export function evictReadyByVideoPath(videoPath: string, markDead: boolean = tru
         if (sepIdx !== -1) {
           const nzbUrl = key.substring(0, sepIdx);
           // Extract episode pattern from cache key suffix — handles both old form (":S04E08",
-          // ":S04[. _-]?E08") and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)")
-          const epMatch = key.match(/:S\d{2}[^:]*$/);
+          // ":S04[. _-]?E08") and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)").
+          // Anchor on the prefix shape since the chain-aware form contains literal colons.
+          const epMatch = key.match(/:S\d{2}(?:[. _\-\[(]|E\d)[\s\S]*$/);
           const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
           const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
           if (!deadNzbCache.has(deadKey)) {
@@ -538,8 +539,10 @@ function extractTitle(cacheKey: string): string {
   if (separatorIdx === -1) return cacheKey;
   const afterSep = cacheKey.substring(separatorIdx + 2);
   // Strip episode pattern suffix — handles both old form (":S04E08", ":S04[. _-]?E08")
-  // and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)")
-  return afterSep.replace(/:S\d{2}[^:]*$/, '');
+  // and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)"). The chain-aware form
+  // contains literal colons from `(?:` groups, so we anchor on the prefix shape and
+  // consume any chars through end-of-string.
+  return afterSep.replace(/:S\d{2}(?:[. _\-\[(]|E\d)[\s\S]*$/, '');
 }
 
 /**
