@@ -362,18 +362,55 @@ export async function handleStream(
   trackGrabFn?: (indexerName: string, title: string) => void,
   proxyFn?: (req: Request, res: ExpressResponse, videoPath: string, usePipe: boolean) => Promise<void>
 ): Promise<void> {
-  // Default to '' so downstream code keeps treating these as strings; UR tile requests
-  // (no nzb/title) short-circuit before any empty-string values are actually used.
-  const nzbUrl = (req.query.nzb as string | undefined) ?? '';
-  const title = (req.query.title as string | undefined) ?? '';
-  const contentType = req.query.type as string | undefined;
-  const seasonParam = req.query.season as string | undefined;
-  const episodeParam = req.query.episode as string | undefined;
-  const fallbackGroupId = req.query.fbg as string | undefined;
+  // Tile URL comes in one of two shapes:
+  //   (a) packed single-param: ?t=<fbg>.<idx>.<encodedSessionKey>.<season>.<episode>.<sp>.<epcount>
+  //       Presence of `t` implies user_pick=1. Used for external-player
+  //       compatibility (Infuse truncates after the first `&`).
+  //   (b) legacy long form: ?nzb=&title=&type=&indexer=&fbg=&sk=&user_pick=...
+  //       Still accepted for in-flight cached URLs and UR tile's own
+  //       minimal ?sk= form.
+  let nzbUrl: string;
+  let title: string;
+  let indexerName: string;
+  let fallbackGroupId: string | undefined;
+  let contentType: string | undefined;
+  let seasonParam: string | undefined;
+  let episodeParam: string | undefined;
+  let tPackSessionKey: string | undefined;
+  let tPackSp: string | undefined;
+  let tPackEpcount: string | undefined;
+  let tPackUserPick = false;
+  const tParam = req.query.t as string | undefined;
+  if (tParam) {
+    const parts = tParam.split('.');
+    const [fbgPart, idxPart, skPart, seasonPart, episodePart, spPart, epcountPart] = parts;
+    fallbackGroupId = fbgPart || undefined;
+    const idx = idxPart ? parseInt(idxPart, 10) : NaN;
+    const group = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
+    const cand = Number.isFinite(idx) && group ? group.candidates[idx] : undefined;
+    nzbUrl = cand?.nzbUrl ?? '';
+    title = cand?.title ?? '';
+    indexerName = cand?.indexerName ?? '';
+    contentType = group?.type;
+    tPackSessionKey = skPart ? decodeURIComponent(skPart) : undefined;
+    seasonParam = seasonPart || undefined;
+    episodeParam = episodePart || undefined;
+    tPackSp = spPart || undefined;
+    tPackEpcount = epcountPart || undefined;
+    tPackUserPick = true;
+  } else {
+    fallbackGroupId = req.query.fbg as string | undefined;
+    nzbUrl = (req.query.nzb as string | undefined) ?? '';
+    title = (req.query.title as string | undefined) ?? '';
+    indexerName = (req.query.indexer as string | undefined) ?? '';
+    contentType = req.query.type as string | undefined;
+    seasonParam = req.query.season as string | undefined;
+    episodeParam = req.query.episode as string | undefined;
+  }
   // Strict string equality on query params — Express can yield string[] for repeated keys.
   const userPickRaw = req.query.user_pick;
-  const userPick = typeof userPickRaw === 'string' && userPickRaw === '1';
-  const sessionKey = typeof req.query.sk === 'string' ? req.query.sk : undefined;
+  const userPick = tPackUserPick || (typeof userPickRaw === 'string' && userPickRaw === '1');
+  const sessionKey = tPackSessionKey ?? (typeof req.query.sk === 'string' ? req.query.sk : undefined);
 
   // UR tile clicks send only `sk` (no nzb/title) and rely on the lobby block below.
   // Regular requests must still provide nzb+title.
@@ -387,9 +424,9 @@ export async function handleStream(
 
   // Build episode pattern for season pack file selection (e.g. "S02E05")
   let episodePattern: string | undefined;
-  const epcountParam = req.query.epcount as string | undefined;
+  const epcountParam = tPackEpcount ?? (req.query.epcount as string | undefined);
   const episodesInSeason = epcountParam ? parseInt(epcountParam, 10) : undefined;
-  const isSeasonPackRequest = req.query.sp === '1';
+  const isSeasonPackRequest = (tPackSp ?? req.query.sp) === '1';
   if (seasonParam && episodeParam) {
     episodePattern = buildEpisodePattern(
       parseInt(seasonParam, 10),
@@ -405,7 +442,7 @@ export async function handleStream(
   // has expired).
   const candidates: FallbackCandidate[] = [];
   if (nzbUrl && title) {
-    candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest });
+    candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
   }
 
   const fallbackEnabled = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
@@ -431,7 +468,7 @@ export async function handleStream(
           candidates.push(clickedCandidate);
           candidates.push(...group.candidates.filter(c => c !== clickedCandidate));
         } else {
-          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest });
+          candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
           candidates.push(...group.candidates);
         }
       } else {
@@ -445,7 +482,7 @@ export async function handleStream(
           candidates.push(...group.candidates.slice(0, clickedIdx));
         } else {
           // Clicked NZB not found in group — put it first, then all group candidates
-          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest });
+          candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
           candidates.push(...group.candidates);
         }
       }

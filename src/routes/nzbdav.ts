@@ -201,10 +201,28 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const trackedGrabKeys = new Set<string>();
   const GRAB_DEDUP_TTL_MS = 60_000;
 
+  // Throttle the /stream entry log to first-hit-per-(kind,filename) per 60 s —
+  // Range probes and seek bursts otherwise spam the log during active playback.
+  const loggedStreamHits = new Set<string>();
+  const STREAM_HIT_LOG_TTL_MS = 15_000;
+
   // NZBDav stream endpoint (key-protected)
   // Uses history API polling to detect job completion/failure
   // :filename? is cosmetic — external video players display the URL path as the stream name
   router.get('/stream/:filename?', async (req, res) => {
+    // One-liner for external-player regression diagnosis. Throttled so Range
+    // probes from an active player don't flood the log.
+    const kind = (req.query.user_pick === '1' || req.query.t) ? 'user_pick'
+      : req.params.filename === 'ultimate-resolve' ? 'UR'
+      : 'other';
+    const hitKey = `${kind}::${req.params.filename ?? '-'}`;
+    if (!loggedStreamHits.has(hitKey)) {
+      loggedStreamHits.add(hitKey);
+      setTimeout(() => loggedStreamHits.delete(hitKey), STREAM_HIT_LOG_TTL_MS);
+      const qKeys = Object.keys(req.query).sort().join(',') || '(none)';
+      console.log(`\u{1F39F}\uFE0F /stream hit: kind=${kind} filename=${req.params.filename ?? '-'} q=[${qKeys}] ua=${(req.headers['user-agent'] ?? '').slice(0, 80)}`);
+    }
+
     const nzbUrl = req.query.nzb as string;
     const title = req.query.title as string || 'Unknown';
     const indexerName = req.query.indexer as string;
@@ -255,6 +273,32 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const RECONNECT_MAX_DELAY_MS = 8000;
   const MAX_CONCURRENT_PER_FILE = 6;
   const TCP_KEEPALIVE_DELAY_MS = 10_000; // Initial delay before first TCP keepalive probe on idle WebDAV sockets — detects dead connections (NAT timeout, TLS half-open) so they get culled from the pool.
+
+  // MIME types for the /v video proxy. Mirrors VIDEO_EXTENSIONS in
+  // src/health/fileClassifier.ts — the canonical set of recognized video
+  // containers across the project. Used to override generic upstream
+  // Content-Types so strict demuxers (Infuse, tvOS) get a codec hint.
+  const VIDEO_MIME_BY_EXT: Record<string, string> = {
+    '.mkv':  'video/x-matroska',
+    '.mp4':  'video/mp4',
+    '.m4v':  'video/x-m4v',
+    '.mov':  'video/quicktime',
+    '.ts':   'video/mp2t',
+    '.m2ts': 'video/mp2t',
+    '.avi':  'video/x-msvideo',
+    '.webm': 'video/webm',
+    '.wmv':  'video/x-ms-wmv',
+    '.mpg':  'video/mpeg',
+    '.mpeg': 'video/mpeg',
+  };
+  const DEFAULT_VIDEO_MIME = 'video/mp4';
+  const GENERIC_UPSTREAM_MIME = new Set(['application/octet-stream', 'application/x-download', 'binary/octet-stream']);
+
+  // Throttle the MIME-override log to first-hit-per-videoPath per 60 s —
+  // a single stream triggers dozens of Range probes/seeks that would each
+  // emit an identical override line.
+  const loggedMimeOverride = new Set<string>();
+  const MIME_OVERRIDE_LOG_TTL_MS = 15_000;
 
   // Per-file request tracker — aborts superseded/excess connections.
   interface TrackedReq { id: number; rangeStart: number; isFullRequest: boolean; abort: () => void; }
@@ -572,7 +616,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         if (val) fwdHeaders[name] = val;
       }
 
-      const status = upstream.statusCode ?? 200;
+      let status = upstream.statusCode ?? 200;
       if (status === 404 || status === 410) {
         upstream.destroy();
         throw new WebDav404Error(videoPath, status);
@@ -589,6 +633,36 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         ? streamRangeStart + parseInt(fwdHeaders['content-length'] as string, 10) - 1
         : null);
       const totalSize = cr?.total ?? null;
+
+      // iOS external-player compatibility (Infuse demuxer probe).
+      // Override generic/missing Content-Type with an extension-derived MIME
+      // so the demuxer has a codec hint. Without this, Infuse fails with
+      // "Failed to open input stream in the demuxing stream".
+      const currentType = (fwdHeaders['content-type'] as string | undefined)?.toLowerCase().split(';')[0].trim();
+      if (!currentType || GENERIC_UPSTREAM_MIME.has(currentType)) {
+        const basename = videoPath.split('/').pop() || '';
+        const dotIdx = basename.lastIndexOf('.');
+        const ext = dotIdx >= 0 ? basename.slice(dotIdx).toLowerCase() : '';
+        const inferred = VIDEO_MIME_BY_EXT[ext] ?? DEFAULT_VIDEO_MIME;
+        fwdHeaders['content-type'] = inferred;
+        if (!loggedMimeOverride.has(safePath)) {
+          loggedMimeOverride.add(safePath);
+          setTimeout(() => loggedMimeOverride.delete(safePath), MIME_OVERRIDE_LOG_TTL_MS);
+          console.log(`\u{1F3AC} /v MIME override: ${safePath} → ${inferred}${currentType ? ` (was ${currentType})` : ''}`);
+        }
+      }
+
+      // Accept-Ranges: always advertise — the reconnect loop below resumes via
+      // byte-range requests against nzbdav, so the /v contract is range-capable.
+      fwdHeaders['accept-ranges'] = 'bytes';
+
+      // Upgrade 200→206 only when the client actually asked for a range AND
+      // Content-Range parsed. Without a client Range, a 200 + Content-Range
+      // from upstream usually means "whole file, here's a cosmetic range
+      // header" — forcing 206 would make us advertise a partial offset while
+      // the body is actually the full file, and strict demuxers (Infuse's
+      // FFmpeg) fail on the mismatch.
+      if (status === 200 && cr && clientRange) status = 206;
 
       // Send headers to client
       res.socket?.setNoDelay(true);

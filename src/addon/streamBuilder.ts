@@ -281,22 +281,47 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         },
       });
     } else if (config.streamingMode === 'nzbdav') {
-      // Encode the NZB URL and title as a proxy URL
-      // For season packs, include season/episode so the correct file is selected
-      const episodeParams = buildRegularTileEpisodeParams(result, season, episode, episodesInSeason);
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
-      const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${skParam}${USER_PICK_FLAG}`;
-
-      streams.push({
-        name: streamName,
-        title: streamTitle,
-        url: proxyUrl,
-        behaviorHints: {
-          notWebReady: false,  // NZBDav can stream in player
-          bingeGroup,
-        },
-      });
+      // Single-param tile URL. Infuse (and probably other iOS external players
+      // addon handoff chains) truncates everything after the first `&` in the
+      // URL it receives, so we pack all tile state into one dot-separated `t`
+      // query parameter. Presence of `t` also implies `user_pick=1`. Order:
+      //   fbg . idx . encodedSessionKey . season . episode . sp . epcount
+      // Empty fields are kept as empty strings so index positions are stable.
+      // Falls back to the legacy long form when the candidate isn't in the
+      // fallback group (shouldn't happen for streamingMode=nzbdav but keeps
+      // the code defensive for edge configs).
+      const candidateIdx = fallbackCandidates
+        ? fallbackCandidates.findIndex(c => c.nzbUrl === result.link && c.title === result.title)
+        : -1;
+      const base = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}`;
+      if (fallbackGroupId && candidateIdx >= 0) {
+        const sessionKeyEnc = sessionKey ? encodeURIComponent(sessionKey) : '';
+        const needsEpisodeCtx = result.isSeasonPack && season !== undefined && episode !== undefined;
+        const seasonStr = needsEpisodeCtx ? String(season) : '';
+        const episodeStr = needsEpisodeCtx ? String(episode) : '';
+        const spStr = needsEpisodeCtx ? '1' : '';
+        const epcountStr = needsEpisodeCtx && episodesInSeason ? String(episodesInSeason) : '';
+        const packed = `${fallbackGroupId}.${candidateIdx}.${sessionKeyEnc}.${seasonStr}.${episodeStr}.${spStr}.${epcountStr}`;
+        streams.push({
+          name: streamName,
+          title: streamTitle,
+          url: `${base}?t=${packed}`,
+          behaviorHints: { notWebReady: false, bingeGroup },
+        });
+      } else {
+        // Legacy long form — many `&` separators, but we only hit this when
+        // there's no fallback group anyway, which is a config where there's
+        // also no fallback iteration, so external-player compat matters less.
+        const episodeParams = buildRegularTileEpisodeParams(result, season, episode, episodesInSeason);
+        const proxyUrl = `${base}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${skParam}${USER_PICK_FLAG}`;
+        streams.push({
+          name: streamName,
+          title: streamTitle,
+          url: proxyUrl,
+          behaviorHints: { notWebReady: false, bingeGroup },
+        });
+      }
     } else {
       streams.push({
         name: streamName,
