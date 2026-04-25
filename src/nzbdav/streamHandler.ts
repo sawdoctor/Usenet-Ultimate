@@ -679,12 +679,14 @@ export async function handleStream(
   const logDeadSkips = !deadSkipLoggedGroups.has(deadSkipKey);
 
   // Build candidate order.
-  // user_pick: honor the user's click — try only that NZB; fall into UR lobby on failure.
+  // user_pick + UR enabled: honor the click, try only that NZB, fall into UR lobby on failure.
+  // user_pick + UR disabled: classic NZB Fallback — walk the candidate chain starting from the click.
   // Otherwise (UR tile click / lobby fall-through): prefer UR's pre-vetted backups, then
   // resume sequential from after the last vetted URL.
+  const urLobbyAvailable = globalConfig.ultimateResolve?.enabled === true;
   const sessionBackups = sessionKey ? getSessionBackups(sessionKey) : null;
   const candidateOrder: number[] = [];
-  if (userPick) {
+  if (userPick && urLobbyAvailable) {
     candidateOrder.push(candidateStart);
   } else if (sessionBackups?.backupUrls?.size && candidates.length > 0) {
     for (let i = candidateStart; i < maxCandidates; i++) {
