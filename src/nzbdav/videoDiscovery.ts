@@ -138,7 +138,23 @@ export async function findVideoFile(
     }
   } catch (err) {
     if ((err as any).isNzbdavFailure) throw err;
-    // Directory doesn't exist yet, that's ok
+
+    // Fallback: dirPath might be a flat file, not a directory.
+    // NZBDav stores single-file releases at /content/<cat>/<title> directly when
+    // the submitted nzbname carries a video extension. PROPFIND with Depth: 1 then
+    // 404s, and /.ids/<nzo_id> returns a doubled path the proxy can't serve —
+    // probe the path itself before giving up.
+    try {
+      const stat = await client.stat(dirPath, {
+        signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+      }) as FileStat;
+      if (stat.type === 'file' && stat.size && stat.size >= minFileSize) {
+        if (episodePattern && !new RegExp(episodePattern, 'i').test(dirPath)) return null;
+        return { path: dirPath, size: stat.size };
+      }
+    } catch (statErr) {
+      if ((statErr as any).isNzbdavFailure) throw statErr;
+    }
   }
 
   return null;
