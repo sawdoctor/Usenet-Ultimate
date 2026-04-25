@@ -26,12 +26,13 @@ const UR_STREAM_PATH = 'ultimate-resolve';
 const QUERY_PARAM_USER_PICK = 'user_pick';
 const USER_PICK_FLAG = `&${QUERY_PARAM_USER_PICK}=1`;
 
-/** Build the UR tile's display name + title based on the active preference mode. */
+/** Build the UR tile's display name + title based on the active preference mode.
+ *  Brand goes in the `name` chip (left), mode + description in `title` (right detail). */
 function urTileDisplay(mode: 'speed' | 'priority' | undefined): { name: string; title: string } {
   if (mode === 'priority') {
-    return { name: `${UR_TILE_BASE_NAME} · 🥇 Priority`, title: 'Auto-select highest-quality healthy stream' };
+    return { name: UR_TILE_BASE_NAME, title: '⚬ Priority Mode\n⚬ Auto-select highest-quality healthy stream' };
   }
-  return { name: `${UR_TILE_BASE_NAME} · ⚡ Speed`, title: 'Auto-select fastest healthy stream' };
+  return { name: UR_TILE_BASE_NAME, title: '⚬ Speed Mode\n⚬ Auto-select fastest healthy stream' };
 }
 
 /** Regular-tile episode params — only emits for season packs with both season & episode set.
