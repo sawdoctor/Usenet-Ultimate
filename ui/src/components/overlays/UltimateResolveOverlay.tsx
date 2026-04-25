@@ -574,7 +574,7 @@ export function UltimateResolveOverlay({
                   archiveInspection: true,
                   sampleCount: 3,
                   desiredBackups: 2,
-                  backupProcessingLimit: 2,
+                  backupProcessingLimit: 3,
                   priorityMoviesTimeoutSeconds: 30,
                   priorityTvTimeoutSeconds: 15,
                   prioritySeasonPackTimeoutSeconds: 30,

@@ -182,7 +182,7 @@ export const DEFAULT_ULTIMATE_RESOLVE = {
   archiveInspection: true,
   sampleCount: 3 as 3 | 7,
   desiredBackups: 2,
-  backupProcessingLimit: 2,
+  backupProcessingLimit: 3,
   // Keep in sync with src/nzbdav/timeoutDefaults.ts (UR_TIMEOUT_DEFAULTS).
   priorityMoviesTimeoutSeconds: 30,
   priorityTvTimeoutSeconds: 15,

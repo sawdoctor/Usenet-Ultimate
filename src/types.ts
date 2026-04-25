@@ -319,7 +319,7 @@ export interface UltimateResolveConfig {
   archiveInspection: boolean;
   sampleCount: 3 | 7;
   desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count, default 2)
-  backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all, 1-20 = limit, default 2)
+  backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all, 1-20 = limit, default 3)
   // Per-mode nzbdav job-completion wait times (1-90s). Active set picked by preferenceMode at runtime.
   priorityMoviesTimeoutSeconds: number;
   priorityTvTimeoutSeconds: number;
