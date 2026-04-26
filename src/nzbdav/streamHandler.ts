@@ -673,10 +673,13 @@ export async function handleStream(
       return;
     }
     const backupCount = urBackups?.backupStreams?.length ?? 0;
+    const sessionExists = sessionKey ? getSessionPromise(sessionKey) !== null : false;
     if (backupCount > 0) {
       console.log(`👑 UR tile: ${backupCount} backup(s) checked but all broken — serving failure video`);
+    } else if (sessionExists) {
+      console.log(`👑 UR tile: session active but no backups produced (sk=${sessionKey}) — serving failure video`);
     } else {
-      console.log(`👑 UR tile: no session or lobby exhausted — serving failure video`);
+      console.log(`👑 UR tile: no session for sk=${sessionKey} (expired or never triggered) — serving failure video`);
     }
     await sendFailureVideo(req, res);
     return;
