@@ -445,7 +445,12 @@ export const config: Config = {
     const enabled = envBool('ULTIMATE_RESOLVE_ENABLED') ?? ur?.enabled ?? false;
     const candidateCount = Math.max(2, Math.min(10, envInt('ULTIMATE_RESOLVE_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
     const preferenceMode = envEnum('ULTIMATE_RESOLVE_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'priority';
-    const archiveInspection = envBool('ULTIMATE_RESOLVE_ARCHIVE_INSPECTION') ?? ur?.archiveInspection ?? true;
+    // Archive inspection is mandatory for UR — its container-matching guarantee
+    // (each backup matches the primary's container type) depends on reading
+    // archive headers at health-check time. Without it, archive candidates
+    // come back with unknown container type and UR can't filter mismatches
+    // before submitting them to nzbdav.
+    const archiveInspection = true;
     const rawSample = envInt('ULTIMATE_RESOLVE_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
     const sampleCount: 3 | 7 = rawSample === 7 ? 7 : 3;
     const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_RESOLVE_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 2));

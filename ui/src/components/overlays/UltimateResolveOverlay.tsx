@@ -540,26 +540,22 @@ export function UltimateResolveOverlay({
               <p className="text-xs text-slate-500">More samples means more accurate health checks but slightly slower.</p>
             </div>
 
-            {/* Archive Inspection */}
+            {/* Archive Inspection — always on for UR */}
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium text-slate-200">Archive Header Inspection</div>
-                <p className="text-xs text-slate-500 mt-0.5">Inspect archive headers for encryption, nested archives, and video content.</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Inspects RAR and 7Z archives to detect the container format, encryption, and
+                  nested archives. Always on for Ultimate Resolve because backup matching works
+                  best when detecting each candidate's format up front.
+                </p>
               </div>
-              <button
-                aria-label="Archive Header Inspection"
-                aria-pressed={ultimateResolve.archiveInspection}
-                onClick={() => update('archiveInspection', !ultimateResolve.archiveInspection)}
-                className={clsx(
-                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
-                  ultimateResolve.archiveInspection ? "bg-amber-500" : "bg-slate-600"
-                )}
+              <span
+                className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1 flex-shrink-0"
+                aria-label="Always on"
               >
-                <div className={clsx(
-                  "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
-                  ultimateResolve.archiveInspection ? "left-5" : "left-1"
-                )} />
-              </button>
+                Always On
+              </span>
             </div>
           </div>
 
