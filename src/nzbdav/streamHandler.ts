@@ -685,6 +685,42 @@ export async function handleStream(
       }
       return;
     }
+    // Fall-through: after UR-vetted backups exhausted, redirect to the first
+    // untried fallback-group candidate via the LEGACY long-form URL. The
+    // legacy form does NOT set user_pick=1 (only the t-param does, implicitly),
+    // so the handler's candidateOrder routes through sequential iteration —
+    // the for-loop walks the entire chain in one handleStream invocation,
+    // skipping broken candidates via prepareStream's library-pre-check + dedup.
+    const groupForFallthrough = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
+    const triedUrls = urBackups?.backupUrls ?? new Set<string>();
+    const nextCandidate = (groupForFallthrough?.candidates ?? []).find(c => !triedUrls.has(c.nzbUrl));
+    if (nextCandidate && groupForFallthrough) {
+      const remaining = groupForFallthrough.candidates.filter(c => !triedUrls.has(c.nzbUrl)).length;
+      const filename = encodeURIComponent(nextCandidate.title || 'stream');
+      const params = new URLSearchParams();
+      params.set('nzb', nextCandidate.nzbUrl);
+      params.set('title', nextCandidate.title);
+      params.set('type', groupForFallthrough.type);
+      params.set('indexer', nextCandidate.indexerName);
+      params.set('fbg', fallbackGroupId!);
+      if (sessionKey) params.set('sk', sessionKey);
+      // Season pack file-selection context (group stores season/episode/
+      // episodesInSeason at the group level). epcount keeps BDMV playlist
+      // calibration parity with the original tile click.
+      if (nextCandidate.isSeasonPack && groupForFallthrough.season && groupForFallthrough.episode) {
+        params.set('season', groupForFallthrough.season);
+        params.set('episode', groupForFallthrough.episode);
+        params.set('sp', '1');
+        if (groupForFallthrough.episodesInSeason != null) {
+          params.set('epcount', String(groupForFallthrough.episodesInSeason));
+        }
+      }
+      const fallthroughUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/${filename}?${params.toString()}`);
+      console.log(`👑 UR tile: ${urBackups?.backupStreams?.length ?? 0} UR backup(s) exhausted — falling through to fallback group (${remaining} candidate(s) remaining)`);
+      res.redirect(302, fallthroughUrl.href);
+      return;
+    }
+
     const backupCount = urBackups?.backupStreams?.length ?? 0;
     const sessionExists = sessionKey ? getSessionPromise(sessionKey) !== null : false;
     if (backupCount > 0) {

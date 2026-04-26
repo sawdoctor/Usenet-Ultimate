@@ -58,5 +58,6 @@ export interface FallbackGroup {
   type: string;
   season?: string;
   episode?: string;
+  episodesInSeason?: number;
   createdAt: number;
 }

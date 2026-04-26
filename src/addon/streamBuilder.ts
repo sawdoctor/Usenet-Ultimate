@@ -117,7 +117,8 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       fallbackCandidates,
       type,
       season?.toString(),
-      episode?.toString()
+      episode?.toString(),
+      episodesInSeason,
     );
     console.log(`🔄 Created fallback group ${fallbackGroupId} with ${fallbackCandidates.length} candidates`);
   }
@@ -351,7 +352,12 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     && config.streamingMode === 'nzbdav'
     && sessionKey
   ) {
-    const urUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UR_STREAM_PATH}?sk=${encodeURIComponent(sessionKey)}`;
+    // fbg lets the handler reach the full candidate list when UR-vetted
+    // backups are exhausted (fall-through iteration in streamHandler).
+    // Older clients with cached URLs lacking fbg degrade gracefully — no
+    // fall-through, just the failure video like before.
+    const fbgQuery = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
+    const urUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UR_STREAM_PATH}?sk=${encodeURIComponent(sessionKey)}${fbgQuery}`;
     // bingeGroup matches regular tiles so cross-episode auto-play can continue via UR.
     const urBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? 'usenetultimate' : undefined;
     const urDisplay = urTileDisplay(config.ultimateResolve?.preferenceMode);

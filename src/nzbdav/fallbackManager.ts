@@ -21,7 +21,8 @@ export function createFallbackGroup(
   candidates: FallbackCandidate[],
   type: string,
   season?: string,
-  episode?: string
+  episode?: string,
+  episodesInSeason?: number,
 ): void {
   // Clean up expired groups opportunistically
   const now = Date.now();
@@ -36,6 +37,7 @@ export function createFallbackGroup(
     type,
     season,
     episode,
+    episodesInSeason,
     createdAt: now,
   });
 }

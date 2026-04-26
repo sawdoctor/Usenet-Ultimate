@@ -246,7 +246,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
         // Create fallback group from current filtered results
         if (fallbackGroupId && fallbackCandidates) {
-          createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
+          createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString(), cached._meta.episodesInSeason);
         }
 
         triggerAutoResolve(fallbackCandidates, cached._meta.episodesInSeason);
@@ -324,7 +324,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // Create fallback group
     if (fallbackGroupId && fallbackCandidates) {
-      createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
+      createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString(), titleInfo.episodesInSeason);
     }
 
     triggerAutoResolve(fallbackCandidates, titleInfo.episodesInSeason);
