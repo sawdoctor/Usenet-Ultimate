@@ -829,7 +829,7 @@ export function DashboardTab({
                     </div>
                     <div className="relative text-xs text-slate-500 mt-1">
                       {ultimateResolve.enabled
-                        ? `${ultimateResolve.candidateCount} candidates · ${ultimateResolve.preferenceMode === 'priority' ? 'Priority' : 'Speed'} mode`
+                        ? `${ultimateResolve.candidateCount} candidate${ultimateResolve.candidateCount !== 1 ? 's' : ''} · ${ultimateResolve.preferenceMode === 'priority' ? 'Priority' : 'Speed'} mode`
                         : 'Click to configure \u2192'}
                     </div>
                   </div>

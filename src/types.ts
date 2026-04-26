@@ -314,7 +314,7 @@ export interface HealthCheckConfig {
 // Ultimate-Resolve: combines NZB Fallback with Health Checking for fastest resolution
 export interface UltimateResolveConfig {
   enabled: boolean;
-  candidateCount: number;              // Active pool size (2-10, default 3)
+  candidateCount: number;              // Active pool size (1-10, default 3)
   preferenceMode: 'priority' | 'speed';
   archiveInspection: boolean;
   sampleCount: 3 | 7;

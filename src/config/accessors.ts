@@ -443,7 +443,7 @@ export const config: Config = {
   get ultimateResolve(): UltimateResolveConfig {
     const ur = configData.ultimateResolve;
     const enabled = envBool('ULTIMATE_RESOLVE_ENABLED') ?? ur?.enabled ?? false;
-    const candidateCount = Math.max(2, Math.min(10, envInt('ULTIMATE_RESOLVE_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
+    const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_RESOLVE_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
     const preferenceMode = envEnum('ULTIMATE_RESOLVE_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'priority';
     // Archive inspection is mandatory for UR — its container-matching guarantee
     // (each backup matches the primary's container type) depends on reading

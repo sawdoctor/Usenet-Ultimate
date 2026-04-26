@@ -59,7 +59,7 @@ export function UltimateResolveOverlay({
     setUltimateResolve(prev => ({ ...prev, [key]: value }));
   }, [setUltimateResolve]);
 
-  const candidateDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.max(2, prev.candidateCount - 1) })), [setUltimateResolve]));
+  const candidateDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.max(1, prev.candidateCount - 1) })), [setUltimateResolve]));
   const candidateInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.min(10, prev.candidateCount + 1) })), [setUltimateResolve]));
   const backupsDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.max(0, prev.desiredBackups - 1) })), [setUltimateResolve]));
   const backupsInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.min(10, prev.desiredBackups + 1) })), [setUltimateResolve]));
@@ -459,7 +459,7 @@ export function UltimateResolveOverlay({
             <div className="text-xs text-slate-500">Number of NZBs to process in parallel from the top of the results list.</div>
             <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
               <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
-              <span>max NNTP connections ({ultimateResolve.candidateCount} candidates × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
+              <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
             </div>
             <div className="text-[11px] text-amber-400/50 mt-1">
               These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
