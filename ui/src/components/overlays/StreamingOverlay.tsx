@@ -72,8 +72,8 @@ export function StreamingOverlay({
   checkNzbdavConnection,
   sendNzbdavTestNzb,
 }: StreamingOverlayProps) {
-  // Backend forces pipe when both fallback AND UR are off — mirror here so the UI stays truthful
-  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolveEnabled) ? 'pipe' as const : nzbdavStreamingMethod;
+  // Backend forces proxy when both fallback AND UR are off — mirror here so the UI stays truthful
+  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolveEnabled) ? 'proxy' as const : nzbdavStreamingMethod;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>

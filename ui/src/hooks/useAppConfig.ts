@@ -142,7 +142,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [filterDeadNzbs, setFilterDeadNzbs] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
   const [nzbdavPipeBufferMB, setNzbdavPipeBufferMB] = useState(8);
-  const [nzbdavStreamingMethod, setNzbdavStreamingMethod] = useState<'pipe' | 'proxy' | 'direct'>('pipe');
+  const [nzbdavStreamingMethod, setNzbdavStreamingMethod] = useState<'pipe' | 'proxy' | 'direct'>('proxy');
   const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
   const [healthyNzbDbTTL, setHealthyNzbDbTTL] = useState(259200);
   const [healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB] = useState(50);
@@ -828,7 +828,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       // somehow lacks nzbdavStreamingMethod (very old server, hand-edited config, etc.)
       setNzbdavStreamingMethod(
         data.nzbdavStreamingMethod
-          ?? (data.nzbdavProxyEnabled === false ? 'direct' : data.nzbdavProxyEnabled === true ? 'proxy' : 'pipe')
+          ?? (data.nzbdavProxyEnabled === false ? 'direct' : data.nzbdavProxyEnabled === true ? 'proxy' : 'proxy')
       );
       setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
       setHealthyNzbDbTTL(data.healthyNzbDbTTL ?? 259200);

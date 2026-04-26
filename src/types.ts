@@ -157,7 +157,7 @@ export interface Config {
   nzbdavCacheTimeouts?: boolean;              // Store timed-out NZBs in dead cache (default true)
   nzbdavStreamBufferMB?: number;              // Dual-stage proxy buffer size in MB (default 128, range 8-256)
   nzbdavPipeBufferMB?: number;                // Pipe mode buffer size in MB (default 8, range 1-16)
-  nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';  // Streaming delivery: pipe (default), proxy (dual-stage buffer), or direct (WebDAV redirect)
+  nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';  // Streaming delivery: proxy (default, dual-stage buffer), pipe, or direct (WebDAV redirect)
   healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')
   healthyNzbDbTTL?: number;                   // TTL in seconds for successful streams when mode is 'time' (default 259200 / 3 days)
   healthyNzbDbMaxSizeMB?: number;             // Max storage in MB for successful streams when mode is 'storage' (default 50)

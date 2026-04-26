@@ -149,7 +149,7 @@ export const config: Config = {
     if (configData.nzbdavStreamingMethod) return configData.nzbdavStreamingMethod;
     if (configData.nzbdavProxyEnabled === false) return 'direct';
     if (configData.nzbdavProxyEnabled === true) return 'proxy';
-    return 'pipe';
+    return 'proxy';
   },
   get healthyNzbDbMode(): 'time' | 'storage' {
     return configData.healthyNzbDbMode || 'time';

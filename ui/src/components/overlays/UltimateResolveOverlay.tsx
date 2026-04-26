@@ -125,8 +125,8 @@ export function UltimateResolveOverlay({
     setHealthChecks(prev => ({ ...prev, providers }));
   }, [setHealthChecks]);
 
-  // Backend forces pipe when both fallback AND UR are off — mirror here so the UI stays truthful
-  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolve.enabled) ? 'pipe' as const : nzbdavStreamingMethod;
+  // Backend forces proxy when both fallback AND UR are off — mirror here so the UI stays truthful
+  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolve.enabled) ? 'proxy' as const : nzbdavStreamingMethod;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -196,9 +196,9 @@ export function UltimateResolveOverlay({
             </div>
             <p className="text-xs text-slate-500">
               {nzbdavStreamingMethod === 'pipe'
-                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead, no request modifications, recommended for most setups.'
+                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead, no request modifications.'
                 : nzbdavStreamingMethod === 'proxy'
-                ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Use if pipe mode has playback issues.'
+                ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Recommended default for most setups.'
                 : 'Player is redirected directly to the WebDAV URL. Only supported on select Stremio applications.'}
             </p>
           </div>
@@ -583,7 +583,7 @@ export function UltimateResolveOverlay({
                   speedSeasonPackTimeoutSeconds: 20,
                   healthCheckIndexers: {},
                 });
-                setNzbdavStreamingMethod('pipe');
+                setNzbdavStreamingMethod('proxy');
               }}
               className="btn-secondary w-full"
             >

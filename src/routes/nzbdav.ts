@@ -552,7 +552,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     const rangeStart = clientRange?.start ?? 0;
     // Resolve usePipe once — used by the request tracker (to gate supersession
     // cleanup) and by consumeUpstream (pipe vs manual branch).
-    const usePipe = usePipeOverride ?? ((config.nzbdavStreamingMethod ?? 'pipe') !== 'proxy');
+    const usePipe = usePipeOverride ?? ((config.nzbdavStreamingMethod ?? 'proxy') !== 'proxy');
 
     // Track this request and get an abort handle
     let currentUpstream: http.IncomingMessage | undefined;

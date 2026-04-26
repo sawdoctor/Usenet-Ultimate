@@ -68,8 +68,8 @@ export function FallbackOverlay({
   const targetsDec = useHoldRepeat(useCallback(() => setAutoResolveChains(v => Math.max(1, v - 1)), [setAutoResolveChains]));
   const targetsInc = useHoldRepeat(useCallback(() => setAutoResolveChains(v => Math.min(4, v + 1)), [setAutoResolveChains]));
 
-  // Backend forces pipe when both fallback AND UR are off — mirror here so the UI stays truthful
-  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolveEnabled) ? 'pipe' as const : nzbdavStreamingMethod;
+  // Backend forces proxy when both fallback AND UR are off — mirror here so the UI stays truthful
+  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolveEnabled) ? 'proxy' as const : nzbdavStreamingMethod;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -128,9 +128,9 @@ export function FallbackOverlay({
             </div>
             <p className="text-xs text-slate-500">
               {nzbdavStreamingMethod === 'pipe'
-                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead, no request modifications, recommended for most setups.'
+                ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead, no request modifications.'
                 : nzbdavStreamingMethod === 'proxy'
-                ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Use if pipe mode has playback issues.'
+                ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Recommended default for most setups.'
                 : 'Player is redirected directly to the WebDAV URL. Only supported on select Stremio applications.'}
             </p>
           </div>
@@ -444,7 +444,7 @@ export function FallbackOverlay({
                 setNzbdavSeasonPackTimeoutSeconds(30);
                 setNzbdavFallbackOrder('top');
                 setNzbdavMaxFallbacks(0);
-                setNzbdavStreamingMethod('pipe');
+                setNzbdavStreamingMethod('proxy');
                 setAutoResolveOnSearch(true);
                 setAutoResolveChains(2);
               }}

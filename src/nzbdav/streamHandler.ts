@@ -613,8 +613,8 @@ export async function handleStream(
 
           // Ultimate-Resolve resolved — deliver the stream
           const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
-          let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'pipe';
-          if (!lobbyFallbackOn) mode = 'pipe';
+          let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
+          if (!lobbyFallbackOn) mode = 'proxy';
           const lastLobby = lastDeliveryLog.get(streamData.videoPath);
           const shouldLogLobby = !lastLobby || lastLobby.mode !== mode;
           lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
@@ -667,8 +667,8 @@ export async function handleStream(
     if (usable) {
       console.log(`👑 UR tile: primary path no longer available — falling back to UR backup: ${usable.title} [${usable.indexerName}]`);
       const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
-      let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'pipe';
-      if (!lobbyFallbackOn) mode = 'pipe';
+      let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
+      if (!lobbyFallbackOn) mode = 'proxy';
       if (mode === 'direct') {
         const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
         const directUrl = new URL(`${webdavBase}${encodeWebdavPath(usable.videoPath)}`);
@@ -863,12 +863,12 @@ export async function handleStream(
       }
 
       // Decide delivery method: pipe/proxy (buffered) or direct redirect.
-      // When fallback is off, the initial-delivery mode still forces pipe for
+      // When fallback is off, the initial-delivery mode still forces proxy for
       // logging/dedup consistency; /v's proxyVideoStream independently reads
       // config on each range request, so seeks honor the user's current method.
       const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
-      let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'pipe';
-      if (!fallbackOn) mode = 'pipe';
+      let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
+      if (!fallbackOn) mode = 'proxy';
       const last = lastDeliveryLog.get(streamData.videoPath);
       const shouldLogDelivery = !last || last.mode !== mode;
       lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
