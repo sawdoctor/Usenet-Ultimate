@@ -740,7 +740,7 @@ export async function ultimateResolveFromCandidates(
       sessionReject(new Error('All candidates exhausted'));
     }
     const healthy = activePool.filter(cs => cs.healthStatus === 'healthy').length;
-    const dead = activePool.filter(cs => cs.healthStatus === 'dead' || cs.healthStatus === 'error').length;
+    const dead = activePool.filter(cs => cs.healthStatus === 'dead' || cs.healthStatus === 'error' || cs.nzbdavStatus === 'failed').length;
     const skipped = activePool.filter(cs => cs.nzbdavStatus === 'skipped').length;
     const divider = '┄'.repeat(120);
     const settingsLine = [
@@ -781,11 +781,11 @@ export async function ultimateResolveFromCandidates(
       if (cs.poolIndex === primaryPoolIndex) continue;
       if (cs.healthStatus === 'pending' && cs.nzbdavStatus === 'idle') continue;
       const isLibraryBackup = cs.nzbdavStatus === 'skipped' && libraryResolvedUrls.has(cs.candidate.nzbUrl);
-      const icon = isLibraryBackup ? '📚' : cs.duplicate ? '🔁' : cs.nzbdavStatus === 'completed' ? '✅' : cs.nzbdavStatus === 'skipped' ? '⏭️' : cs.healthStatus === 'healthy' ? '💚' : cs.healthStatus === 'dead' ? '❌' : '⏳';
+      const icon = isLibraryBackup ? '📚' : cs.duplicate ? '🔁' : cs.nzbdavStatus === 'completed' ? '✅' : cs.nzbdavStatus === 'skipped' ? '⏭️' : cs.nzbdavStatus === 'failed' ? '❌' : cs.healthStatus === 'healthy' ? '💚' : cs.healthStatus === 'dead' ? '❌' : '⏳';
       const dupRef = cs.duplicate ? (cs.duplicateOf !== undefined ? ` (#${cs.duplicateOf + 1})` : '') : '';
       const sizeStr = cs.videoSize ? ` · ${formatBytes(cs.videoSize)}` : '';
       const ct = cs.containerType ? `[${cs.containerType}${sizeStr}] ` : '';
-      const status = isLibraryBackup ? 'backup (library)' : cs.duplicate ? `duplicate${dupRef}` : cs.nzbdavStatus === 'completed' ? 'backup' : cs.nzbdavStatus === 'skipped' ? `skipped (${cs.containerType || 'unknown'})` : cs.nzbdavStatus === 'submitted' ? 'cancelled' : cs.grabFailed ? 'grab-failed' : cs.healthStatus === 'dead' ? 'dead' : 'standby';
+      const status = isLibraryBackup ? 'backup (library)' : cs.duplicate ? `duplicate${dupRef}` : cs.nzbdavStatus === 'completed' ? 'backup' : cs.nzbdavStatus === 'skipped' ? `skipped (${cs.containerType || 'unknown'})` : cs.cancelled ? 'cancelled' : cs.nzbdavStatus === 'failed' ? 'nzbdav-failed' : cs.grabFailed ? 'grab-failed' : cs.healthStatus === 'dead' ? 'dead' : 'standby';
       rows.push({
         poolIndex: cs.poolIndex,
         isPrimary: false,
