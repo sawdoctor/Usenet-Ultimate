@@ -621,6 +621,45 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         upstream.destroy();
         throw new WebDav404Error(videoPath, status);
       }
+      // 416 means the client's Range exceeds the upstream's reported file size.
+      // Common when the player carried a byte position from a different file
+      // across a fallback redirect — recoverable by re-fetching with no Range.
+      // Player will re-buffer from byte 0 instead of burning a candidate.
+      if (status === 416 && req.headers.range) {
+        upstream.destroy();
+        console.warn(`\u26A0\uFE0F WebDAV 416 for ${safePath} — retrying without Range`);
+        let retryUpstream: http.IncomingMessage | undefined;
+        for (let attempt = 1; attempt <= MAX_PROXY_RETRIES; attempt++) {
+          if (aborted) return;
+          try {
+            retryUpstream = await fetchUpstream(targetUrl, baseHeaders, useHttps);
+            currentUpstream = retryUpstream;
+            break;
+          } catch {
+            if (attempt >= MAX_PROXY_RETRIES) {
+              if (!res.headersSent) res.status(502).send('WebDAV proxy error');
+              return;
+            }
+            await new Promise(r => setTimeout(r, 100));
+          }
+        }
+        if (!retryUpstream || aborted) { retryUpstream?.destroy(); return; }
+        upstream = retryUpstream;
+        // Refresh forwarded headers + status from the retry response
+        for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified', 'cache-control', 'content-disposition']) {
+          delete fwdHeaders[name];
+          const val = upstream.headers[name];
+          if (val) fwdHeaders[name] = val;
+        }
+        status = upstream.statusCode ?? 200;
+        // Empty success body means upstream is lying about a real file — treat
+        // as upstream error so the fallback path advances to the next candidate.
+        const cl = parseInt((upstream.headers['content-length'] as string) ?? '', 10);
+        if (status === 200 && Number.isFinite(cl) && cl === 0) {
+          upstream.destroy();
+          throw new Error(`WebDAV returned empty body on no-Range retry for ${safePath}`);
+        }
+      }
       if (status !== 200 && status !== 206) {
         upstream.destroy();
         console.warn(`\u26A0\uFE0F WebDAV upstream returned ${status} for ${safePath} — triggering fallback`);
