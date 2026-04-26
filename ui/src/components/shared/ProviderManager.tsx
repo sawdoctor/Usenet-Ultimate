@@ -202,9 +202,10 @@ export function ProviderManager({ providers, onProvidersChange, apiFetch, accent
             Add Provider
           </button>
         </div>
-        <p className="text-xs text-slate-500">
-          Pool providers check in parallel; backups cover anything missing. Results show which provider found each article.
-        </p>
+        <ul className="text-xs text-slate-500 list-disc list-inside space-y-1">
+          <li>Pool providers check articles in parallel for speed.</li>
+          <li>Backup providers retry any articles the pool couldn't find.</li>
+        </ul>
 
         {/* Provider list */}
         {providers.length === 0 && !showAddProvider && (

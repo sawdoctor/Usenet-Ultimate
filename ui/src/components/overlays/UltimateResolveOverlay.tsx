@@ -150,8 +150,8 @@ export function UltimateResolveOverlay({
 
           {/* Description */}
           <ul className="text-xs text-slate-400 leading-relaxed list-disc list-inside space-y-1">
-            <li>Ultimate Resolve is the fastest way to start streaming a healthy NZB. It races multiple candidates in parallel, verifies each is alive before and during submission, and streams from the best candidate based on your preference mode, highest priority or first to resolve.</li>
-            <li>After the primary starts, the pipeline keeps running to pre-cache container-matched backups, if the stream dies mid-playback, the fallback is already loaded.</li>
+            <li>Ultimate Resolve is the fastest way to start streaming a healthy NZB. It races one or more NZB candidates in parallel, verifies each is alive before and during submission, and streams from the best candidate based on your preference mode, highest priority or first to resolve.</li>
+            <li>When backups are enabled, the pipeline keeps running after the primary starts to pre-cache container-matched fallbacks, if the stream dies mid-playback, the next one is already loaded.</li>
           </ul>
 
           {/* Enable Toggle */}
@@ -440,10 +440,10 @@ export function UltimateResolveOverlay({
             </ul>
           </div>
 
-          {/* # of Parallel NZB Candidates */}
+          {/* Parallel NZB Candidates */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-300 whitespace-nowrap"># of Parallel NZB Candidates</span>
+              <span className="text-sm text-slate-300 whitespace-nowrap">Parallel NZB Candidates</span>
               <div className="flex items-center gap-2">
                 <button
                   {...candidateDec}
@@ -456,7 +456,7 @@ export function UltimateResolveOverlay({
                 >+</button>
               </div>
             </div>
-            <div className="text-xs text-slate-500">Number of NZBs to process in parallel from the top of the results list.</div>
+            <div className="text-xs text-slate-500">The number of NZBs to process from the top of the results list in parallel. The first to resolve (based on Preference Mode above) becomes the primary stream; the rest hold as backup candidates.</div>
             <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
               <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
               <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
@@ -482,28 +482,29 @@ export function UltimateResolveOverlay({
                 >+</button>
               </div>
             </div>
-            <div className="text-xs text-slate-500">Container-matched backups to pre-resolve after the primary stream. Backups must match the primary's video container type (MKV, MP4, etc.).</div>
-            <div className="text-[11px] text-amber-400/50">0 = no extra work · max 10</div>
-          </div>
+            <div className="text-xs text-slate-500">Container-matched backups to pre-resolve after the primary. Processing stops once this number is reached (or candidates are exhausted). Backups must match the primary's container type (MKV, MP4, etc.).</div>
+            <div className="text-[11px] text-amber-400/50">Values: Off, 1–10</div>
 
-          {/* Backup Processing Limit */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-300 whitespace-nowrap">Backup Processing Limit</span>
-              <div className="flex items-center gap-2">
-                <button
-                  {...bplDec}
-                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
-                >−</button>
-                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-8 text-center">{ultimateResolve.backupProcessingLimit === 0 ? 'All' : ultimateResolve.backupProcessingLimit}</span>
-                <button
-                  {...bplInc}
-                  className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
-                >+</button>
+            {ultimateResolve.desiredBackups > 0 && (
+              <div className="border-l-2 border-amber-500/20 pl-3 ml-1 mt-3 space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">Backup Processing Limit</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      {...bplDec}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >−</button>
+                    <span className="text-lg font-bold text-amber-400/90 tabular-nums w-8 text-center">{ultimateResolve.backupProcessingLimit === 0 ? 'All' : ultimateResolve.backupProcessingLimit}</span>
+                    <button
+                      {...bplInc}
+                      className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                    >+</button>
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500">Caps total backup NZBs attempted, even if Desired Backups hasn't been reached. Failed and duplicate attempts count toward the cap; library hits don't (they cost no NNTP grab).</div>
+                <div className="text-[11px] text-amber-400/50">Values: All, 1–20</div>
               </div>
-            </div>
-            <div className="text-xs text-slate-500">Max backup NZBs attempted via NNTP after the primary. Dead and duplicate candidates count against the budget; library hits don't.</div>
-            <div className="text-[11px] text-amber-400/50">0 = all results · max 20</div>
+            )}
           </div>
 
           {/* Health Checking — provider config, sample count, archive inspection */}
