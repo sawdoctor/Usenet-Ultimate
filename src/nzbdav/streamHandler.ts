@@ -314,7 +314,17 @@ async function sendFailureVideo(req: Request, res: ExpressResponse): Promise<voi
       const match = req.headers.range.match(/bytes=(\d+)-(\d*)/);
       if (match) {
         const start = parseInt(match[1]);
-        const end = match[2] ? parseInt(match[2]) : fileSize - 1;
+        // Clients (ExoPlayer especially) probe ahead with ranges past EOF.
+        // Out-of-range starts must answer 416, not throw on a negative
+        // Content-Length. Clamp end when the requested upper bound exceeds
+        // the file so 0-N requests with N >= fileSize still serve cleanly.
+        if (start >= fileSize) {
+          res.status(416);
+          res.setHeader('Content-Range', `bytes */${fileSize}`);
+          res.end();
+          return;
+        }
+        const end = match[2] ? Math.min(parseInt(match[2]), fileSize - 1) : fileSize - 1;
         res.status(206);
         res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
         res.setHeader('Content-Length', end - start + 1);
