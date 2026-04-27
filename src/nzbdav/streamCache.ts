@@ -111,7 +111,8 @@ interface ReadyEntry { data: StreamData; indexerName?: string; createdAt: number
 const readyCache = new Map<string, ReadyEntry>();
 
 /** Dead NZBs — persisted to disk, survives restarts */
-interface DeadNzbEntry { title: string; indexerName?: string; error: Error; createdAt: number; expiresAt: number }
+/** size: post-resolve video bytes when known (UR / 404-eviction paths), else indexer-reported NZB bytes (search-time / health-check paths) */
+interface DeadNzbEntry { title: string; indexerName?: string; size?: number; error: Error; createdAt: number; expiresAt: number }
 const deadNzbCache = new Map<string, DeadNzbEntry>();
 
 // ── Disk persistence ──────────────────────────────────────────────────
@@ -119,6 +120,7 @@ const deadNzbCache = new Map<string, DeadNzbEntry>();
 interface SerializedDeadEntry {
   title?: string;
   indexerName?: string;
+  size?: number;
   error: { message: string; isNzbdavFailure: boolean; isTimeout?: boolean };
   createdAt?: number;
   expiresAt: number;
@@ -154,7 +156,7 @@ function loadCacheFromDisk(): void {
           const normalizedKey = sepIdx === -1
             ? normalizeProwlarrUrl(key)
             : `${normalizeProwlarrUrl(key.substring(0, sepIdx))}::${key.substring(sepIdx + 2)}`;
-          deadNzbCache.set(normalizedKey, { title: entry.title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
+          deadNzbCache.set(normalizedKey, { title: entry.title, indexerName: entry.indexerName, size: entry.size, error, createdAt: (entry as any).createdAt || now, expiresAt });
         } else {
           // Old format — key is url::title or url::title:episodePattern, migrate
           const title = extractTitle(key);
@@ -163,7 +165,7 @@ function loadCacheFromDisk(): void {
           const epMatch = afterSep.match(/:S\d+(?:[\[(. _-]|E\d)/);
           const episodePattern = epMatch ? afterSep.substring(epMatch.index! + 1) : undefined;
           const newKey = getDeadCacheKey(url, episodePattern);
-          deadNzbCache.set(newKey, { title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
+          deadNzbCache.set(newKey, { title, indexerName: entry.indexerName, size: entry.size, error, createdAt: (entry as any).createdAt || now, expiresAt });
         }
       }
     }
@@ -225,10 +227,10 @@ export function setReadyCacheEntry(cacheKey: string, data: StreamData, indexerNa
 }
 
 /** Write a failed NZB directly to deadNzbCache (used by Ultimate-Resolve to bypass getOrCreateStream). */
-export function setDeadNzbEntry(nzbUrl: string, title: string, error: Error, episodePattern?: string): void {
+export function setDeadNzbEntry(nzbUrl: string, title: string, error: Error, episodePattern?: string, indexerName?: string, size?: number): void {
   const key = getDeadCacheKey(nzbUrl, episodePattern);
   const now = Date.now();
-  deadNzbCache.set(key, { title, error, createdAt: now, expiresAt: now + getDeadTTLMs() });
+  deadNzbCache.set(key, { title, indexerName, size, error, createdAt: now, expiresAt: now + getDeadTTLMs() });
   saveCacheToDisk();
 }
 
@@ -288,6 +290,7 @@ export async function getOrCreateStream(
   contentType?: string,
   episodesInSeason?: number,
   indexerName?: string,
+  size?: number,
   verbose = true,
   isSeasonPack?: boolean,
   skipReadyCache?: boolean,
@@ -369,6 +372,7 @@ export async function getOrCreateStream(
       deadNzbCache.set(deadKey, {
         title,
         indexerName,
+        size,
         error,
         createdAt: deadCreatedAt,
         expiresAt: deadCreatedAt + ttl,
@@ -513,6 +517,7 @@ export function evictReadyByVideoPath(videoPath: string, markDead: boolean = tru
             deadNzbCache.set(deadKey, {
               title: extractTitle(key),
               indexerName: entry.indexerName,
+              size: entry.data.videoSize,
               error,
               createdAt: now,
               expiresAt: now + getDeadTTLMs(),
@@ -550,11 +555,11 @@ function extractTitle(cacheKey: string): string {
  */
 export function getCacheEntries(): {
   ready: { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[];
-  failed: { key: string; title: string; indexerName?: string; error: string; createdAt: number; expiresAt: number }[];
+  failed: { key: string; title: string; indexerName?: string; size?: number; error: string; createdAt: number; expiresAt: number }[];
 } {
   const now = Date.now();
   const ready: { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[] = [];
-  const failed: { key: string; title: string; indexerName?: string; error: string; createdAt: number; expiresAt: number }[] = [];
+  const failed: { key: string; title: string; indexerName?: string; size?: number; error: string; createdAt: number; expiresAt: number }[] = [];
 
   for (const [key, entry] of readyCache.entries()) {
     if (entry.expiresAt < now) continue;
@@ -564,7 +569,7 @@ export function getCacheEntries(): {
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt < now) continue;
     if ((entry.error as any).isTimeout && globalConfig.nzbdavCacheTimeouts === false) continue;
-    failed.push({ key, title: entry.title, indexerName: entry.indexerName, error: entry.error.message, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
+    failed.push({ key, title: entry.title, indexerName: entry.indexerName, size: entry.size, error: entry.error.message, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
   }
 
   return { ready, failed };
@@ -648,13 +653,13 @@ export function isDeadNzbByUrl(nzbUrl: string): boolean {
 }
 
 /** Write a URL-only dead entry for a health-check-blocked NZB (caller must call saveCacheToDisk) */
-export function addDeadNzbByUrl(nzbUrl: string, title: string): void {
+export function addDeadNzbByUrl(nzbUrl: string, title: string, indexerName?: string, size?: number): void {
   const normalized = normalizeProwlarrUrl(nzbUrl);
   if (deadNzbCache.has(normalized)) return;
   const createdAt = Date.now();
   const error = new Error('Health check: blocked');
   (error as any).isNzbdavFailure = true;
-  deadNzbCache.set(normalized, { title, error, createdAt, expiresAt: createdAt + getDeadTTLMs() });
+  deadNzbCache.set(normalized, { title, indexerName, size, error, createdAt, expiresAt: createdAt + getDeadTTLMs() });
   if (globalConfig.deadNzbDbMode === 'storage') {
     enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
   }

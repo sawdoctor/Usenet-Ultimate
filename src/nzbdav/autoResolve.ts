@@ -133,6 +133,7 @@ export async function autoResolveFromCandidates(
           contentType,
           episodesInSeason,
           candidate.indexerName,
+          candidate.size,
           false,
           candidate.isSeasonPack,
           true, // skipReadyCache — rely on library check instead

@@ -417,8 +417,8 @@ export async function coordinateHealthChecks(
   for (const [link, result] of healthResults) {
     if (result.status === 'blocked' && result.message !== 'NZB Database: previously failed') {
       const url = easynewsLinkToNzbUrl.get(link) || link;
-      const title = allResults.find(r => r.link === link)?.title;
-      if (title) { addDeadNzbByUrl(url, title); deadWrites++; }
+      const r = allResults.find(rs => rs.link === link);
+      if (r?.title) { addDeadNzbByUrl(url, r.title, r.indexerName, r.size); deadWrites++; }
     }
   }
   if (deadWrites > 0) saveCacheToDisk();

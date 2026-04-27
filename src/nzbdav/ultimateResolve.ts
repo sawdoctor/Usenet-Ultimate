@@ -441,7 +441,7 @@ export async function ultimateResolveFromCandidates(
         if (cs.cancelled) return null;
         if (cs.nzoId) cancelJob(cs.nzoId, nzbdavConfig, 'pipeline failure').catch(() => {});
         if ((err as any)?.isNzbdavFailure) {
-          setDeadNzbEntry(cs.candidate.nzbUrl, cs.candidate.title, err as Error, episodePattern);
+          setDeadNzbEntry(cs.candidate.nzbUrl, cs.candidate.title, err as Error, episodePattern, cs.candidate.indexerName, cs.videoSize || cs.candidate.size);
           cs.nzbdavDeadWritten = true;
         }
         cs.nzbdavStatus = 'failed';
@@ -842,7 +842,7 @@ export async function ultimateResolveFromCandidates(
     let deadWrites = 0;
     for (const cs of activePool) {
       if (cs.healthStatus === 'dead' && !cs.nzbdavDeadWritten && !cs.grabFailed) {
-        addDeadNzbByUrl(cs.candidate.nzbUrl, cs.candidate.title);
+        addDeadNzbByUrl(cs.candidate.nzbUrl, cs.candidate.title, cs.candidate.indexerName, cs.candidate.size);
         deadWrites++;
       }
     }
