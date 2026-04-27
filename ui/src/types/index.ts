@@ -84,6 +84,7 @@ export interface SearchConfig {
   urlDedup?: boolean;
   junkFilter?: boolean;
   displayLibraryInResults?: boolean;
+  cacheEmptyResults?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;
 }

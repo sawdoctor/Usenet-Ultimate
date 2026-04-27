@@ -99,6 +99,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
   const [urlDedup, setUrlDedup] = useState(true);
   const [junkFilter, setJunkFilter] = useState(true);
+  const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
   const [displayLibraryInResults, setDisplayLibraryInResults] = useState(false);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
@@ -379,11 +380,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         urlDedup,
         junkFilter,
         displayLibraryInResults,
+        cacheEmptyResults,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, displayLibraryInResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, displayLibraryInResults, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -537,6 +539,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setUrlDedup(sc?.urlDedup !== false);
       setJunkFilter(sc?.junkFilter !== false);
       setDisplayLibraryInResults(sc?.displayLibraryInResults === true);
+      setCacheEmptyResults(sc?.cacheEmptyResults !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
       setEasynewsUsername(data.easynewsUsername || '');
@@ -1247,6 +1250,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     urlDedup, setUrlDedup,
     junkFilter, setJunkFilter,
     displayLibraryInResults, setDisplayLibraryInResults,
+    cacheEmptyResults, setCacheEmptyResults,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,
     dedupDragOverItem, setDedupDragOverItem,

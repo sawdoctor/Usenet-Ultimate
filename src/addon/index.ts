@@ -336,13 +336,16 @@ builder.defineStreamHandler(async ({ type, id }) => {
     );
 
     // Cache raw results + deprioritized packs + health map (filters/sorts reapply on cache hits)
-    if (config.cacheEnabled && config.cacheTTL > 0) {
+    const skipEmptyCache = config.searchConfig?.cacheEmptyResults === false && rawResults.length === 0;
+    if (config.cacheEnabled && config.cacheTTL > 0 && !skipEmptyCache) {
       cache.set(cacheKey, {
         rawResults,
         deprioritizedPacks,
         healthMap: Object.fromEntries(healthMap),
         _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, runtime: titleInfo.runtime },
       }, config.cacheTTL);
+    } else if (skipEmptyCache && config.cacheEnabled && config.cacheTTL > 0) {
+      console.log(`⏭️  Skipping cache write — 0 results for ${type} ${imdbId}`);
     }
 
     // Create fallback group

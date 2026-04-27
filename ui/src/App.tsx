@@ -770,6 +770,8 @@ function App() {
           onClose={() => ac.setActiveOverlay(null)}
           cacheTTL={ac.cacheTTL}
           setCacheTTL={ac.setCacheTTL}
+          cacheEmptyResults={ac.cacheEmptyResults}
+          setCacheEmptyResults={ac.setCacheEmptyResults}
           apiFetch={apiFetch}
           autoPlayEnabled={ac.autoPlay.enabled}
         />

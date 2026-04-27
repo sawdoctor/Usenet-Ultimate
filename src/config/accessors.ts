@@ -188,11 +188,13 @@ export const config: Config = {
     const urlDedupEnv = envBool('URL_DEDUP');
     const displayLibraryEnv = envBool('DISPLAY_LIBRARY_IN_RESULTS');
     const junkFilterEnv = envBool('JUNK_FILTER');
+    const cacheEmptyResultsEnv = envBool('CACHE_EMPTY_RESULTS');
     return {
       ...sc,
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
       ...(displayLibraryEnv !== undefined && { displayLibraryInResults: displayLibraryEnv }),
       ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
+      ...(cacheEmptyResultsEnv !== undefined && { cacheEmptyResults: cacheEmptyResultsEnv }),
     };
   },
   get useTextSearch() {
