@@ -116,6 +116,8 @@ export interface ConfigData {
   };
   ultimateResolve?: {
     enabled: boolean;
+    whenToResolve?: 'on-results' | 'on-tile-selection';
+    userPickFallback?: 'ur-lobby' | 'failure-video' | 'fallback-chain';
     candidateCount?: number;
     preferenceMode?: 'priority' | 'speed';
     archiveInspection?: boolean;

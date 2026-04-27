@@ -443,6 +443,8 @@ export const config: Config = {
   get ultimateResolve(): UltimateResolveConfig {
     const ur = configData.ultimateResolve;
     const enabled = envBool('ULTIMATE_RESOLVE_ENABLED') ?? ur?.enabled ?? false;
+    const whenToResolve = envEnum('ULTIMATE_RESOLVE_WHEN_TO_RESOLVE', ['on-results', 'on-tile-selection']) ?? ur?.whenToResolve ?? 'on-results';
+    const userPickFallback = envEnum('ULTIMATE_RESOLVE_USER_PICK_FALLBACK', ['ur-lobby', 'failure-video', 'fallback-chain']) ?? ur?.userPickFallback ?? 'ur-lobby';
     const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_RESOLVE_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
     const preferenceMode = envEnum('ULTIMATE_RESOLVE_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'priority';
     // Archive inspection is mandatory for UR — its container-matching guarantee
@@ -463,6 +465,8 @@ export const config: Config = {
     const speedSeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.seasonPack));
     return {
       enabled,
+      whenToResolve,
+      userPickFallback,
       candidateCount,
       preferenceMode,
       archiveInspection,

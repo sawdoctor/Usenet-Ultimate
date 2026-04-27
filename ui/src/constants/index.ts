@@ -177,6 +177,8 @@ export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclop
 
 export const DEFAULT_ULTIMATE_RESOLVE = {
   enabled: false,
+  whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'ur-lobby' as 'ur-lobby' | 'failure-video' | 'fallback-chain',
   candidateCount: 3,
   preferenceMode: 'priority' as 'priority' | 'speed',
   archiveInspection: true,

@@ -156,6 +156,9 @@ builder.defineStreamHandler(async ({ type, id }) => {
       // Guarded by streamingMode=nzbdav: UR resolves via NZBDav, so running it for other modes
       // wastes cycles and produces a tile URL the handler can't serve.
       if (config.ultimateResolve?.enabled && config.streamingMode === 'nzbdav') {
+        // On-tile-selection: defer UR until the user clicks the lobby tile.
+        // The lobby handler in streamHandler.ts triggers UR there.
+        if (config.ultimateResolve.whenToResolve === 'on-tile-selection') return;
         const ur = config.ultimateResolve;
         ultimateResolveFromCandidates(
           sessionKey, fallbackCandidates, nzbdavConfig,

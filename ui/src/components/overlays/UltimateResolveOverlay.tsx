@@ -13,6 +13,8 @@ interface UltimateResolveOverlayProps {
   onClose: () => void;
   ultimateResolve: {
     enabled: boolean;
+    whenToResolve: 'on-results' | 'on-tile-selection';
+    userPickFallback: 'ur-lobby' | 'failure-video' | 'fallback-chain';
     candidateCount: number;
     preferenceMode: 'priority' | 'speed';
     archiveInspection: boolean;
@@ -243,6 +245,81 @@ export function UltimateResolveOverlay({
               </p>
             </div>
           )}
+
+          {/* When to Resolve */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="text-sm font-medium text-slate-300">When to Resolve</div>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="whenToResolve"
+                checked={ultimateResolve.whenToResolve === 'on-results'}
+                onChange={() => update('whenToResolve', 'on-results')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">On Search</div>
+                <p className="text-xs text-slate-500">Pre-resolve as soon as results arrive. Clicks are instant; some resources may be spent on titles you skip.</p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="whenToResolve"
+                checked={ultimateResolve.whenToResolve === 'on-tile-selection'}
+                onChange={() => update('whenToResolve', 'on-tile-selection')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">On Click</div>
+                <p className="text-xs text-slate-500">Wait until you click a tile to resolve. Saves resources, but the first click takes longer.</p>
+              </div>
+            </label>
+          </div>
+
+          {/* On Individual Stream Failure */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+            <div className="text-sm font-medium text-slate-300">On Individual Stream Failure</div>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="userPickFallback"
+                checked={ultimateResolve.userPickFallback === 'ur-lobby'}
+                onChange={() => update('userPickFallback', 'ur-lobby')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">Use Ultimate Resolve</div>
+                <p className="text-xs text-slate-500">Reroute to Ultimate Resolve so a backup candidate can take over.</p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="userPickFallback"
+                checked={ultimateResolve.userPickFallback === 'fallback-chain'}
+                onChange={() => update('userPickFallback', 'fallback-chain')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">Try Next Stream</div>
+                <p className="text-xs text-slate-500">Move to the next stream in the results list, trying each one until something plays.</p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="userPickFallback"
+                checked={ultimateResolve.userPickFallback === 'failure-video'}
+                onChange={() => update('userPickFallback', 'failure-video')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">Show Failure Video</div>
+                <p className="text-xs text-slate-500">Skip the rescue and show the "Stream Unavailable" video right away.</p>
+              </div>
+            </label>
+          </div>
 
           {/* Prefer Priority / Prefer Speed */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
@@ -569,6 +646,8 @@ export function UltimateResolveOverlay({
               onClick={() => {
                 setUltimateResolve({
                   enabled: false,
+                  whenToResolve: 'on-results',
+                  userPickFallback: 'ur-lobby',
                   candidateCount: 3,
                   preferenceMode: 'priority',
                   archiveInspection: true,

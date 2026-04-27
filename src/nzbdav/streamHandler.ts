@@ -15,8 +15,8 @@ import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
-import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern } from './utils.js';
-import { getSessionPromise, getSessionBackups } from './ultimateResolve.js';
+import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
+import { getSessionPromise, getSessionBackups, ultimateResolveFromCandidates } from './ultimateResolve.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
 import { selectTimeoutMs, type TimeoutSet } from './timeoutDefaults.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
@@ -475,7 +475,33 @@ export async function handleStream(
     const group = getFallbackGroup(fallbackGroupId);
     if (group) {
       const fallbackOrder = globalConfig.nzbdavFallbackOrder || 'top';
-      if (fallbackOrder === 'top') {
+      let fallbackChainLogged = false;
+      if (userPick && globalConfig.ultimateResolve?.userPickFallback === 'fallback-chain') {
+        // Walk from clicked index through end of group, then wrap to top through
+        // clicked-1 — every untried candidate gets a turn. nzbdavFallbackOrder is
+        // intentionally bypassed; fallback-chain owns the order.
+        // maxFallbacksSetting still clamps the total attempts at maxCandidates below.
+        candidates.length = 0;
+        const clickedIdx = group.candidates.findIndex(
+          c => c.nzbUrl === nzbUrl && c.title === title
+        );
+        if (clickedIdx >= 0) {
+          candidates.push(...group.candidates.slice(clickedIdx));
+          candidates.push(...group.candidates.slice(0, clickedIdx));
+        } else {
+          // Clicked NZB not found in group — push sentinel + all group candidates
+          // so fallback-chain still has something to walk.
+          candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
+          candidates.push(...group.candidates);
+        }
+        if (verbose) {
+          const totalToTry = maxFallbacksSetting === 0
+            ? candidates.length
+            : Math.min(candidates.length, 1 + maxFallbacksSetting);
+          console.log(`🔄 Fallback group loaded (fallback-chain from idx ${clickedIdx >= 0 ? clickedIdx : 'unknown'}, wrap): ${candidates.length} candidates (trying up to ${totalToTry})`);
+        }
+        fallbackChainLogged = true;
+      } else if (fallbackOrder === 'top') {
         // Try the clicked NZB first, then continue from the top of the list (skipping it)
         candidates.length = 0;
         const clickedCandidate = group.candidates.find(
@@ -485,7 +511,9 @@ export async function handleStream(
           candidates.push(clickedCandidate);
           candidates.push(...group.candidates.filter(c => c !== clickedCandidate));
         } else {
-          candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
+          // UR tile requests have no nzb/title — skip the empty sentinel push
+          // so the candidates count and log reflect the actual group size.
+          if (nzbUrl && title) candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
           candidates.push(...group.candidates);
         }
       } else {
@@ -498,12 +526,13 @@ export async function handleStream(
           candidates.push(...group.candidates.slice(clickedIdx));
           candidates.push(...group.candidates.slice(0, clickedIdx));
         } else {
-          // Clicked NZB not found in group — put it first, then all group candidates
-          candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
+          // Clicked NZB not found in group — put it first (skip empty sentinel
+          // for UR tile requests), then all group candidates
+          if (nzbUrl && title) candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
           candidates.push(...group.candidates);
         }
       }
-      if (verbose) {
+      if (verbose && !fallbackChainLogged) {
         const totalToTry = maxFallbacksSetting === 0
           ? candidates.length
           : Math.min(candidates.length, 1 + maxFallbacksSetting);
@@ -588,6 +617,29 @@ export async function handleStream(
   // stream tile (user_pick=1), await its session promise instead of starting
   // our own nzbdav submission. Self-redirect keeps ExoPlayer alive.
   if (!userPick && globalConfig.ultimateResolve?.enabled && sessionKey) {
+    // On-tile-selection mode: UR didn't fire on search; trigger it here so
+    // the existing await-flow below picks up the new session promise.
+    if (
+      globalConfig.ultimateResolve.whenToResolve === 'on-tile-selection'
+      && globalConfig.streamingMode === 'nzbdav'
+      && !getSessionPromise(sessionKey)
+    ) {
+      const group = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
+      if (!group?.candidates?.length) {
+        console.log(`👑 UR tile click but no fallback group (sk=${sessionKey}, fbg=${fallbackGroupId}) — falling through`);
+      } else {
+        console.log(`👑 UR fired on tile click [${sessionKey}]`);
+        const ur = globalConfig.ultimateResolve;
+        const epPattern = (group.type === 'series' && group.season && group.episode)
+          ? buildEpisodePattern(parseInt(group.season, 10), parseInt(group.episode, 10), getTvAllowMultiEpisode(globalConfig))
+          : undefined;
+        ultimateResolveFromCandidates(
+          sessionKey, group.candidates, buildNzbdavConfig(),
+          { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
+          epPattern, group.type, group.episodesInSeason,
+        ).catch(err => console.error('❌ Ultimate-Resolve error (on-tile-selection):', err));
+      }
+    }
     const sessionPromise = getSessionPromise(sessionKey);
     if (sessionPromise) {
       const elapsed = Date.now() - streamStartTime;
@@ -744,9 +796,17 @@ export async function handleStream(
   // resume sequential from after the last vetted URL.
   const urLobbyAvailable = globalConfig.ultimateResolve?.enabled === true;
   const sessionBackups = sessionKey ? getSessionBackups(sessionKey) : null;
+  if (userPick && redirectCount === 0) {
+    console.log(`🎯 User-pick attempt: userPickFallback=${globalConfig.ultimateResolve?.userPickFallback ?? 'ur-lobby'}, sk=${sessionKey || 'none'}, fbg=${fallbackGroupId || 'none'}`);
+  }
   const candidateOrder: number[] = [];
-  if (userPick && urLobbyAvailable) {
+  const userPickMode = globalConfig.ultimateResolve?.userPickFallback ?? 'ur-lobby';
+  if (userPick && urLobbyAvailable && userPickMode !== 'fallback-chain') {
     candidateOrder.push(candidateStart);
+  } else if (userPick && userPickMode === 'fallback-chain') {
+    // Walk results from clicked through end. Skip the vetted-backup-priority
+    // branch — sequential order is what the user opted into.
+    for (let i = candidateStart; i < maxCandidates; i++) candidateOrder.push(i);
   } else if (sessionBackups?.backupUrls?.size && candidates.length > 0) {
     for (let i = candidateStart; i < maxCandidates; i++) {
       if (sessionBackups.backupUrls.has(candidates[i].nzbUrl)) candidateOrder.push(i);
@@ -941,36 +1001,50 @@ export async function handleStream(
 
       // User-pick failure: fall straight into the UR lobby instead of walking the candidate chain.
       // The user explicitly chose this NZB; when it fails, UR's pre-vetted pool is the fallback.
-      // Redirect only if we still have self-redirect budget and haven't already sent headers.
+      // userPickFallback='failure-video' skips the redirect and lets the natural fall-through
+      // serve the failure video.
       if (
         userPick
         && sessionKey
         && globalConfig.ultimateResolve?.enabled
+        && globalConfig.ultimateResolve?.userPickFallback === 'ur-lobby'
         && redirectCount < MAX_SELF_REDIRECTS
         && !res.headersSent
       ) {
         const lobbyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/ultimate-resolve`);
         lobbyUrl.searchParams.set('sk', sessionKey);
+        if (fallbackGroupId) lobbyUrl.searchParams.set('fbg', fallbackGroupId);
         lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));
         console.log(`👑 User-pick failed — redirecting to UR lobby (rc=${redirectCount + 1})`);
         res.redirect(302, lobbyUrl.href);
         return;
+      }
+      if (
+        userPick
+        && globalConfig.ultimateResolve?.enabled
+        && globalConfig.ultimateResolve?.userPickFallback === 'failure-video'
+        && !res.headersSent
+      ) {
+        console.log(`👑 User-pick failed — userPickFallback=failure-video, serving failure video`);
+        // Loop's natural fall-through hits sendFailureVideo below.
       }
     }
   }
 
   // User-pick loop exhausted without serving (e.g. the clicked NZB was dead-cached and
   // `continue`d past the catch-block's lobby redirect). Fall into the UR lobby as the
-  // final fallback before the failure video.
+  // final fallback before the failure video. Only fires when userPickFallback='ur-lobby'.
   if (
     userPick
     && sessionKey
     && globalConfig.ultimateResolve?.enabled
+    && globalConfig.ultimateResolve?.userPickFallback === 'ur-lobby'
     && redirectCount < MAX_SELF_REDIRECTS
     && !res.headersSent
   ) {
     const lobbyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/ultimate-resolve`);
     lobbyUrl.searchParams.set('sk', sessionKey);
+    if (fallbackGroupId) lobbyUrl.searchParams.set('fbg', fallbackGroupId);
     lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));
     console.log(`👑 User-pick exhausted — redirecting to UR lobby (rc=${redirectCount + 1})`);
     res.redirect(302, lobbyUrl.href);
@@ -981,7 +1055,11 @@ export async function handleStream(
   // ensures Stremio never considers the episode "completed", so it won't mark it
   // as watched or auto-advance to the next episode. The user sees the
   // "Stream Unavailable" message and goes back to the stream list manually.
-  console.error(`\u274C All ${maxCandidates} candidate(s) exhausted, serving failure video`);
+  if (userPick && globalConfig.ultimateResolve?.userPickFallback === 'failure-video') {
+    console.error(`\u274C User-pick attempt failed (userPickFallback=failure-video) — serving failure video`);
+  } else {
+    console.error(`\u274C All ${maxCandidates} candidate(s) exhausted, serving failure video`);
+  }
   if (!res.headersSent) {
     await sendFailureVideo(req, res);
   }
