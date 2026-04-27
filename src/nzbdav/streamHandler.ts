@@ -567,10 +567,12 @@ export async function handleStream(
   // Stremio dedup: return cached delivery for subsequent requests on the same stream (within 10 min).
   // Catches seeks, probes, and dupes without re-running library check or re-submitting NZBs.
   // Only for fresh initial requests — self-redirects (_ci set) bypass dedup to allow fallback retry.
+  // Cache stores the *resolved* delivery (which may differ from the clicked NZB when fallback-chain
+  // walked past the click), so we don't gate on the clicked NZB's dead state — the cache hit is
+  // already a known-good resolution.
   const isFreshRequest = candidateStart === 0 && !req.query._ci;
   if (isFreshRequest && candidates.length > 0) {
-    const firstDeadKey = getDeadCacheKey(candidates[0].nzbUrl, episodePattern);
-    if (!isDeadNzb(firstDeadKey) && !isDeadNzbByUrl(candidates[0].nzbUrl)) {
+    {
       const dedupKey = getCacheKey(candidates[0].nzbUrl, candidates[0].title) + (episodePattern ? `:${episodePattern}` : '');
       const cached = recentDeliveries.get(dedupKey);
       if (cached && Date.now() - cached.timestamp < DEDUP_CACHE_TTL_MS && !isVideoPathBroken(cached.streamData.videoPath)) {
@@ -581,6 +583,11 @@ export async function handleStream(
         if (verbose) console.log(`📦 Stream dedup hit (delivered ${Math.round((Date.now() - cached.timestamp) / 1000)}s ago)`);
         const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
         const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
+        // Dedup the per-mode delivery log on this videoPath so repeat probes
+        // don't spam the same line. lastDeliveryLog is shared with primary delivery.
+        const lastCached = lastDeliveryLog.get(cached.streamData.videoPath);
+        const shouldLogCachedDelivery = !lastCached || lastCached.mode !== cached.streamingMethod;
+        lastDeliveryLog.set(cached.streamData.videoPath, { mode: cached.streamingMethod, at: Date.now() });
         if (cached.streamingMethod === 'direct') {
           const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
           const safePath = encodeWebdavPath(cached.streamData.videoPath);
@@ -589,14 +596,14 @@ export async function handleStream(
             directUrl.username = config.webdavUser;
             directUrl.password = config.webdavPassword || '';
           }
-          console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}${sizeSuffix}`);
+          if (shouldLogCachedDelivery) console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}${sizeSuffix}`);
           res.redirect(302, directUrl.href);
         } else if (!fallbackOn && proxyFn) {
           // Inline proxy — no redirect, matches primary delivery path. Runs
           // another proxyVideoStream for this request; req.on('close') ensures
           // cleanup if the client aborts.
           const label = cached.streamingMethod === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
-          console.log(`  ${label} streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
+          if (shouldLogCachedDelivery) console.log(`  ${label} streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
           await proxyFn(req, res, cached.streamData.videoPath, cached.streamingMethod !== 'proxy');
         } else {
           const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
@@ -604,7 +611,7 @@ export async function handleStream(
           proxyUrl.searchParams.set('_fb', req.originalUrl);
           if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
           const label = cached.streamingMethod === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
-          console.log(`  ${label} 302 streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
+          if (shouldLogCachedDelivery) console.log(`  ${label} 302 streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
           res.redirect(302, proxyUrl.href);
         }
         return;
@@ -936,8 +943,18 @@ export async function handleStream(
       // Cache delivery for Stremio request dedup (10 min TTL) — populated BEFORE
       // delivery so concurrent probes from Stremio land on the dedup path instead
       // of triggering another prep.
-      const dedupKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+      // Key on candidates[0] (the URL the client requested) so subsequent client
+      // requests for the same click hit dedup, even when fallback-chain walked
+      // past the click and resolved a later candidate.
+      const dedupCandidate = candidates[0] ?? candidate;
+      const dedupKey = getCacheKey(dedupCandidate.nzbUrl, dedupCandidate.title) + (episodePattern ? `:${episodePattern}` : '');
       recentDeliveries.set(dedupKey, { streamData, streamingMethod: mode, timestamp: Date.now() });
+      // Also key on the resolved candidate's URL so direct second-clicks of the
+      // resolved tile (different click URL) also dedup.
+      if (candidate !== dedupCandidate) {
+        const resolvedKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        recentDeliveries.set(resolvedKey, { streamData, streamingMethod: mode, timestamp: Date.now() });
+      }
 
       const deliverySizeSuffix = streamData.videoSize ? ` (${formatBytes(streamData.videoSize)})` : '';
       if (mode !== 'direct') {
