@@ -461,7 +461,7 @@ export function UltimateResolveOverlay({
               <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
               <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
             </div>
-            <div className="text-[11px] text-amber-400/50 mt-1">
+            <div className="text-xs text-amber-400/50 mt-1">
               These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
             </div>
           </div>
@@ -483,7 +483,7 @@ export function UltimateResolveOverlay({
               </div>
             </div>
             <div className="text-xs text-slate-500">Container-matched backups to pre-resolve after the primary. Processing stops once this number is reached (or candidates are exhausted). Backups must match the primary's container type (MKV, MP4, etc.).</div>
-            <div className="text-[11px] text-amber-400/50">Values: Off, 1–10</div>
+            <div className="text-xs text-amber-400/50">Values: Off, 1–10</div>
 
             {ultimateResolve.desiredBackups > 0 && (
               <div className="border-l-2 border-amber-500/20 pl-3 ml-1 mt-3 space-y-2">
@@ -501,8 +501,11 @@ export function UltimateResolveOverlay({
                     >+</button>
                   </div>
                 </div>
-                <div className="text-xs text-slate-500">Caps total backup NZBs attempted, even if Desired Backups hasn't been reached. Failed and duplicate attempts count toward the cap; library hits don't (they cost no NNTP grab).</div>
-                <div className="text-[11px] text-amber-400/50">Values: All, 1–20</div>
+                <div className="text-xs text-slate-500">Cap on extra NZB grabs after the primary resolves, in search of more backups. NZBs grabbed earlier (while still searching for the primary) flow through as free backups and don't count. Library hits don't either.</div>
+                <div className="text-xs text-amber-400/50">Values: All, 1–20</div>
+                <div className="text-xs text-amber-400/50">
+                  At least <span className="text-sm font-semibold tabular-nums">{ultimateResolve.candidateCount}</span> NZB{ultimateResolve.candidateCount !== 1 ? 's' : ''} grabbed during primary search (more if early candidates fail), then {ultimateResolve.backupProcessingLimit === 0 ? <span className="text-sm font-semibold">unlimited</span> : <>up to <span className="text-sm font-semibold tabular-nums">{ultimateResolve.backupProcessingLimit}</span> more</>} additional grab{ultimateResolve.backupProcessingLimit !== 1 ? 's' : ''} for backups.
+                </div>
               </div>
             )}
           </div>

@@ -254,6 +254,7 @@ export async function ultimateResolveFromCandidates(
     let duplicateCount = 0;
     let failedBackupCount = 0;
     let backupLimitReached = false;
+    let postPrimaryGrabs = 0;
 
     type LibraryHit = { candidate: FallbackCandidate; index: number; data: StreamData };
     const hits: LibraryHit[] = libraryResults
@@ -464,16 +465,11 @@ export async function ultimateResolveFromCandidates(
         // post-drain sweep below regardless.
         if (options.desiredBackups === 0) return null;
         if (options.desiredBackups > 0 && backupCount >= options.desiredBackups) return null;
-        // Cap total backup NZBs attempted via NNTP. Library-hit pool members
-        // never grab segments (promoted at pool entry) so they don't count
-        // against the grab budget. Dead, duplicate, and mismatch DO count —
-        // they each cost a grab + health check.
-        if (options.backupProcessingLimit > 0) {
-          const attempted = activePool.filter(cs =>
-            cs.poolIndex !== primaryPoolIndex
-            && !libraryResolvedUrls.has(cs.candidate.nzbUrl)
-          ).length;
-          if (attempted >= options.backupProcessingLimit) return null;
+        // Cap NEW post-primary grabs only. Pre-primary refills (added before
+        // primary resolved while still searching) are free and flow through
+        // as backups via selectNext. Library hits don't charge either.
+        if (options.backupProcessingLimit > 0 && postPrimaryGrabs >= options.backupProcessingLimit) {
+          return null;
         }
       }
       while (nextCandidateIdx < allCandidates.length) {
@@ -481,6 +477,7 @@ export async function ultimateResolveFromCandidates(
         nextCandidateIdx++;
         if (isDeadNzbByUrl(c.nzbUrl)) continue;
         const cs = addToPool(c, nextCandidateIdx - 1);
+        if (primaryResolved && !hitUrls.has(c.nzbUrl)) postPrimaryGrabs++;
         deferred.lastVettedUrl = c.nzbUrl;
         if (hitUrls.has(c.nzbUrl)) {
           promoteLibraryCandidate(cs);
@@ -528,15 +525,9 @@ export async function ultimateResolveFromCandidates(
           backupLimitReached = true;
           console.log(`${tag} 📦 Desired backups reached (${backupCount}/${options.desiredBackups}) — draining pool`);
         }
-        if (options.backupProcessingLimit > 0 && !backupLimitReached) {
-          const attempted = activePool.filter(cs =>
-            cs.poolIndex !== primaryPoolIndex
-            && !libraryResolvedUrls.has(cs.candidate.nzbUrl)
-          ).length;
-          if (attempted >= options.backupProcessingLimit) {
-            backupLimitReached = true;
-            console.log(`${tag} 📦 Backup processing limit reached (${attempted}/${options.backupProcessingLimit}) — draining pool`);
-          }
+        if (options.backupProcessingLimit > 0 && !backupLimitReached && postPrimaryGrabs >= options.backupProcessingLimit) {
+          backupLimitReached = true;
+          console.log(`${tag} 📦 Backup processing limit reached (${postPrimaryGrabs}/${options.backupProcessingLimit}) — draining pool`);
         }
       }
 
@@ -747,7 +738,7 @@ export async function ultimateResolveFromCandidates(
       `pool: ${options.candidateCount}`,
       `mode: ${options.preferenceMode}`,
       `desiredBackups: ${options.desiredBackups === 0 ? 'Off' : options.desiredBackups}`,
-      `backupProcessingLimit: ${options.backupProcessingLimit === 0 ? 'all' : options.backupProcessingLimit}`,
+      `backupProcessingLimit: ${options.backupProcessingLimit === 0 ? 'all' : `${postPrimaryGrabs}/${options.backupProcessingLimit}`}`,
       `sampleCount: ${options.sampleCount}`,
       `archiveInspection: ${options.archiveInspection ? 'on' : 'off'}`,
     ].join(' · ');
