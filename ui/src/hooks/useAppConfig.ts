@@ -98,6 +98,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [seasonPackAdditionalPages, setSeasonPackAdditionalPages] = useState(1);
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
   const [urlDedup, setUrlDedup] = useState(true);
+  const [displayLibraryInResults, setDisplayLibraryInResults] = useState(false);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -375,11 +376,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         seasonPackAdditionalPages: includeSeasonPacks && seasonPackPagination ? seasonPackAdditionalPages : undefined,
         indexerPriorityDedup,
         urlDedup,
+        displayLibraryInResults,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, displayLibraryInResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -531,6 +533,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setSeasonPackAdditionalPages(sc?.seasonPackAdditionalPages || 1);
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
       setUrlDedup(sc?.urlDedup !== false);
+      setDisplayLibraryInResults(sc?.displayLibraryInResults === true);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
       setEasynewsUsername(data.easynewsUsername || '');
@@ -1239,6 +1242,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     seasonPackAdditionalPages, setSeasonPackAdditionalPages,
     indexerPriorityDedup, setIndexerPriorityDedup,
     urlDedup, setUrlDedup,
+    displayLibraryInResults, setDisplayLibraryInResults,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,
     dedupDragOverItem, setDedupDragOverItem,

@@ -22,7 +22,7 @@ export { autoResolveFromCandidates, cancelAllAutoResolves } from './autoResolve.
 export { ultimateResolveFromCandidates, cancelAllUltimateResolves, getSessionPromise, hasAnySessions } from './ultimateResolve.js';
 
 // Shared utilities
-export { buildEpisodePattern, buildNzbdavConfig } from './utils.js';
+export { buildEpisodePattern, buildNzbdavConfig, isNzbdavLibraryConfigured } from './utils.js';
 
 // Stream handler (Express endpoint)
 export { handleStream } from './streamHandler.js';

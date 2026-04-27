@@ -24,11 +24,11 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, autoResolveFromCandidates, ultimateResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, autoResolveFromCandidates, ultimateResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
-import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav } from './healthCheckCoordinator.js';
+import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
 import { isDeadNzbByUrl } from '../nzbdav/streamCache.js';
 import { requestContext } from '../requestContext.js';
@@ -205,6 +205,26 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
       // Auto-mark EasyNews and Zyclops results as verified
       autoMarkRemainingResults(allResults, healthMap);
+
+      // Display library in results: mark search results that already exist in
+      // the WebDAV library with the 📚 icon. Runs after auto-mark + before
+      // auto-queue so library hits aren't auto-queued (auto-queue's isEligible
+      // also rejects message='Library' as a defensive guard).
+      if (config.searchConfig?.displayLibraryInResults && isNzbdavLibraryConfigured()) {
+        const epPattern = (titleMeta.type === 'series' && titleMeta.season !== undefined && titleMeta.episode !== undefined)
+          ? buildEpisodePattern(titleMeta.season, titleMeta.episode, getTvAllowMultiEpisode(config))
+          : undefined;
+        const contentType: 'movie' | 'series' = titleMeta.type === 'movie' ? 'movie' : 'series';
+        const hits = await markLibraryHits(
+          allResults,
+          healthMap,
+          buildNzbdavConfig(),
+          epPattern,
+          contentType,
+          titleMeta.episodesInSeason,
+        );
+        if (hits > 0) console.log(`📚 Display-library: marked ${hits}/${allResults.length} result(s) as in-library`);
+      }
 
       // Auto-queue to NZBDav if enabled (skipped when Ultimate-Resolve manages this)
       if (!config.ultimateResolve?.enabled) {

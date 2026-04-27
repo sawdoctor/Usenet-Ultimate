@@ -186,9 +186,11 @@ export const config: Config = {
   get searchConfig(): SearchConfig {
     const sc = configData.searchConfig || { includeSeasonPacks: true };
     const urlDedupEnv = envBool('URL_DEDUP');
+    const displayLibraryEnv = envBool('DISPLAY_LIBRARY_IN_RESULTS');
     return {
       ...sc,
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
+      ...(displayLibraryEnv !== undefined && { displayLibraryInResults: displayLibraryEnv }),
     };
   },
   get useTextSearch() {

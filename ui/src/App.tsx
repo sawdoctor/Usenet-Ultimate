@@ -580,6 +580,8 @@ function App() {
           setSeasonPackAdditionalPages={ac.setSeasonPackAdditionalPages}
           urlDedup={ac.urlDedup}
           setUrlDedup={ac.setUrlDedup}
+          displayLibraryInResults={ac.displayLibraryInResults}
+          setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}

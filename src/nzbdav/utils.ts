@@ -36,6 +36,18 @@ export function buildNzbdavConfig(): NZBDavConfig {
 }
 
 /**
+ * Check whether NZBDav library infrastructure is configured for use.
+ * Encodes streamingMode + WebDAV URL + WebDAV user — does NOT include any
+ * feature toggles. Each caller applies its own toggle (e.g.
+ * `healthChecks.libraryPreCheck` or `searchConfig.displayLibraryInResults`).
+ */
+export function isNzbdavLibraryConfigured(): boolean {
+  return globalConfig.streamingMode === 'nzbdav'
+    && !!globalConfig.nzbdavWebdavUrl
+    && !!globalConfig.nzbdavWebdavUser;
+}
+
+/**
  * Encode a raw WebDAV file path for use in URLs.
  * Splits on '/', filters out empty segments and traversal components,
  * and encodes each segment individually.

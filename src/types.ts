@@ -97,6 +97,7 @@ export interface SearchConfig {
   skipAnimeTitleResolve?: boolean; // Skip TVDB/TMDB title resolution for anime (Animation+Japan) to avoid Japanese titles
   indexerPriorityDedup?: boolean;  // Deduplicate results across indexers, keeping only the copy from the highest-priority indexer (default false)
   urlDedup?: boolean;  // Remove duplicate results with identical download URLs (default true)
+  displayLibraryInResults?: boolean;  // Mark search results that exist in the WebDAV library with the 📚 icon (default false)
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';

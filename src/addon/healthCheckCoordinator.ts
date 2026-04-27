@@ -22,6 +22,42 @@ import type { NZBDavConfig } from '../nzbdav/types.js';
 // cross-origin redirect errors from reverse proxies / external BASE_URL.
 const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
 
+/**
+ * Mark candidates that already exist in the NZBDav library by calling
+ * checkNzbLibrary in parallel. Skips entries already in healthResults so
+ * concurrent callers (libraryPreCheck + displayLibraryInResults) don't
+ * double-probe the same URL. Library hits are tagged
+ * `{status:'verified', message:'Library', playable:true}` so the existing
+ * streamBuilder maps them to the 📚 status badge. Returns the hit count.
+ */
+export async function markLibraryHits(
+  candidates: any[],
+  healthResults: Map<string, HealthCheckResult>,
+  nzbdavConfig: NZBDavConfig,
+  episodePattern: string | undefined,
+  contentType: 'movie' | 'series',
+  episodesInSeason: number | undefined,
+): Promise<number> {
+  const unchecked = candidates.filter(r => !healthResults.has(r.link));
+  if (unchecked.length === 0) return 0;
+  let hits = 0;
+  await Promise.all(unchecked.map(async (r) => {
+    try {
+      const result = await checkNzbLibrary(
+        r.title, nzbdavConfig, episodePattern, contentType, episodesInSeason, '', true,
+      );
+      if (result) {
+        healthResults.set(r.link, { status: 'verified', message: 'Library', playable: true });
+        hits++;
+      }
+    } catch {
+      // Non-fatal — checkNzbLibrary only re-throws errors flagged isNzbdavFailure;
+      // transient WebDAV blips don't break the search response.
+    }
+  }));
+  return hits;
+}
+
 export interface HealthCheckContext {
   allResults: any[];
   type: string;
@@ -157,25 +193,14 @@ export async function coordinateHealthChecks(
   /** Check a batch of candidates against the NZBDav library (concurrent). */
   async function preCheckLibrary(candidates: any[]): Promise<number> {
     if (!nzbdavConfig) return 0;
-    const unchecked = candidates.filter(r => !healthResults.has(r.link));
-    if (unchecked.length === 0) return 0;
-
-    let hits = 0;
-    const checks = unchecked.map(async (r) => {
-      try {
-        const result = await checkNzbLibrary(
-          r.title, nzbdavConfig!, libraryEpisodePattern, libraryContentType, ctx.episodesInSeason
-        );
-        if (result) {
-          healthResults.set(r.link, { status: 'verified', message: 'Library', playable: true });
-          hits++;
-        }
-      } catch {
-        // Non-fatal — fall through to NNTP check
-      }
-    });
-    await Promise.all(checks);
-    return hits;
+    return markLibraryHits(
+      candidates,
+      healthResults,
+      nzbdavConfig,
+      libraryEpisodePattern,
+      libraryContentType,
+      ctx.episodesInSeason,
+    );
   }
 
   if (inspectionMethod === 'smart') {
@@ -492,6 +517,9 @@ export function autoQueueToNzbdav(
     if (r.easynewsMeta && config.easynewsMode !== 'nzb') return false;
     const health = healthResults.get(r.link);
     if (!health || !isVerifiedStatus(health.status)) return false;
+    // Library hits are already on disk — auto-queueing them would re-grab
+    // content the user already has. Skip.
+    if (health.message === 'Library') return false;
     return true;
   };
 

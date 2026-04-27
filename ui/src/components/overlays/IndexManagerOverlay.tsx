@@ -66,6 +66,10 @@ interface IndexManagerOverlayProps {
   urlDedup: boolean;
   setUrlDedup: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // Display library in results
+  displayLibraryInResults: boolean;
+  setDisplayLibraryInResults: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Indexer priority dedup
   indexerPriorityDedup: boolean;
   setIndexerPriorityDedup: React.Dispatch<React.SetStateAction<boolean>>;
@@ -198,6 +202,8 @@ export function IndexManagerOverlay({
   setSeasonPackAdditionalPages,
   urlDedup,
   setUrlDedup,
+  displayLibraryInResults,
+  setDisplayLibraryInResults,
   indexerPriorityDedup,
   setIndexerPriorityDedup,
   indexerPriority,
@@ -629,6 +635,26 @@ export function IndexManagerOverlay({
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Display Library in Results — own card */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="display-library-in-results" className="flex-1 cursor-pointer">
+                    <div className="text-sm font-medium text-slate-300">Display library in results</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Mark search results that already exist in your library with the 📚 icon. Adds a quick WebDAV check to each result before sending to Stremio.</div>
+                  </label>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="display-library-in-results"
+                      checked={displayLibraryInResults}
+                      onChange={(e) => setDisplayLibraryInResults(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
                 </div>
               </div>
 
