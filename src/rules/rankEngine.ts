@@ -46,6 +46,7 @@ interface CompiledRegexRule {
   name: string;
   score: number;
   enabled: boolean;
+  mode: 'score' | 'keep' | 'drop';
   regex?: RegExp;
   compileError?: string;
 }
@@ -78,6 +79,7 @@ export interface MatchedRule {
   ruleName: string;
   kind: 'regex' | 'sel';
   score: number;
+  mode?: 'score' | 'keep' | 'drop';   // regex-rule mode at match time; absent for sel
 }
 
 // ─── Compile cache ───────────────────────────────────────────────────
@@ -92,17 +94,22 @@ function clampScore(raw: unknown): number {
 }
 
 function compileRegexRule(r: RankedRegexRule): CompiledRegexRule {
+  const mode: 'score' | 'keep' | 'drop' = (r.mode === 'keep' || r.mode === 'drop') ? r.mode : 'score';
   const base: CompiledRegexRule = {
     id: r.id,
     name: r.name,
     score: clampScore(r.score),
     enabled: r.enabled !== false,
+    mode,
   };
   if (!base.enabled) return base;
   try {
     base.regex = new RegExp(r.pattern, r.flags ?? 'i');
   } catch (e: any) {
     base.compileError = e?.message ?? String(e);
+  }
+  if (base.compileError && (mode === 'keep' || mode === 'drop')) {
+    console.warn(`⚠️ Filter rule '${r.name}' (mode=${mode}) failed to compile — pool will not be gated by it: ${base.compileError}`);
   }
   return base;
 }
@@ -222,6 +229,9 @@ export interface RankDecorations {
   totalScore: number;
   matched: MatchedRule[];
   tags: string[];
+  /** When excluded, the rule name that dropped this candidate, or
+   *  '(no keep match)' when the keep-gate excluded it. */
+  excludedBy?: string;
 }
 
 export interface PoolRankResult {
@@ -229,8 +239,10 @@ export interface PoolRankResult {
   decorations: Map<unknown, RankDecorations>;
   /** Rule compile errors surfaced once per request. */
   errors: RuleError[];
-  /** Candidate refs that should be excluded from results (unused in the new
-   *  model — exclusion lives elsewhere — but preserved for API stability). */
+  /** Candidate refs that should be excluded from results. Populated by regex
+   *  rules with mode='drop' (matches dropped) or mode='keep' gating (candidates
+   *  that match no enabled keep-rule are dropped). Empty when only score-mode
+   *  rules are configured. */
   excluded: Set<unknown>;
 }
 
@@ -247,14 +259,20 @@ function capTitle(title: string): string {
 
 /**
  * Evaluate the full candidate pool against compiled rules.
- *   - Pass 1: run each enabled regex rule across all candidates; record tags
- *     and, if the rule's score ≠ 0, accumulate regexScore deltas.
- *   - Pass 2: run each enabled SEL expression once against the tagged pool;
- *     every stream returned gets the expression's score added to seScore.
+ *   - Pass 1: iterate candidates; for each, run every enabled regex rule.
+ *     Tag is set in all modes (so SEL can reference rules by name). 'drop'
+ *     mode short-circuits and excludes the candidate. 'keep' mode marks the
+ *     candidate as having matched at least one keep rule. 'score' mode adds
+ *     score deltas. After all rules run, candidates that matched no keep rule
+ *     are excluded if any keep rules are enabled (include-filter semantics).
+ *   - Pass 2: run each enabled SEL expression once against the tagged pool
+ *     (excluded candidates removed); every stream returned gets the
+ *     expression's score added to seScore.
  */
 export function rankPool(opts: PoolRankOptions): PoolRankResult {
   const { compiled, candidates, queryType, constants } = opts;
   const errors: RuleError[] = [...compiled.compileErrors];
+  const excluded = new Set<unknown>();
 
   // Initialise decoration
   const deco = new Map<unknown, RankDecorations>();
@@ -265,16 +283,21 @@ export function rankPool(opts: PoolRankOptions): PoolRankResult {
     streamRefs.push({ ref: c.ref, attrs: c.attrs, tags: dec.tags });
   }
 
-  // ── Pass 1: regex → tags + optional score ───────────────────────────
+  // ── Pass 1: regex → tags + score / keep / drop ──────────────────────
+  // Compute hasKeepRules from compiled rules — defensive against rules whose
+  // pattern failed to compile (those don't have a `regex` and shouldn't gate
+  // the pool).
+  const hasKeepRules = compiled.regex.some(r => r.enabled && r.regex && r.mode === 'keep');
   let budgetMs = REQUEST_REGEX_BUDGET_MS;
   let overBudget = false;
 
-  for (const rule of compiled.regex) {
-    if (!rule.enabled || !rule.regex) continue;
+  for (const c of candidates) {
     if (overBudget) break;
-
-    for (const c of candidates) {
-      if (overBudget) break;
+    let candExcluded = false;
+    let matchedAnyKeep = false;
+    let excludedByRule: string | undefined;
+    for (const rule of compiled.regex) {
+      if (!rule.enabled || !rule.regex) continue;
       const before = Date.now();
       let hit = false;
       try {
@@ -292,13 +315,42 @@ export function rankPool(opts: PoolRankOptions): PoolRankResult {
       if (!hit) continue;
 
       const dec = deco.get(c.ref)!;
+      // Tag set in all modes so SEL can reference rules by name regardless of mode.
       dec.tags.push(rule.name);
+
+      if (rule.mode === 'drop') {
+        candExcluded = true;
+        excludedByRule = rule.name;
+        dec.matched.push({ ruleId: rule.id, ruleName: rule.name, kind: 'regex', score: 0, mode: 'drop' });
+        break;   // drop short-circuits further rule evaluation for this candidate
+      }
+      if (rule.mode === 'keep') {
+        matchedAnyKeep = true;
+        dec.matched.push({ ruleId: rule.id, ruleName: rule.name, kind: 'regex', score: 0, mode: 'keep' });
+        continue; // no score adjustment in keep mode
+      }
+      // 'score' mode (default)
       if (rule.score !== 0) {
         dec.regexScore = applyDelta(dec.regexScore, rule.score);
-        dec.matched.push({ ruleId: rule.id, ruleName: rule.name, kind: 'regex', score: rule.score });
+        dec.matched.push({ ruleId: rule.id, ruleName: rule.name, kind: 'regex', score: rule.score, mode: 'score' });
       }
     }
+    if (!candExcluded && hasKeepRules && !matchedAnyKeep) {
+      candExcluded = true;
+      excludedByRule = '(no keep match)';
+    }
+    if (candExcluded) {
+      excluded.add(c.ref);
+      const dec = deco.get(c.ref);
+      if (dec && excludedByRule) dec.excludedBy = excludedByRule;
+    }
   }
+
+  // SEL pass operates on the *visible* pool (excluded candidates removed) so
+  // functions like largest(streams) compute over what the user actually sees.
+  const visibleRefs = excluded.size > 0
+    ? streamRefs.filter(sr => !excluded.has(sr.ref))
+    : streamRefs;
 
   // ── Pass 2: SEL expressions → set-level scoring ─────────────────────
   const seConstants: Record<string, unknown> = {
@@ -311,7 +363,7 @@ export function rankPool(opts: PoolRankOptions): PoolRankResult {
     if (!rule.enabled || !rule.expr) continue;
 
     const ctx: EvalContext = {
-      streams: streamRefs,
+      streams: visibleRefs,
       constants: seConstants,
       functions: BUILTIN_FUNCTIONS,
     };
@@ -347,7 +399,7 @@ export function rankPool(opts: PoolRankOptions): PoolRankResult {
     dec.totalScore = applyDelta(dec.regexScore, dec.seScore);
   }
 
-  return { decorations: deco, errors, excluded: new Set() };
+  return { decorations: deco, errors, excluded };
 }
 
 // ─── Pipeline adapter ────────────────────────────────────────────────
@@ -355,8 +407,9 @@ export function rankPool(opts: PoolRankOptions): PoolRankResult {
 /**
  * Apply ranked rules to a candidate pool. Decorates each candidate with
  * `_rankRegexScore`, `_rankSeScore`, `_rankTotalScore`, `_rankMatched`,
- * `_rankRegexTags`. Returns the candidates unchanged (no exclusion in the
- * new model — use attribute filters to exclude).
+ * `_rankRegexTags`. Candidates flagged by 'drop' or 'keep'-gate exclusion
+ * are decorated with `_rankExcluded = true`; the upstream pipeline filters
+ * these out (see `applyRankedRules` in src/addon/filters.ts).
  */
 export function applyRules(
   candidates: any[],
@@ -370,6 +423,7 @@ export function applyRules(
       if (r._rankTotalScore !== undefined) {
         delete r._rankRegexScore; delete r._rankSeScore; delete r._rankTotalScore;
         delete r._rankMatched; delete r._rankRegexTags; delete r._rankErrors;
+        delete r._rankExcluded; delete r._rankExcludedBy;
       }
     }
     return candidates;
@@ -396,6 +450,13 @@ export function applyRules(
     c._rankTotalScore = dec.totalScore;
     c._rankMatched    = dec.matched;
     c._rankRegexTags  = dec.tags;
+    if (result.excluded.has(c)) {
+      c._rankExcluded = true;
+      c._rankExcludedBy = dec.excludedBy;
+    } else {
+      delete c._rankExcluded;
+      delete c._rankExcludedBy;
+    }
     if (result.errors.length > 0) c._rankErrors = result.errors;
   }
 
@@ -411,6 +472,7 @@ export interface PreviewResult {
   matched: MatchedRule[];
   tags: string[];
   errors: RuleError[];
+  excluded: boolean;
 }
 
 /**
@@ -433,5 +495,6 @@ export function previewSingle(
     matched: dec?.matched ?? [],
     tags: dec?.tags ?? [],
     errors: result.errors,
+    excluded: result.excluded.has(cand.ref),
   };
 }

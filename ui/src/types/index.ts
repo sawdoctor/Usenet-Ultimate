@@ -256,6 +256,7 @@ export interface RankedRegexRule {
   flags?: string;
   score: number;
   enabled?: boolean;
+  mode?: 'score' | 'keep' | 'drop';
 }
 
 export interface RankedSelRule {

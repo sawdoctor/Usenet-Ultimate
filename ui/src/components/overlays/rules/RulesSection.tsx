@@ -1,8 +1,10 @@
 // What this does:
 //   Rules section inside the Filters overlay. Renders the ranked-rule editors
-//   (regex rules, SEL rules), an import dialog, and a live-test field. Rules
-//   are scored: score=0 excludes, positive boosts, negative penalizes. The
-//   `regexScore` and `seScore` sort methods in the main overlay consume these.
+//   (regex rules, SEL rules), an import dialog, and a live-test field. Regex
+//   rules support three modes: 'score' (positive boosts, negative penalizes;
+//   default), 'keep' (include filter — only matching candidates survive), and
+//   'drop' (exclude filter — matching candidates are removed). SEL rules are
+//   score-only. The `regexScore` and `seScore` sort methods consume scores.
 //
 // Architecture note:
 //   The section receives the per-type `rules` block and an updater. All edits
@@ -55,6 +57,7 @@ const RegexRuleRow = memo(function RegexRuleRow({
   rule, onUpdate, onDelete, onMoveUp, onMoveDown, canMoveUp, canMoveDown, disabled,
 }: RegexRuleRowProps) {
   const enabled = rule.enabled !== false;
+  const mode = rule.mode ?? 'score';
   return (
     <div className={clsx(
       "p-3 rounded-lg border bg-slate-800/40 space-y-2",
@@ -97,22 +100,38 @@ const RegexRuleRow = memo(function RegexRuleRow({
               />
             </div>
             <div className="flex gap-1.5">
-              <div className="w-20">
-                <label htmlFor={`rx-score-${rule.id}`} className="sr-only">Score (0 excludes)</label>
-                <input
-                  id={`rx-score-${rule.id}`}
-                  type="number"
-                  inputMode="numeric"
-                  min={-10000}
-                  max={10000}
-                  step={1}
-                  value={rule.score}
-                  onChange={(e) => onUpdate({ score: clamp(parseInt(e.target.value || '0', 10) || 0, -10000, 10000) })}
-                  disabled={disabled}
-                  title="Score. 0 excludes the release. Positive boosts. Negative penalizes."
-                  className="w-full px-2 py-1 text-sm bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
-                />
-              </div>
+              {mode === 'score' ? (
+                <div className="w-20">
+                  <label htmlFor={`rx-score-${rule.id}`} className="sr-only">Score</label>
+                  <input
+                    id={`rx-score-${rule.id}`}
+                    type="number"
+                    inputMode="numeric"
+                    min={-10000}
+                    max={10000}
+                    step={1}
+                    value={rule.score}
+                    onChange={(e) => onUpdate({ score: clamp(parseInt(e.target.value || '0', 10) || 0, -10000, 10000) })}
+                    disabled={disabled}
+                    title="Score. Positive boosts. Negative penalizes. Switch mode below to filter results in/out."
+                    className="w-full px-2 py-1 text-sm bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+                  />
+                </div>
+              ) : (
+                <div
+                  className={clsx(
+                    "w-20 px-2 py-1 text-xs font-medium uppercase tracking-wide rounded border flex items-center justify-center",
+                    mode === 'keep'
+                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                      : "bg-red-500/15 border-red-500/40 text-red-300"
+                  )}
+                  title={mode === 'keep'
+                    ? "Keep matches: only candidates matching this rule (or any other keep rule) survive."
+                    : "Drop matches: candidates matching this rule are removed from results."}
+                >
+                  {mode === 'keep' ? 'Keep' : 'Drop'}
+                </div>
+              )}
               <button
                 type="button"
                 aria-label={enabled ? 'Disable rule' : 'Enable rule'}
@@ -138,6 +157,21 @@ const RegexRuleRow = memo(function RegexRuleRow({
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor={`rx-mode-${rule.id}`} className="text-[11px] text-slate-400 whitespace-nowrap">Mode:</label>
+            <select
+              id={`rx-mode-${rule.id}`}
+              value={mode}
+              onChange={(e) => onUpdate({ mode: e.target.value as 'score' | 'keep' | 'drop' })}
+              disabled={disabled}
+              className="px-2 py-1 text-xs bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+              title="Score: add to score on match. Keep matches: include filter (only matching candidates survive). Drop matches: exclude filter (matches are dropped)."
+            >
+              <option value="score">Score</option>
+              <option value="keep">Keep matches</option>
+              <option value="drop">Drop matches</option>
+            </select>
           </div>
           <div className="flex gap-1.5">
             <div className="flex-1 min-w-0">
@@ -231,7 +265,7 @@ const SelRuleRow = memo(function SelRuleRow({
             </div>
             <div className="flex gap-1.5">
               <div className="w-20">
-                <label htmlFor={`sel-score-${rule.id}`} className="sr-only">Score (0 excludes)</label>
+                <label htmlFor={`sel-score-${rule.id}`} className="sr-only">Score</label>
                 <input
                   id={`sel-score-${rule.id}`}
                   type="number"
@@ -242,7 +276,7 @@ const SelRuleRow = memo(function SelRuleRow({
                   value={rule.score}
                   onChange={(e) => onUpdate({ score: clamp(parseInt(e.target.value || '0', 10) || 0, -10000, 10000) })}
                   disabled={disabled}
-                  title="Score. 0 excludes the release. Positive boosts. Negative penalizes."
+                  title="Score. Positive boosts. Negative penalizes."
                   className="w-full px-2 py-1 text-sm bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
                 />
               </div>
@@ -601,7 +635,7 @@ interface PreviewResponse {
   seScore: number;
   totalScore: number;
   excluded: boolean;
-  matched: { ruleId: string; ruleName: string; kind: 'regex' | 'sel'; score: number }[];
+  matched: { ruleId: string; ruleName: string; kind: 'regex' | 'sel'; score: number; mode?: 'score' | 'keep' | 'drop' }[];
   compileErrors: { ruleId: string; ruleName: string; kind: 'regex' | 'sel'; message: string }[];
   evalErrors: { ruleId: string; ruleName: string; kind: 'regex' | 'sel'; message: string }[];
 }
@@ -666,11 +700,25 @@ function LiveTestField({ rules, apiFetch }: LiveTestFieldProps) {
           </div>
           {preview.matched.length > 0 && (
             <ul className="space-y-0.5">
-              {preview.matched.map((m, i) => (
-                <li key={i} className="text-slate-500">
-                  <span className="text-slate-400">[{m.kind}]</span> {m.ruleName} <span className={clsx("font-medium", m.score > 0 ? "text-emerald-400" : m.score < 0 ? "text-red-400" : "text-red-400")}>({m.score === 0 ? 'exclude' : (m.score > 0 ? '+' : '') + m.score})</span>
-                </li>
-              ))}
+              {preview.matched.map((m, i) => {
+                let label: string;
+                let labelClass: string;
+                if (m.mode === 'drop') {
+                  label = 'drops';
+                  labelClass = 'text-red-400';
+                } else if (m.mode === 'keep') {
+                  label = 'keeps';
+                  labelClass = 'text-emerald-400';
+                } else {
+                  label = (m.score > 0 ? '+' : '') + m.score;
+                  labelClass = m.score > 0 ? 'text-emerald-400' : m.score < 0 ? 'text-red-400' : 'text-slate-400';
+                }
+                return (
+                  <li key={i} className="text-slate-500">
+                    <span className="text-slate-400">[{m.kind}]</span> {m.ruleName} <span className={clsx("font-medium", labelClass)}>({label})</span>
+                  </li>
+                );
+              })}
             </ul>
           )}
           {(preview.compileErrors.length > 0 || preview.evalErrors.length > 0) && (
@@ -716,7 +764,7 @@ export default function RulesSection({ rules, onChange, apiFetch, disabled }: Ru
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rules]);
 
-  const onAddRegex = () => updateRegex([...regex, { id: newId(), name: '', pattern: '', flags: 'i', score: 10, enabled: true }]);
+  const onAddRegex = () => updateRegex([...regex, { id: newId(), name: '', pattern: '', flags: 'i', score: 10, enabled: true, mode: 'score' }]);
   const onAddSel   = () => updateSel([...sel, { id: newId(), name: '', expression: '', score: 10, enabled: true }]);
 
   const onImport = (imported: RulesBlock, mode: 'merge' | 'replace') => {

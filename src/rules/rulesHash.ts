@@ -15,7 +15,7 @@ export function rulesHash(rules: FilterConfig['rules'] | undefined): string {
   // parse order, for example) don't cause false invalidations.
   const normalized = {
     regex: (rules.rankedRegexPatterns ?? []).map(r => ({
-      id: r.id, name: r.name, pattern: r.pattern, flags: r.flags ?? '', score: r.score ?? 0, enabled: r.enabled !== false,
+      id: r.id, name: r.name, pattern: r.pattern, flags: r.flags ?? '', score: r.score ?? 0, enabled: r.enabled !== false, mode: r.mode ?? 'score',
     })),
     sel: (rules.rankedStreamExpressions ?? []).map(r => ({
       id: r.id, name: r.name, expression: r.expression, score: r.score ?? 0, enabled: r.enabled !== false,

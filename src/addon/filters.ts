@@ -229,11 +229,32 @@ export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig,
     queryType,
   );
 
+  // Filter out candidates marked excluded by 'drop' rules or 'keep'-gate
+  // exclusion, before the telemetry log + downstream sort.
+  const totalCount = decorated.length;
+  const survivors = decorated.filter(r => !r._rankExcluded);
+  const excludedCount = totalCount - survivors.length;
+  if (excludedCount > 0) {
+    // Per-rule attribution: count how many candidates each rule (or the
+    // keep-gate) dropped. Sorted by count desc so the loudest offenders lead.
+    const byRule = new Map<string, number>();
+    for (const r of decorated) {
+      if (!r._rankExcluded) continue;
+      const reason = r._rankExcludedBy ?? '(unknown)';
+      byRule.set(reason, (byRule.get(reason) ?? 0) + 1);
+    }
+    const breakdown = [...byRule.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, n]) => `${name}: ${n}`)
+      .join(', ');
+    console.log(`🚫 Filters dropped ${excludedCount}/${totalCount} candidate(s) — ${breakdown}`);
+  }
+
   // Observability: log the top-5 scored candidates after rules decorate so the
   // user can confirm rules are firing on real searches (answers "how do I know
   // rules are running vs the sorts set?"). Only emits when at least one
   // candidate picked up a non-zero score.
-  const scored = decorated.filter(r => typeof r._rankTotalScore === 'number' && r._rankTotalScore !== 0);
+  const scored = survivors.filter(r => typeof r._rankTotalScore === 'number' && r._rankTotalScore !== 0);
   if (scored.length > 0) {
     const top = [...scored].sort((a, b) => (b._rankTotalScore ?? 0) - (a._rankTotalScore ?? 0)).slice(0, 5);
     const medals = ['🏆', '🥈', '🥉', '  ', '  '];
@@ -246,5 +267,5 @@ export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig,
     });
   }
 
-  return decorated;
+  return survivors;
 }

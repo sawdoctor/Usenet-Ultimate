@@ -305,6 +305,7 @@ export function parseRankedRulesJson(text: string, inputs?: Record<string, unkno
       flags,
       score: clampScore(entry.score),
       enabled: entry.enabled !== false,
+      mode: (entry.mode === 'keep' || entry.mode === 'drop') ? entry.mode : 'score',
     });
   }
 
@@ -384,6 +385,14 @@ export function validateRulesBlock(rules: any): void {
       if (typeof r.pattern !== 'string') throw new Error(`Regex rule '${r.name ?? ''}' pattern must be a string`);
       const err = validateUserRegex(r.pattern, typeof r.flags === 'string' ? r.flags : '');
       if (err) throw new Error(`Regex rule '${r.name ?? ''}': ${err.message}`);
+      if (r.mode !== undefined && r.mode !== 'score' && r.mode !== 'keep' && r.mode !== 'drop') {
+        throw new Error(`Regex rule '${r.name ?? ''}' mode '${r.mode}' is invalid; expected 'score', 'keep', or 'drop'`);
+      }
+      // Empty pattern in filter modes would match everything (drop nukes the
+      // pool; keep is a no-op). Reject early so users see the misconfiguration.
+      if ((r.mode === 'drop' || r.mode === 'keep') && r.pattern === '') {
+        throw new Error(`Regex rule '${r.name ?? ''}' has empty pattern in '${r.mode}' mode (would match every result). Provide a pattern or switch to 'score' mode.`);
+      }
     }
   }
 

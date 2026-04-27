@@ -126,7 +126,7 @@ export function createRulesRoutes(): Router {
         regexScore: result.regexScore,
         seScore: result.seScore,
         totalScore: result.totalScore,
-        excluded: false,
+        excluded: result.excluded,
         matched: result.matched,
         tags: result.tags,
         compileErrors: compiled.compileErrors,

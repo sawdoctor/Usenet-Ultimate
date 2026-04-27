@@ -262,17 +262,19 @@ export interface FilterConfig {
   };
 }
 
-// Ranked rule shared shape. score: 0 excludes, positive boosts, negative penalizes.
+// Ranked rule shared shape. score: positive boosts, negative penalizes (regex
+// rules also support 'keep'/'drop' modes that filter the pool — see RankedRegexRule.mode).
 interface RankedRuleBase {
   id: string;                   // Stable UUID for React keys and cross-tab identity
   name: string;                 // Display name
-  score: number;                // Exclude when 0; clamped to ±10_000 at save time
+  score: number;                // Boosts/penalizes when score mode; clamped to ±10_000 at save time
   enabled?: boolean;            // Defaults to true when undefined
 }
 
 export interface RankedRegexRule extends RankedRuleBase {
   pattern: string;              // Regex source, no leading/trailing slashes
   flags?: string;               // Regex flags (e.g. 'i')
+  mode?: 'score' | 'keep' | 'drop';  // 'score' (default) adds to score; 'keep' acts as include filter (only match-any-keep candidates survive); 'drop' removes matches from pool
 }
 
 export interface RankedSelRule extends RankedRuleBase {
