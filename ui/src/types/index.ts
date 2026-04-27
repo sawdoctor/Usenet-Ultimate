@@ -159,13 +159,6 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean;
-  nzbdavMaxFallbacks?: number;
-  nzbdavJobTimeoutSeconds?: number;
-  nzbdavMoviesTimeoutSeconds?: number;
-  nzbdavTvTimeoutSeconds?: number;
-  nzbdavFallbackOrder?: 'selected' | 'top';
-  autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavPipeBufferMB?: number;
   nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';
@@ -194,7 +187,7 @@ export interface IndexerPreset {
 export type Tab = 'dashboard' | 'install';
 
 
-export type OverlayType = 'indexManager' | 'streaming' | 'fallback' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'ultimateResolve' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
+export type OverlayType = 'indexManager' | 'streaming' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'ultimateResolve' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
 
 export interface LogEntry {
   timestamp: string;

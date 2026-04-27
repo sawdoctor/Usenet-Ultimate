@@ -300,7 +300,7 @@ export function IndexManagerOverlay({
   const [showNzbhydraAdvanced, setShowNzbhydraAdvanced] = useState(false);
 
   // Hold-to-accelerate +/− handlers for the 3 top-level searcher timeouts.
-  // Mirrors the wait-time stepper pattern from UltimateResolveOverlay / FallbackOverlay.
+  // Mirrors the wait-time stepper pattern from UltimateResolveOverlay.
   const prowlarrTimeoutDec = useHoldRepeat(useCallback(() => setProwlarrTimeout(p => Math.max(1, p - 1)), [setProwlarrTimeout]));
   const prowlarrTimeoutInc = useHoldRepeat(useCallback(() => setProwlarrTimeout(p => Math.min(45, p + 1)), [setProwlarrTimeout]));
   const nzbhydraTimeoutDec = useHoldRepeat(useCallback(() => setNzbhydraTimeout(p => Math.max(1, p - 1)), [setNzbhydraTimeout]));

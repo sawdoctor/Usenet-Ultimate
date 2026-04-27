@@ -148,15 +148,6 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default false)
-  nzbdavMaxFallbacks?: number;  // 0 = try all results (default), 1-20 = limit
-  nzbdavJobTimeoutSeconds?: number;            // Legacy — use nzbdavMoviesTimeoutSeconds / nzbdavTvTimeoutSeconds
-  nzbdavMoviesTimeoutSeconds?: number;         // Max seconds to wait for movie streams (1-90, default 30)
-  nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (1-90, default 15)
-  nzbdavSeasonPackTimeoutSeconds?: number;     // Max seconds to wait for season pack streams (1-90, default 30)
-  nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
-  autoResolveOnSearch?: boolean;              // Pre-resolve NZBs when search results appear (default true, requires "from top")
-  autoResolveTargets?: number;                 // Parallel auto-resolve chains (1-4, default 2 new / 1 upgrade)
   nzbdavCacheTimeouts?: boolean;              // Store timed-out NZBs in dead cache (default true)
   nzbdavStreamBufferMB?: number;              // Dual-stage proxy buffer size in MB (default 128, range 8-256)
   nzbdavPipeBufferMB?: number;                // Pipe mode buffer size in MB (default 8, range 1-16)
@@ -316,7 +307,7 @@ export interface HealthCheckConfig {
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
 }
 
-// Ultimate-Resolve: combines NZB Fallback with Health Checking for fastest resolution
+// Ultimate-Resolve: combines retry-on-failure with Health Checking for fastest resolution
 export interface UltimateResolveConfig {
   enabled: boolean;
   healthCheckEnabled?: boolean;        // Run NNTP health-check pre-flight before nzbdav submission (default true)

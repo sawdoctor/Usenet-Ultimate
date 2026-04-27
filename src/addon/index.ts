@@ -24,7 +24,7 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, autoResolveFromCandidates, ultimateResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
@@ -168,15 +168,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
         return;
       }
 
-      // Standard auto-resolve
-      if (!config.autoResolveOnSearch
-          || config.nzbdavFallbackOrder !== 'top'
-          || !config.nzbdavFallbackEnabled) return;
-
-      autoResolveFromCandidates(
-        contentKey, fallbackCandidates, nzbdavConfig, epPattern, type, episodesInSeason,
-        config.autoResolveTargets,
-      ).catch(err => console.error('❌ Auto-Resolve error:', err));
     };
 
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===

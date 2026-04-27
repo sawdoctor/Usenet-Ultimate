@@ -30,7 +30,6 @@ interface StreamingOverlayProps {
   nzbdavPipeBufferMB: number;
   setNzbdavPipeBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
-  nzbdavFallbackEnabled: boolean;
   ultimateResolveEnabled: boolean;
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavTestNzbStatus: 'idle' | 'sending' | 'success' | 'error';
@@ -64,7 +63,6 @@ export function StreamingOverlay({
   nzbdavPipeBufferMB,
   setNzbdavPipeBufferMB,
   nzbdavStreamingMethod,
-  nzbdavFallbackEnabled,
   ultimateResolveEnabled,
   nzbdavConnectionStatus,
   nzbdavTestNzbStatus,
@@ -72,8 +70,8 @@ export function StreamingOverlay({
   checkNzbdavConnection,
   sendNzbdavTestNzb,
 }: StreamingOverlayProps) {
-  // Backend forces proxy when both fallback AND UR are off — mirror here so the UI stays truthful
-  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolveEnabled) ? 'proxy' as const : nzbdavStreamingMethod;
+  // Backend forces proxy when UR is off — mirror here so the UI stays truthful
+  const effectiveMethod = !ultimateResolveEnabled ? 'proxy' as const : nzbdavStreamingMethod;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
@@ -120,7 +118,7 @@ export function StreamingOverlay({
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">WebDAV URL</label>
-                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">NZB Fallback Disabled or Proxy Streaming Method:</span> Use the local/internal hostname for best performance (e.g. http://nzbdav:3000)</p>
+                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Proxy Streaming Method:</span> Use the local/internal hostname for best performance (e.g. http://nzbdav:3000)</p>
                 <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> Must be a publicly reachable URL (e.g. https://nzbdav.example.com) if using a reverse proxy (Traefik, Caddy, Nginx, etc.)</p>
                 <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> If using an auth layer (Authelia, Authentik, etc.), the NZBDav hostname must bypass auth so Stremio can reach it directly</p>
                 <input type="text" value={nzbdavWebdavUrl} onChange={(e) => setNzbdavWebdavUrl(e.target.value)} placeholder="http://localhost:3000" className="input" />

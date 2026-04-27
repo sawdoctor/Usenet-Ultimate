@@ -89,7 +89,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Create fallback group for NZBDav mode (auto-retry next NZB on failure)
   let fallbackGroupId: string | undefined;
   let fallbackCandidates: FallbackCandidate[] | undefined;
-  if (config.streamingMode === 'nzbdav' && (config.nzbdavFallbackEnabled === true || config.ultimateResolve?.enabled)) {
+  if (config.streamingMode === 'nzbdav' && config.ultimateResolve?.enabled) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
 
     fallbackCandidates = allResults

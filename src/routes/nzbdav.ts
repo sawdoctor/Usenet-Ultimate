@@ -747,7 +747,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
             const evicted = evictReadyByVideoPath(videoPath);
             if (evicted) console.warn(`  🗑️ Evicted stale stream (reconnect ${newUpstream.statusCode}): ${evicted}`);
             markVideoPathBroken(videoPath);
-            if (evicted && config.nzbdavFallbackEnabled) console.log(`  🔄 Player retry will use fallback candidate`);
+            if (evicted) console.log(`  🔄 Player retry will use fallback candidate`);
           } else if (newUpstream.statusCode >= 500) {
             // Mark path broken so player retry skips it via library check
             markVideoPathBroken(videoPath);

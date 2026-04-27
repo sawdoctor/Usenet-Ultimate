@@ -61,15 +61,6 @@ export function updateSettings(settings: {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean;
-  nzbdavMaxFallbacks?: number;
-  nzbdavJobTimeoutSeconds?: number;
-  nzbdavMoviesTimeoutSeconds?: number;
-  nzbdavTvTimeoutSeconds?: number;
-  nzbdavSeasonPackTimeoutSeconds?: number;
-  nzbdavFallbackOrder?: 'selected' | 'top';
-  autoResolveOnSearch?: boolean;
-  autoResolveTargets?: number;
   nzbdavStreamBufferMB?: number;
   nzbdavPipeBufferMB?: number;
   nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';
@@ -229,33 +220,6 @@ export function updateSettings(settings: {
   if (settings.nzbdavTvCategory !== undefined) {
     configData.nzbdavTvCategory = settings.nzbdavTvCategory;
   }
-  if (settings.nzbdavFallbackEnabled !== undefined) {
-    configData.nzbdavFallbackEnabled = settings.nzbdavFallbackEnabled;
-  }
-  if (settings.nzbdavMaxFallbacks !== undefined) {
-    configData.nzbdavMaxFallbacks = settings.nzbdavMaxFallbacks;
-  }
-  if (settings.nzbdavJobTimeoutSeconds !== undefined) {
-    configData.nzbdavJobTimeoutSeconds = settings.nzbdavJobTimeoutSeconds;
-  }
-  if (settings.nzbdavMoviesTimeoutSeconds !== undefined) {
-    configData.nzbdavMoviesTimeoutSeconds = settings.nzbdavMoviesTimeoutSeconds;
-  }
-  if (settings.nzbdavTvTimeoutSeconds !== undefined) {
-    configData.nzbdavTvTimeoutSeconds = settings.nzbdavTvTimeoutSeconds;
-  }
-  if (settings.nzbdavSeasonPackTimeoutSeconds !== undefined) {
-    configData.nzbdavSeasonPackTimeoutSeconds = settings.nzbdavSeasonPackTimeoutSeconds;
-  }
-  if (settings.nzbdavFallbackOrder !== undefined) {
-    configData.nzbdavFallbackOrder = settings.nzbdavFallbackOrder;
-  }
-  if (settings.autoResolveOnSearch !== undefined) {
-    configData.autoResolveOnSearch = settings.autoResolveOnSearch;
-  }
-  if (settings.autoResolveTargets !== undefined) {
-    configData.autoResolveTargets = settings.autoResolveTargets;
-  }
   if (settings.nzbdavStreamBufferMB !== undefined) {
     configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
   }
@@ -404,13 +368,6 @@ export function updateSettings(settings: {
     configData.cacheTTL = 9000;
   }
 
-  // Cancel auto-resolves when preconditions change
-  if (settings.nzbdavFallbackEnabled === false
-      || settings.nzbdavFallbackOrder === 'selected'
-      || settings.autoResolveOnSearch === false
-      || settings.autoResolveTargets !== undefined) {
-    import('../nzbdav/autoResolve.js').then(m => m.cancelAllAutoResolves()).catch(() => {});
-  }
 
   // Only cancel UR sessions on a genuine enable→disable transition. Tweaks to
   // timeouts / candidate count / etc. let in-flight pipelines finish — users

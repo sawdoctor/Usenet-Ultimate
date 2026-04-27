@@ -18,7 +18,6 @@ import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateResolveFromCandidates } from './ultimateResolve.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
-import { selectTimeoutMs, type TimeoutSet } from './timeoutDefaults.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -146,17 +145,9 @@ function cleanupRecentDeliveries(): void {
   }
 }
 
-/** Per-attempt budget in ms. Returns 0 (no limit) when fallback is off.
- * For series, returns season pack timeout or TV timeout depending on isSeasonPack.
- * For movies, returns the movies timeout. */
-function getAttemptBudgetMs(contentType?: string, isSeasonPack?: boolean): number {
-  if (globalConfig.nzbdavFallbackEnabled !== true || globalConfig.ultimateResolve?.enabled) return 0;
-  const set: TimeoutSet = {
-    movies: globalConfig.nzbdavMoviesTimeoutSeconds ?? 30,
-    tv: globalConfig.nzbdavTvTimeoutSeconds ?? 15,
-    seasonPack: globalConfig.nzbdavSeasonPackTimeoutSeconds ?? 30,
-  };
-  return selectTimeoutMs(set, contentType, isSeasonPack ?? false);
+/** Per-attempt budget in ms. Returns 0 (no limit) — UR uses its own per-mode timeouts. */
+function getAttemptBudgetMs(_contentType?: string, _isSeasonPack?: boolean): number {
+  return 0;
 }
 
 // ============================================================================
@@ -462,8 +453,8 @@ export async function handleStream(
     candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
   }
 
-  const fallbackEnabled = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
-  const maxFallbacksSetting = globalConfig.nzbdavMaxFallbacks ?? 0; // 0 = unlimited (try all)
+  const fallbackEnabled = globalConfig.ultimateResolve?.enabled === true;
+  const maxFallbacksSetting = globalConfig.ultimateResolve?.maxAttempts ?? 0; // 0 = unlimited (try all)
 
   // Check whether this request should produce detailed logs.
   // During fallback processing, a single stream title may generate multiple
@@ -474,69 +465,27 @@ export async function handleStream(
   if (fallbackGroupId && fallbackEnabled) {
     const group = getFallbackGroup(fallbackGroupId);
     if (group) {
-      const fallbackOrder = globalConfig.nzbdavFallbackOrder || 'top';
-      let fallbackChainLogged = false;
-      if (userPick && globalConfig.ultimateResolve?.userPickFallback === 'fallback-chain') {
-        // Walk from clicked index through end of group, then wrap to top through
-        // clicked-1 — every untried candidate gets a turn. nzbdavFallbackOrder is
-        // intentionally bypassed; fallback-chain owns the order.
-        // maxFallbacksSetting still clamps the total attempts at maxCandidates below.
-        candidates.length = 0;
-        const clickedIdx = group.candidates.findIndex(
-          c => c.nzbUrl === nzbUrl && c.title === title
-        );
-        if (clickedIdx >= 0) {
-          candidates.push(...group.candidates.slice(clickedIdx));
-          candidates.push(...group.candidates.slice(0, clickedIdx));
-        } else {
-          // Clicked NZB not found in group — push sentinel + all group candidates
-          // so fallback-chain still has something to walk.
-          candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
-          candidates.push(...group.candidates);
-        }
-        if (verbose) {
-          const totalToTry = maxFallbacksSetting === 0
-            ? candidates.length
-            : Math.min(candidates.length, 1 + maxFallbacksSetting);
-          console.log(`🔄 Fallback group loaded (fallback-chain from idx ${clickedIdx >= 0 ? clickedIdx : 'unknown'}, wrap): ${candidates.length} candidates (trying up to ${totalToTry})`);
-        }
-        fallbackChainLogged = true;
-      } else if (fallbackOrder === 'top') {
-        // Try the clicked NZB first, then continue from the top of the list (skipping it)
-        candidates.length = 0;
-        const clickedCandidate = group.candidates.find(
-          c => c.nzbUrl === nzbUrl && c.title === title
-        );
-        if (clickedCandidate) {
-          candidates.push(clickedCandidate);
-          candidates.push(...group.candidates.filter(c => c !== clickedCandidate));
-        } else {
-          // UR tile requests have no nzb/title — skip the empty sentinel push
-          // so the candidates count and log reflect the actual group size.
-          if (nzbUrl && title) candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
-          candidates.push(...group.candidates);
-        }
+      // Walk from clicked index through end of group, then wrap to top through
+      // clicked-1 — every untried candidate gets a turn. Same wrap-from-clicked
+      // walk for both userPickFallback='fallback-chain' and 'ur-lobby' modes.
+      candidates.length = 0;
+      const clickedIdx = group.candidates.findIndex(
+        c => c.nzbUrl === nzbUrl && c.title === title
+      );
+      if (clickedIdx >= 0) {
+        candidates.push(...group.candidates.slice(clickedIdx));
+        candidates.push(...group.candidates.slice(0, clickedIdx));
       } else {
-        // Default 'selected': start from clicked NZB's position, continue down, then wrap
-        candidates.length = 0;
-        const clickedIdx = group.candidates.findIndex(
-          c => c.nzbUrl === nzbUrl && c.title === title
-        );
-        if (clickedIdx >= 0) {
-          candidates.push(...group.candidates.slice(clickedIdx));
-          candidates.push(...group.candidates.slice(0, clickedIdx));
-        } else {
-          // Clicked NZB not found in group — put it first (skip empty sentinel
-          // for UR tile requests), then all group candidates
-          if (nzbUrl && title) candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
-          candidates.push(...group.candidates);
-        }
+        // Clicked NZB not found in group — push sentinel (skip empty for UR tile
+        // requests) + all group candidates so the chain still has something to walk.
+        if (nzbUrl && title) candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
+        candidates.push(...group.candidates);
       }
-      if (verbose && !fallbackChainLogged) {
+      if (verbose) {
         const totalToTry = maxFallbacksSetting === 0
           ? candidates.length
           : Math.min(candidates.length, 1 + maxFallbacksSetting);
-        console.log(`🔄 Fallback group loaded (${fallbackOrder}): ${candidates.length} candidates (trying up to ${totalToTry})`);
+        console.log(`🔄 Fallback group loaded: ${candidates.length} candidates (trying up to ${totalToTry})`);
       }
 
       // If episode info wasn't in the request URL (individual episode stream),
@@ -581,7 +530,7 @@ export async function handleStream(
         // (WebDAV eviction) we fall through to a fresh candidate loop via the
         // isVideoPathBroken gate above.
         if (verbose) console.log(`📦 Stream dedup hit (delivered ${Math.round((Date.now() - cached.timestamp) / 1000)}s ago)`);
-        const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+        const fallbackOn = globalConfig.ultimateResolve?.enabled === true;
         const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
         // Dedup the per-mode delivery log on this videoPath so repeat probes
         // don't spam the same line. lastDeliveryLog is shared with primary delivery.
@@ -671,7 +620,7 @@ export async function handleStream(
           }
 
           // Ultimate-Resolve resolved — deliver the stream
-          const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+          const lobbyFallbackOn = globalConfig.ultimateResolve?.enabled === true;
           let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
           if (!lobbyFallbackOn) mode = 'proxy';
           const lastLobby = lastDeliveryLog.get(streamData.videoPath);
@@ -725,7 +674,7 @@ export async function handleStream(
     const usable = (urBackups?.backupStreams ?? []).find(b => !isVideoPathBroken(b.videoPath));
     if (usable) {
       console.log(`👑 UR tile: primary path no longer available — falling back to UR backup: ${usable.title} [${usable.indexerName}]`);
-      const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+      const lobbyFallbackOn = globalConfig.ultimateResolve?.enabled === true;
       let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
       if (!lobbyFallbackOn) mode = 'proxy';
       if (mode === 'direct') {
@@ -798,7 +747,6 @@ export async function handleStream(
 
   // Build candidate order.
   // user_pick + UR enabled: honor the click, try only that NZB, fall into UR lobby on failure.
-  // user_pick + UR disabled: classic NZB Fallback — walk the candidate chain starting from the click.
   // Otherwise (UR tile click / lobby fall-through): prefer UR's pre-vetted backups, then
   // resume sequential from after the last vetted URL.
   const urLobbyAvailable = globalConfig.ultimateResolve?.enabled === true;
@@ -933,7 +881,7 @@ export async function handleStream(
       // When fallback is off, the initial-delivery mode still forces proxy for
       // logging/dedup consistency; /v's proxyVideoStream independently reads
       // config on each range request, so seeks honor the user's current method.
-      const fallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
+      const fallbackOn = globalConfig.ultimateResolve?.enabled === true;
       let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
       if (!fallbackOn) mode = 'proxy';
       const last = lastDeliveryLog.get(streamData.videoPath);

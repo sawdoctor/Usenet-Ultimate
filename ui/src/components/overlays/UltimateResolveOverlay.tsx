@@ -1,5 +1,5 @@
 // What this does:
-//   Ultimate Resolve configuration overlay — combines NZB Fallback with Health Checking
+//   Ultimate Resolve configuration overlay — combines retry-on-failure with Health Checking
 //   for the fastest possible NZB resolution
 
 import { useCallback, useEffect } from 'react';
@@ -40,7 +40,6 @@ interface UltimateResolveOverlayProps {
   setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavPipeBufferMB: number;
   setNzbdavPipeBufferMB: React.Dispatch<React.SetStateAction<number>>;
-  nzbdavFallbackEnabled: boolean;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -56,7 +55,6 @@ export function UltimateResolveOverlay({
   setNzbdavStreamBufferMB,
   nzbdavPipeBufferMB,
   setNzbdavPipeBufferMB,
-  nzbdavFallbackEnabled,
   apiFetch,
 }: UltimateResolveOverlayProps) {
   const update = useCallback(<K extends keyof typeof ultimateResolve>(key: K, value: (typeof ultimateResolve)[K]) => {
@@ -143,7 +141,7 @@ export function UltimateResolveOverlay({
   }, [setHealthChecks]);
 
   // Backend forces proxy when both fallback AND UR are off — mirror here so the UI stays truthful
-  const effectiveMethod = (!nzbdavFallbackEnabled && !ultimateResolve.enabled) ? 'proxy' as const : nzbdavStreamingMethod;
+  const effectiveMethod = !ultimateResolve.enabled ? 'proxy' as const : nzbdavStreamingMethod;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>

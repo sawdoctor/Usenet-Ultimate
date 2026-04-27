@@ -1,7 +1,7 @@
 /**
  * Ultimate-Resolve
  *
- * Combines NZB Fallback with Health Checking for the fastest possible
+ * Combines retry-on-failure with Health Checking for the fastest possible
  * NZB resolution. Runs four parallel layers simultaneously:
  *   1. Library pre-check (WebDAV lookup — no NZB download needed)
  *   2. Grab chain (NZB download from indexers)

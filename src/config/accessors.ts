@@ -83,48 +83,6 @@ export const config: Config = {
   get nzbdavTvCategory() {
     return configData.nzbdavTvCategory;
   },
-  get nzbdavFallbackEnabled() {
-    const env = envBool('NZBDAV_FALLBACK_ENABLED');
-    if (env !== undefined) return env;
-    if (configData.nzbdavFallbackEnabled !== undefined) return configData.nzbdavFallbackEnabled;
-    // Default: disabled — user must explicitly enable fallback
-    return false;
-  },
-  get nzbdavMaxFallbacks() {
-    return envInt('NZBDAV_MAX_FALLBACKS') ?? configData.nzbdavMaxFallbacks ?? 0;
-  },
-  get nzbdavJobTimeoutSeconds() {
-    return envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds ?? 120;
-  },
-  get nzbdavMoviesTimeoutSeconds() {
-    const raw = envInt('NZBDAV_MOVIES_TIMEOUT') ?? configData.nzbdavMoviesTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 30;
-    return Math.max(1, Math.min(90, raw));
-  },
-  get nzbdavTvTimeoutSeconds() {
-    const raw = envInt('NZBDAV_TV_TIMEOUT') ?? configData.nzbdavTvTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 15;
-    return Math.max(1, Math.min(90, raw));
-  },
-  get nzbdavSeasonPackTimeoutSeconds() {
-    const raw = envInt('NZBDAV_SEASON_PACK_TIMEOUT') ?? configData.nzbdavSeasonPackTimeoutSeconds ?? 30;
-    return Math.max(1, Math.min(90, raw));
-  },
-  get nzbdavFallbackOrder() {
-    return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'top';
-  },
-  get autoResolveOnSearch() {
-    const env = envBool('AUTO_RESOLVE_ON_SEARCH');
-    if (env !== undefined) return env;
-    return configData.autoResolveOnSearch !== false;
-  },
-  get autoResolveTargets() {
-    const raw = envInt('AUTO_RESOLVE_TARGETS') ?? configData.autoResolveTargets;
-    if (raw !== undefined) {
-      return Number.isFinite(raw) ? Math.max(1, Math.min(4, raw)) : 2;
-    }
-    // Upgrade migration: users who already have auto-resolve active get 1 (opt-in to multi-chain).
-    // New installs (autoResolveOnSearch is undefined) get 2 (the feature default).
-    return configData.autoResolveOnSearch === true ? 1 : 2;
-  },
   get nzbdavCacheTimeouts() {
     const env = envBool('INCLUDE_TIMEOUTS_AS_DEAD_NZBS');
     if (env !== undefined) return env;

@@ -15,10 +15,7 @@ export { getOrCreateStream, getCacheKey, getDeadCacheKey, isStreamCached, isDead
 // Cache utilities
 export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
 
-// Auto-resolve (background NZB pre-resolution)
-export { autoResolveFromCandidates, cancelAllAutoResolves } from './autoResolve.js';
-
-// Ultimate-Resolve (combined fallback + health checking pipeline)
+// Ultimate-Resolve (combined retry-on-failure + health checking pipeline)
 export { ultimateResolveFromCandidates, cancelAllUltimateResolves, getSessionPromise, hasAnySessions } from './ultimateResolve.js';
 
 // Shared utilities

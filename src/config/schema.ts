@@ -39,15 +39,6 @@ export interface ConfigData {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean;
-  nzbdavMaxFallbacks?: number;
-  nzbdavJobTimeoutSeconds?: number;
-  nzbdavMoviesTimeoutSeconds?: number;
-  nzbdavTvTimeoutSeconds?: number;
-  nzbdavSeasonPackTimeoutSeconds?: number;
-  nzbdavFallbackOrder?: 'selected' | 'top';
-  autoResolveOnSearch?: boolean;
-  autoResolveTargets?: number;
   nzbdavCacheTimeouts?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavPipeBufferMB?: number;
@@ -194,7 +185,6 @@ if (!fs.existsSync(CONFIG_FILE)) {
 const ENV_OVERRIDES: readonly string[] = [
   'STREAMING_MODE', 'INDEX_MANAGER',
   'NZBDAV_URL', 'NZBDAV_API_KEY', 'NZBDAV_WEBDAV_URL', 'NZBDAV_WEBDAV_USER', 'NZBDAV_WEBDAV_PASS',
-  'NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER',
   'NZBDAV_PROXY_ENABLED', 'NZBDAV_STREAMING_METHOD',
   'NZBDAV_STREAM_BUFFER_MB', 'STREAM_BUFFER_MB', 'NZBDAV_PIPE_BUFFER_MB', 'NZBDAV_STREAM_MAX_RECONNECTS', 'STREAM_MAX_RECONNECTS', 'NZBDAV_MAX_SELF_REDIRECTS',
   'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT', 'NZBDAV_SEASON_PACK_TIMEOUT',
@@ -203,7 +193,6 @@ const ENV_OVERRIDES: readonly string[] = [
   'NZBHYDRA_URL', 'NZBHYDRA_API_KEY', 'NZBHYDRA_USERNAME', 'NZBHYDRA_PASSWORD',
   'EASYNEWS_ENABLED', 'EASYNEWS_USERNAME', 'EASYNEWS_PASSWORD',
   'PROXY_MODE', 'PROXY_URL',
-  'AUTO_RESOLVE_ON_SEARCH', 'AUTO_RESOLVE_TARGETS',
   'INCLUDE_TIMEOUTS_AS_DEAD_NZBS', 'FILTER_DEAD_NZBS',
   'ENABLE_REMAKE_DETECTION', 'ALLOW_MULTI_EPISODE_FILES', 'URL_DEDUP',
   'HEALTH_CHECK_ENABLED', 'HEALTH_CHECK_NNTP_HOST', 'HEALTH_CHECK_NNTP_PORT',

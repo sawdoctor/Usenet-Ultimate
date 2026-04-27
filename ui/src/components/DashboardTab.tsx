@@ -17,7 +17,6 @@ import {
   Bot,
   Trophy,
   Heart,
-  RotateCcw,
   Crown,
   GripVertical,
 } from 'lucide-react';
@@ -47,12 +46,7 @@ export interface DashboardTabProps {
   enabledIndexersCount: number;
   syncedIndexers: SyncedIndexer[];
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
-  nzbdavFallbackEnabled: boolean;
   nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
-  nzbdavFallbackOrder: 'selected' | 'top';
-  autoResolveOnSearch: boolean;
-  autoResolveTargets: number;
-  nzbdavMaxFallbacks: number;
   streamingMode: 'nzbdav' | 'stremio';
   proxyMode: 'disabled' | 'http';
   proxyStatus: 'connected' | 'disconnected' | 'checking' | null;
@@ -97,12 +91,7 @@ export function DashboardTab({
   enabledIndexersCount,
   syncedIndexers,
   nzbdavConnectionStatus,
-  nzbdavFallbackEnabled,
   nzbdavStreamingMethod,
-  nzbdavFallbackOrder,
-  autoResolveOnSearch,
-  autoResolveTargets,
-  nzbdavMaxFallbacks,
   streamingMode,
   proxyMode,
   proxyStatus,
@@ -254,7 +243,7 @@ export function DashboardTab({
                     </div>
                     <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
                       {config.streamingMode === 'nzbdav'
-                        ? <>NZBDav<span className="text-lg font-normal text-purple-400 ml-2">+ {(!nzbdavFallbackEnabled && !ultimateResolve.enabled) ? 'Dual-Stage Proxy' : nzbdavStreamingMethod === 'pipe' ? 'Pipe' : nzbdavStreamingMethod === 'direct' ? 'Direct' : 'Dual-Stage Proxy'}</span></>
+                        ? <>NZBDav<span className="text-lg font-normal text-purple-400 ml-2">+ {!ultimateResolve.enabled ? 'Dual-Stage Proxy' : nzbdavStreamingMethod === 'pipe' ? 'Pipe' : nzbdavStreamingMethod === 'direct' ? 'Direct' : 'Dual-Stage Proxy'}</span></>
                         : 'Native'}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
@@ -290,62 +279,6 @@ export function DashboardTab({
                         <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</span>
                       )}
                     </div>
-                  </div>
-                ),
-                fallback: (
-                  <div
-                    key="fallback"
-                    draggable
-                    onDragStart={() => handleCardDragStart('fallback')}
-                    onDragOver={(e) => handleCardDragOver(e, 'fallback')}
-                    onDrop={(e) => handleCardDrop(e, 'fallback')}
-                    onDragEnd={handleCardDragEnd}
-                    className={clsx(
-                      "card p-4 group transition-all",
-                      ultimateResolve.enabled
-                        ? "opacity-50 cursor-not-allowed"
-                        : streamingMode !== 'nzbdav'
-                          ? "opacity-50 pointer-events-none"
-                          : "cursor-move hover:!border-amber-400/50 hover:!shadow-amber-400/30 active:!border-amber-400/50 active:!shadow-amber-400/30",
-                      isDragging && "opacity-50 scale-95",
-                      isOver && "ring-2 ring-amber-400 scale-105"
-                    )}
-                    onClick={() => {
-                      if (!draggedCard && !ultimateResolve.enabled && streamingMode === 'nzbdav') setActiveOverlay('fallback');
-                    }}
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <GripVertical className="w-4 h-4 text-slate-600" />
-                      <RotateCcw className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
-                      <span className="text-slate-400 text-sm">NZB Fallback</span>
-                    </div>
-                    {ultimateResolve.enabled ? (
-                      <>
-                        <div className="text-3xl font-bold text-slate-500">Managed</div>
-                        <span className="text-xs text-amber-400/80">Managed by Ultimate Resolve</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
-                          {nzbdavFallbackEnabled ? 'Enabled' : 'Disabled'}
-                          {autoResolveOnSearch && nzbdavFallbackEnabled && nzbdavFallbackOrder === 'top' && (
-                            <span className="text-lg font-normal text-amber-400 ml-2">+ Auto-Resolve ({autoResolveTargets})</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
-                            {!nzbdavFallbackEnabled
-                              ? 'Click to configure \u2192'
-                              : nzbdavMaxFallbacks === 0
-                                ? 'All fallbacks enabled'
-                                : `Up to ${nzbdavMaxFallbacks} fallback${nzbdavMaxFallbacks > 1 ? 's' : ''}`}
-                          </span>
-                        </div>
-                        {streamingMode !== 'nzbdav' && (
-                          <span className="text-xs text-slate-600 mt-1">NZB Fallback is only available in NZBDav streaming mode</span>
-                        )}
-                      </>
-                    )}
                   </div>
                 ),
                 nzbDatabase: (

@@ -24,7 +24,6 @@ import { ProxyOverlay } from './components/overlays/ProxyOverlay';
 import { CacheTTLOverlay } from './components/overlays/CacheTTLOverlay';
 import { UserAgentOverlay } from './components/overlays/UserAgentOverlay';
 import { StreamingOverlay } from './components/overlays/StreamingOverlay';
-import { FallbackOverlay } from './components/overlays/FallbackOverlay';
 import { NzbDatabaseOverlay } from './components/overlays/NzbDatabaseOverlay';
 import { AutoPlayOverlay } from './components/overlays/AutoPlayOverlay';
 import { StatsOverlay } from './components/overlays/StatsOverlay';
@@ -703,40 +702,9 @@ function App() {
           nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
           setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
           nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
-          nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
           ultimateResolveEnabled={ac.ultimateResolve.enabled}
           checkNzbdavConnection={ac.checkNzbdavConnection}
           sendNzbdavTestNzb={ac.sendNzbdavTestNzb}
-        />
-      )}
-
-      {/* NZB Fallback Overlay */}
-      {ac.activeOverlay === 'fallback' && (
-        <FallbackOverlay
-          onClose={() => ac.setActiveOverlay(null)}
-          nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
-          setNzbdavFallbackEnabled={ac.setNzbdavFallbackEnabled}
-          nzbdavMoviesTimeoutSeconds={ac.nzbdavMoviesTimeoutSeconds}
-          setNzbdavMoviesTimeoutSeconds={ac.setNzbdavMoviesTimeoutSeconds}
-          nzbdavTvTimeoutSeconds={ac.nzbdavTvTimeoutSeconds}
-          setNzbdavTvTimeoutSeconds={ac.setNzbdavTvTimeoutSeconds}
-          nzbdavSeasonPackTimeoutSeconds={ac.nzbdavSeasonPackTimeoutSeconds}
-          setNzbdavSeasonPackTimeoutSeconds={ac.setNzbdavSeasonPackTimeoutSeconds}
-          nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
-          setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
-          nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
-          setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
-          nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
-          setNzbdavStreamingMethod={ac.setNzbdavStreamingMethod}
-          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
-          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
-          nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
-          setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
-          ultimateResolveEnabled={ac.ultimateResolve.enabled}
-          autoResolveOnSearch={ac.autoResolveOnSearch}
-          setAutoResolveOnSearch={ac.setAutoResolveOnSearch}
-          autoResolveTargets={ac.autoResolveTargets}
-          setAutoResolveChains={ac.setAutoResolveChains}
         />
       )}
 
@@ -852,7 +820,6 @@ function App() {
           setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
           nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
           setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
-          nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
           apiFetch={apiFetch}
         />
       )}
@@ -1043,12 +1010,7 @@ function App() {
             enabledIndexersCount={enabledIndexersCount}
             syncedIndexers={ac.syncedIndexers}
             nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
-            nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
             nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
-            nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
-            autoResolveOnSearch={ac.autoResolveOnSearch}
-            autoResolveTargets={ac.autoResolveTargets}
-            nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
             streamingMode={ac.streamingMode}
             proxyMode={ac.proxyMode}
             proxyStatus={ac.proxyStatus}

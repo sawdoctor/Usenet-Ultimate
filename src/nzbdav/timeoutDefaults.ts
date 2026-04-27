@@ -3,8 +3,7 @@
  *
  * Default per-content wait times for Ultimate Resolve's nzbdav job-completion
  * step, plus the helper that selects the right timeout based on content type
- * and season-pack status. The selector is also reused by NZB Fallback's
- * getAttemptBudgetMs so both surfaces share a single ternary.
+ * and season-pack status.
  */
 
 export interface TimeoutSet {

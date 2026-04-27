@@ -359,3 +359,45 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     console.log('✅ seScore sort method ranked first');
   }
 }
+
+// Migrate NZB Fallback → Ultimate Resolve. UR fully replaces fallback semantics;
+// translate the legacy config so streams keep working without user intervention.
+{
+  const c = configData as any;
+  const hadFallback = c.nzbdavFallbackEnabled !== undefined
+    || c.nzbdavMaxFallbacks !== undefined
+    || c.nzbdavFallbackOrder !== undefined
+    || c.autoResolveOnSearch !== undefined
+    || c.autoResolveTargets !== undefined;
+
+  if (hadFallback) {
+    const fallbackWasEnabled = c.nzbdavFallbackEnabled === true;
+    const userHasUR = c.ultimateResolve?.enabled !== undefined;
+    if (fallbackWasEnabled && !userHasUR) {
+      const ur = (c.ultimateResolve ??= {});
+      ur.enabled = true;
+      ur.healthCheckEnabled = false;
+      ur.candidateCount = 1;
+      ur.desiredBackups = 0;
+      ur.preferenceMode = 'priority';
+      ur.whenToResolve = c.autoResolveOnSearch === false ? 'on-tile-selection' : 'on-results';
+      ur.userPickFallback = c.nzbdavFallbackOrder === 'selected' ? 'fallback-chain' : 'ur-lobby';
+      ur.maxAttempts = typeof c.nzbdavMaxFallbacks === 'number' ? c.nzbdavMaxFallbacks : 0;
+    }
+    delete c.nzbdavFallbackEnabled;
+    delete c.nzbdavMaxFallbacks;
+    delete c.nzbdavFallbackOrder;
+    delete c.autoResolveOnSearch;
+    delete c.autoResolveTargets;
+    saveConfigFile(configData);
+    console.log(fallbackWasEnabled && !userHasUR
+      ? '✅ Migrated NZB Fallback → Ultimate Resolve (sequential, no health checks, no backups)'
+      : '✅ Removed legacy NZB Fallback config fields');
+  }
+
+  const removedEnv = ['NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER', 'AUTO_RESOLVE_ON_SEARCH', 'AUTO_RESOLVE_TARGETS'];
+  const stillSet = removedEnv.filter(name => process.env[name] !== undefined && process.env[name] !== '');
+  if (stillSet.length > 0) {
+    console.warn(`⚠️  Deprecated env vars set but ignored: ${stillSet.join(', ')}. NZB Fallback was replaced by Ultimate Resolve — remove these from your environment.`);
+  }
+}

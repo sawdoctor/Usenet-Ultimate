@@ -133,14 +133,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavWebdavPassword, setNzbdavWebdavPassword] = useState('');
   const [nzbdavMoviesCategory, setNzbdavMoviesCategory] = useState('Usenet-Ultimate-Movies');
   const [nzbdavTvCategory, setNzbdavTvCategory] = useState('Usenet-Ultimate-TV');
-  const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(false);
-  const [nzbdavMaxFallbacks, setNzbdavMaxFallbacks] = useState(0);
-  const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
-  const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
-  const [nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds] = useState(30);
-  const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('top');
-  const [autoResolveOnSearch, setAutoResolveOnSearch] = useState(true);
-  const [autoResolveTargets, setAutoResolveChains] = useState(2);
   const [nzbdavCacheTimeouts, setNzbdavCacheTimeouts] = useState(true);
   const [filterDeadNzbs, setFilterDeadNzbs] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
@@ -320,20 +312,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB
+      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB, nzbdavStreamingMethod,
     }), 500);
     return () => clearTimeout(timer);
-  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB, saveSettings]);
-
-  // Auto-save: NZB fallback settings
-  useEffect(() => {
-    if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({
-      nzbdavFallbackEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks, nzbdavStreamingMethod, autoResolveOnSearch, autoResolveTargets,
-    }), 500);
-    return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamingMethod, autoResolveOnSearch, autoResolveTargets, saveSettings]);
+  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB, nzbdavStreamingMethod, saveSettings]);
 
   // Auto-save: NZB database settings
   useEffect(() => {
@@ -554,6 +536,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
 
       // Ensure all cards are in cardOrder (backward compat)
       let order = data.cardOrder || [...DEFAULT_CARD_ORDER];
+      // Strip removed cards from saved orders so the dashboard doesn't render phantom slots
+      order = order.filter((c: string) => c !== 'fallback');
       if (!order.includes('userAgent')) {
         const cacheIndex = order.indexOf('cache');
         if (cacheIndex !== -1) {
@@ -612,12 +596,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         } else {
           order = [...order, 'zyclops'];
         }
-      }
-      if (!order.includes('fallback')) {
-        const zyclopsIdx = order.indexOf('zyclops');
-        order = zyclopsIdx !== -1
-          ? [...order.slice(0, zyclopsIdx + 1), 'fallback', ...order.slice(zyclopsIdx + 1)]
-          : [...order, 'fallback'];
       }
       if (!order.includes('nzbDatabase')) {
         const healthIdx = order.indexOf('healthChecks');
@@ -819,16 +797,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavWebdavPassword(data.nzbdavWebdavPassword || '');
       setNzbdavMoviesCategory(data.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies');
       setNzbdavTvCategory(data.nzbdavTvCategory || 'Usenet-Ultimate-TV');
-      setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled === true);
-      setNzbdavMaxFallbacks(data.nzbdavMaxFallbacks ?? 0);
-      // Legacy: nzbdavJobTimeoutSeconds is used as a fallback seed for per-type timeouts on old configs
-      const legacyTimeout = data.nzbdavJobTimeoutSeconds;
-      setNzbdavMoviesTimeoutSeconds(data.nzbdavMoviesTimeoutSeconds ?? legacyTimeout ?? 30);
-      setNzbdavTvTimeoutSeconds(data.nzbdavTvTimeoutSeconds ?? legacyTimeout ?? 15);
-      setNzbdavSeasonPackTimeoutSeconds(data.nzbdavSeasonPackTimeoutSeconds ?? legacyTimeout ?? 30);
-      setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'top');
-      setAutoResolveOnSearch(data.autoResolveOnSearch !== false);
-      setAutoResolveChains(Math.max(1, Math.min(4, data.autoResolveTargets ?? 2)));
       setNzbdavCacheTimeouts(data.nzbdavCacheTimeouts !== false);
       setFilterDeadNzbs(data.filterDeadNzbs !== false);
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
@@ -1282,14 +1250,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavWebdavPassword, setNzbdavWebdavPassword,
     nzbdavMoviesCategory, setNzbdavMoviesCategory,
     nzbdavTvCategory, setNzbdavTvCategory,
-    nzbdavFallbackEnabled, setNzbdavFallbackEnabled,
-    nzbdavMaxFallbacks, setNzbdavMaxFallbacks,
-    nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds,
-    nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds,
-    nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds,
-    nzbdavFallbackOrder, setNzbdavFallbackOrder,
-    autoResolveOnSearch, setAutoResolveOnSearch,
-    autoResolveTargets, setAutoResolveChains,
     nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
     filterDeadNzbs, setFilterDeadNzbs,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
