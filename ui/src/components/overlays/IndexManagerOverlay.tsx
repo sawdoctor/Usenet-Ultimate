@@ -524,17 +524,17 @@ export function IndexManagerOverlay({
                   </div>
                 </div>
 
-                {/* Anime Settings */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="text-sm font-medium text-slate-300 mb-2">Anime</div>
-                  <div className="text-xs text-slate-500 mb-3">Anime is detected automatically via the Fribb anime database or Cinemeta metadata. Configure anime search methods per-indexer below.</div>
-                  <div className="mt-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                    <div className="text-xs font-medium text-slate-400 mb-1">Supported Anime IDs</div>
-                    <div className="text-xs text-slate-500">Kitsu · MAL · AniList · AniDB</div>
-                    <div className="text-xs text-slate-500 mt-1">Incoming anime IDs from metadata addons like AIOMetadata or Anime Kitsu are automatically resolved and mapped to the search methods configured per-indexer below.</div>
-                  </div>
-                </div>
+              </div>
 
+              {/* Anime — own card */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="text-sm font-medium text-slate-300">Anime</div>
+                <div className="text-xs text-slate-500">Anime is detected automatically via the Fribb anime database or Cinemeta metadata. Configure anime search methods per-indexer below.</div>
+                <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                  <div className="text-xs font-medium text-slate-400 mb-1">Supported Anime IDs</div>
+                  <div className="text-xs text-slate-500">Kitsu · MAL · AniList · AniDB</div>
+                  <div className="text-xs text-slate-500 mt-1">Incoming anime IDs from metadata addons like AIOMetadata or Anime Kitsu are automatically resolved and mapped to the search methods configured per-indexer below.</div>
+                </div>
               </div>
 
               {/* Baseline Junk Filter — own card. Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
