@@ -82,6 +82,7 @@ export interface SearchConfig {
   skipAnimeTitleResolve?: boolean;
   indexerPriorityDedup?: boolean;
   urlDedup?: boolean;
+  junkFilter?: boolean;
   displayLibraryInResults?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;

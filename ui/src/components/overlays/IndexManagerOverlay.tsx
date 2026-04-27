@@ -66,6 +66,10 @@ interface IndexManagerOverlayProps {
   urlDedup: boolean;
   setUrlDedup: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // Baseline junk filter
+  junkFilter: boolean;
+  setJunkFilter: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Display library in results
   displayLibraryInResults: boolean;
   setDisplayLibraryInResults: React.Dispatch<React.SetStateAction<boolean>>;
@@ -202,6 +206,8 @@ export function IndexManagerOverlay({
   setSeasonPackAdditionalPages,
   urlDedup,
   setUrlDedup,
+  junkFilter,
+  setJunkFilter,
   displayLibraryInResults,
   setDisplayLibraryInResults,
   indexerPriorityDedup,
@@ -529,17 +535,32 @@ export function IndexManagerOverlay({
                   </div>
                 </div>
 
-                {/* Baseline Junk Filter — display-only. Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="text-sm font-medium text-slate-300 mb-2">Baseline Junk Filter</div>
-                  <div className="text-xs text-slate-500 mb-3">Bare archive parts and NZB containers are stripped from search results automatically before ranking. These are typically stray entries from older indexer databases and never represent valid releases.</div>
-                  <div className="mt-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                    <div className="text-xs font-medium text-slate-400 mb-1">Filtered Extensions</div>
-                    <div className="text-xs text-slate-500">par2 · nzb · rar · r01–r99 · 001–999</div>
-                    <div className="text-xs text-slate-500 mt-1">Results whose titles end in one of these file-part patterns are dropped before parsing, dedup, or ranking. Titles that legitimately contain "rar" or "nzb" mid-string are retained.</div>
-                  </div>
+              </div>
+
+              {/* Baseline Junk Filter — own card. Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="junk-filter" className="flex-1 cursor-pointer">
+                    <div className="text-sm font-medium text-slate-300">Baseline Junk Filter</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Bare archive parts and NZB containers are stripped from search results before ranking. These are typically stray entries from older indexer databases and never represent valid releases.</div>
+                  </label>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="junk-filter"
+                      checked={junkFilter}
+                      onChange={(e) => setJunkFilter(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
                 </div>
 
+                <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                  <div className="text-xs font-medium text-slate-400 mb-1">Filtered Extensions</div>
+                  <div className="text-xs text-slate-500">par2 · nzb · rar · r01–r99 · 001–999</div>
+                  <div className="text-xs text-slate-500 mt-1">Results whose titles end in one of these file-part patterns are dropped before parsing, dedup, or ranking. Titles that legitimately contain "rar" or "nzb" mid-string are retained.</div>
+                </div>
               </div>
 
               {/* Results Deduplication — own card */}

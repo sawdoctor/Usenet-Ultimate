@@ -187,10 +187,12 @@ export const config: Config = {
     const sc = configData.searchConfig || { includeSeasonPacks: true };
     const urlDedupEnv = envBool('URL_DEDUP');
     const displayLibraryEnv = envBool('DISPLAY_LIBRARY_IN_RESULTS');
+    const junkFilterEnv = envBool('JUNK_FILTER');
     return {
       ...sc,
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
       ...(displayLibraryEnv !== undefined && { displayLibraryInResults: displayLibraryEnv }),
+      ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
     };
   },
   get useTextSearch() {

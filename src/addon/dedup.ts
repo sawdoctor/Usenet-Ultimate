@@ -18,7 +18,7 @@ import { isBareArchivePart, matchedJunkKind, safeLogTitle, JUNK_EMOJI } from './
  * Runs before anything else so they don't reach parsing, dedup, or rules.
  */
 export function stripBareArchiveParts(allResults: any[]): any[] {
-  if (allResults.length === 0) return allResults;
+  if (config.searchConfig?.junkFilter === false || allResults.length === 0) return allResults;
   const dropped: { title: string; kind: string }[] = [];
   const kept = allResults.filter(r => {
     if (isBareArchivePart(r.title)) {

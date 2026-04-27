@@ -26,12 +26,11 @@ export { sortResults } from './sort.js';
 export { applyStreamLimits } from './limits.js';
 
 /**
- * Content-dependent pre-processing: junk strip, dedup, remake filter.
+ * Content-dependent pre-processing: dedup-by-priority, remake filter.
  * These steps depend on the content, not user preferences — safe to cache.
  */
 export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
-  let results = stripBareArchiveParts(allResults);
-  results = deduplicateByPriority(results);
+  let results = deduplicateByPriority(allResults);
   const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year, titleYear);
   results = remakeFiltered;
 
@@ -39,12 +38,14 @@ export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, 
 }
 
 /**
- * User-preference-dependent processing: multi-episode filter, quality filter, sort, stream limits.
+ * User-preference-dependent processing: junk filter, dedup-by-url,
+ * multi-episode filter, quality filter, sort, stream limits.
  * Runs on every request (including cache hits) to reflect current settings.
  * Deprioritized packs (yearless remake season packs) are filtered separately
  * and appended after sorting but before stream limits.
  */
 export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
+  results = stripBareArchiveParts(results);
   results = deduplicateByUrl(results);
 
   if (type !== 'movie' && !getTvAllowMultiEpisode(config)) {
