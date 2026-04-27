@@ -537,7 +537,21 @@ export async function ultimateResolveFromCandidates(
         if (cs.healthPromise && cs.healthStatus === 'checking') pending.push(cs.healthPromise);
       }
       if (nzbdavPromise) pending.push(nzbdavPromise);
-      if (pending.length === 0 && !selectNext()) break;
+      if (pending.length === 0 && !selectNext()) {
+        // Pool drained — try pulling more candidates before exiting.
+        // pullReplacement self-gates on backupLimitReached/desiredBackups/BPL,
+        // so it returns null when budget or candidates are exhausted. This
+        // matters especially when the initial pool was fully resolved by
+        // library hits (status='skipped') and no grabs were ever started.
+        if (!backupLimitReached) {
+          const pulled = pullReplacement();
+          if (pulled) {
+            console.log(`${tag} Pool drained — pulled replacement to satisfy desiredBackups`);
+            continue;
+          }
+        }
+        break;
+      }
 
       if (pending.length > 0) await Promise.race(pending);
       if (controller.signal.aborted) break;
