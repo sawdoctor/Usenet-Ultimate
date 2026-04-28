@@ -121,7 +121,7 @@ interface SerializedDeadEntry {
   title?: string;
   indexerName?: string;
   size?: number;
-  error: { message: string; isNzbdavFailure: boolean; isTimeout?: boolean };
+  error: { message: string; isNzbdavFailure: boolean; isTimeout?: boolean; isEpisodeSpecific?: boolean };
   createdAt?: number;
   expiresAt: number;
 }
@@ -149,6 +149,8 @@ function loadCacheFromDisk(): void {
         const error = new Error(entry.error.message);
         (error as any).isNzbdavFailure = entry.error.isNzbdavFailure;
         (error as any).isTimeout = entry.error.isTimeout ?? false;
+        // Legacy entries lack isEpisodeSpecific — infer from the multi-episode message
+        (error as any).isEpisodeSpecific = entry.error.isEpisodeSpecific ?? (entry.error.message === MULTI_EPISODE_BLOCKED_ERROR);
         if (entry.title) {
           // New format — key is url or url::episodePattern, title stored in entry
           // Normalize Prowlarr URLs to strip volatile `link` param for stable lookups
@@ -190,7 +192,13 @@ export function saveCacheToDisk(): void {
       deadData[key] = {
         title: entry.title,
         indexerName: entry.indexerName,
-        error: { message: entry.error.message, isNzbdavFailure: (entry.error as any).isNzbdavFailure ?? false, isTimeout: (entry.error as any).isTimeout ?? false },
+        size: entry.size,
+        error: {
+          message: entry.error.message,
+          isNzbdavFailure: (entry.error as any).isNzbdavFailure ?? false,
+          isTimeout: (entry.error as any).isTimeout ?? false,
+          isEpisodeSpecific: (entry.error as any).isEpisodeSpecific ?? false,
+        },
         createdAt: entry.createdAt,
         expiresAt: Number.isFinite(entry.expiresAt) ? entry.expiresAt : 0,
       };
@@ -559,11 +567,11 @@ function extractTitle(cacheKey: string): string {
  */
 export function getCacheEntries(): {
   ready: { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[];
-  failed: { key: string; title: string; indexerName?: string; size?: number; error: string; createdAt: number; expiresAt: number }[];
+  failed: { key: string; title: string; indexerName?: string; size?: number; error: string; episodePattern?: string; createdAt: number; expiresAt: number }[];
 } {
   const now = Date.now();
   const ready: { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[] = [];
-  const failed: { key: string; title: string; indexerName?: string; size?: number; error: string; createdAt: number; expiresAt: number }[] = [];
+  const failed: { key: string; title: string; indexerName?: string; size?: number; error: string; episodePattern?: string; createdAt: number; expiresAt: number }[] = [];
 
   for (const [key, entry] of readyCache.entries()) {
     if (entry.expiresAt < now) continue;
@@ -573,7 +581,14 @@ export function getCacheEntries(): {
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt < now) continue;
     if ((entry.error as any).isTimeout && globalConfig.nzbdavCacheTimeouts === false) continue;
-    failed.push({ key, title: entry.title, indexerName: entry.indexerName, size: entry.size, error: entry.error.message, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
+    const sepIdx = key.indexOf('::');
+    let episodePattern: string | undefined;
+    if (sepIdx !== -1 && (entry.error as any).isEpisodeSpecific) {
+      const raw = key.substring(sepIdx + 2);
+      const m = raw.match(/S(\d+).*?E(\d+)/);
+      episodePattern = m ? `S${m[1]}E${m[2]}` : raw;
+    }
+    failed.push({ key, title: entry.title, indexerName: entry.indexerName, size: entry.size, error: entry.error.message, episodePattern, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
   }
 
   return { ready, failed };
@@ -638,20 +653,24 @@ function normalizeDeadUrl(url: string): string {
   return normalized.replace(/\.nzb&/, '.nzb?');
 }
 
-/** Check if any non-expired dead entry exists for this URL.
- *  Matches both bare URL keys (from health checks) and URL::episodePattern keys (from streaming failures). */
+/** Check if any non-expired URL-wide dead entry exists for this URL.
+ *  Matches bare URL keys (from health checks) and URL::episodePattern keys whose error
+ *  is NOT episode-specific. Episode-specific failures (e.g. multi-episode block) are
+ *  scoped to one episode and must be looked up via getDeadCacheKey + isDeadNzb instead. */
 export function isDeadNzbByUrl(nzbUrl: string): boolean {
   const normalized = normalizeDeadUrl(nzbUrl);
   const now = Date.now();
-  // Check exact match first (bare URL from health checks)
+  // Bare-URL exact match (health-check bans written by addDeadNzbByUrl)
   const exact = deadNzbCache.get(normalized);
   if (exact && exact.expiresAt > now) return true;
-  // Check episode-pattern keys (URL::S01E02 from streaming failures)
+  // URL-wide bans stored under URL::episodePattern keys — skip episode-specific entries
   for (const [key, entry] of deadNzbCache) {
-    if (key.startsWith(normalized + '::') && entry.expiresAt > now) return true;
-    // Also check with alternate delimiter (& vs ? after .nzb)
-    const normalizedKey = normalizeDeadUrl(key.split('::')[0]);
-    if (normalizedKey === normalized && entry.expiresAt > now) return true;
+    if (entry.expiresAt <= now) continue;
+    if ((entry.error as any).isEpisodeSpecific) continue;
+    const sepIdx = key.indexOf('::');
+    if (sepIdx === -1) continue;
+    // Also handle alternate delimiter (& vs ? after .nzb) via normalizeDeadUrl
+    if (normalizeDeadUrl(key.substring(0, sepIdx)) === normalized) return true;
   }
   return false;
 }

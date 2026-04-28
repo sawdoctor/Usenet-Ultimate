@@ -109,7 +109,7 @@ export async function findVideoFile(
               `E${te}(?:[. _-]?E\\d+|-\\d{1,2}(?!\\d))|E\\d+(?:[. _-]?E${te}|-${te}(?!\\d))`, 'i'
             );
             if (videos.some(v => multiEpRegex.test(v.path.split('/').pop() || ''))) {
-              throw nzbdavError(MULTI_EPISODE_BLOCKED_ERROR);
+              throw nzbdavError(MULTI_EPISODE_BLOCKED_ERROR, false, true);
             }
           }
 

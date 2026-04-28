@@ -30,7 +30,7 @@ import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
-import { isDeadNzbByUrl } from '../nzbdav/streamCache.js';
+import { isDeadNzbByUrl, isDeadNzb, getDeadCacheKey } from '../nzbdav/streamCache.js';
 import { requestContext } from '../requestContext.js';
 import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
 import { isDatabaseLoaded } from '../anime/animeDatabase.js';
@@ -124,15 +124,20 @@ builder.defineStreamHandler(async ({ type, id }) => {
       if (!config.filterDeadNzbs) return results;
       const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
       const manifestKey = requestContext.getStore()?.manifestKey || '';
+      const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
+        ? buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config))
+        : undefined;
+      const isDead = (url: string) =>
+        (epPattern && isDeadNzb(getDeadCacheKey(url, epPattern))) || isDeadNzbByUrl(url);
       const before = results.length;
       const filtered = results.filter(r => {
         if (r.easynewsMeta) {
           const meta = r.easynewsMeta;
           const nzbParams = new URLSearchParams({ hash: meta.hash, filename: meta.filename, ext: meta.ext });
           if (meta.sig) nzbParams.set('sig', meta.sig);
-          return !isDeadNzbByUrl(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
+          return !isDead(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
         }
-        return !isDeadNzbByUrl(r.link);
+        return !isDead(r.link);
       });
       if (filtered.length < before) {
         console.log(`🚫 Filtered ${before - filtered.length} dead NZB(s) from results (${filtered.length} remaining)`);

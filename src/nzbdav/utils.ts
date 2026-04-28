@@ -86,10 +86,11 @@ export function clearDeliveryLog(): void {
 /** Error message stored when an episode is only found in a combined multi-episode file */
 export const MULTI_EPISODE_BLOCKED_ERROR = 'Episode only found in combined multi-episode file';
 
-export function nzbdavError(message: string, isTimeout = false): Error & { isNzbdavFailure: boolean; isTimeout: boolean } {
-  const err = new Error(message) as Error & { isNzbdavFailure: boolean; isTimeout: boolean };
+export function nzbdavError(message: string, isTimeout = false, isEpisodeSpecific = false): Error & { isNzbdavFailure: boolean; isTimeout: boolean; isEpisodeSpecific: boolean } {
+  const err = new Error(message) as Error & { isNzbdavFailure: boolean; isTimeout: boolean; isEpisodeSpecific: boolean };
   err.isNzbdavFailure = true;
   err.isTimeout = isTimeout;
+  err.isEpisodeSpecific = isEpisodeSpecific;
   return err;
 }
 
