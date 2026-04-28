@@ -332,34 +332,6 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
-// Ensure seScore / regexScore sort methods are present, and put seScore at
-// position 0 so that once a user enables it, SE-based ranking takes precedence
-// over every other sort method. Both remain disabled by default.
-{
-  let migrated = false;
-  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
-    const f = configData[key] as any;
-    if (!Array.isArray(f?.sortOrder) || f.sortOrder.length === 0) continue;
-    const so: string[] = f.sortOrder;
-    const needsSeReposition = so.indexOf('seScore') !== 0;
-    const needsRegexAppend = !so.includes('regexScore');
-    if (!needsSeReposition && !needsRegexAppend) continue;
-    const withoutSe = so.filter(m => m !== 'seScore');
-    const next = ['seScore', ...withoutSe];
-    if (!next.includes('regexScore')) next.push('regexScore');
-    f.sortOrder = next;
-    if (f.enabledSorts) {
-      if (f.enabledSorts.seScore === undefined) f.enabledSorts.seScore = false;
-      if (f.enabledSorts.regexScore === undefined) f.enabledSorts.regexScore = false;
-    }
-    migrated = true;
-  }
-  if (migrated) {
-    saveConfigFile(configData);
-    console.log('✅ seScore sort method ranked first');
-  }
-}
-
 // Migrate NZB Fallback → Ultimate Fallback. UF fully replaces fallback semantics;
 // migrants land on the new UF default baseline (on-tile-selection + failure-video)
 // rather than deriving from prior NZB Fallback toggles — fresh start.
