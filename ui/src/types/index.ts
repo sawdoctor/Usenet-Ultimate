@@ -187,7 +187,7 @@ export interface IndexerPreset {
 export type Tab = 'dashboard' | 'install';
 
 
-export type OverlayType = 'indexManager' | 'streaming' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'ultimateResolve' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
+export type OverlayType = 'indexManager' | 'streaming' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'ultimateFallback' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
 
 export interface LogEntry {
   timestamp: string;

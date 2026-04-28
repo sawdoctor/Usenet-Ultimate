@@ -24,7 +24,7 @@ import {
   DEFAULT_HEALTH_CHECKS,
   DEFAULT_FILTERS,
   DEFAULT_CARD_ORDER,
-  DEFAULT_ULTIMATE_RESOLVE,
+  DEFAULT_ULTIMATE_FALLBACK,
 } from '../constants';
 import { normalizeLineGroups } from '../utils/streamPreview';
 import { formatTTL, decomposeTTL, composeTTL } from '../utils/ttl';
@@ -192,8 +192,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [statsSortDir, setStatsSortDir] = useState<'asc' | 'desc'>('desc');
   const [statsExpandedIndexer, setStatsExpandedIndexer] = useState<string | null>(null);
 
-  // ─── Ultimate-Resolve ───────────────────────────────────────────────
-  const [ultimateResolve, setUltimateResolve] = useState({ ...DEFAULT_ULTIMATE_RESOLVE });
+  // ─── Ultimate-Fallback ───────────────────────────────────────────────
+  const [ultimateFallback, setUltimateFallback] = useState({ ...DEFAULT_ULTIMATE_FALLBACK });
 
   // ─── Health Checks ──────────────────────────────────────────────────
   const [healthChecks, setHealthChecks] = useState<HealthChecksState>({ ...DEFAULT_HEALTH_CHECKS });
@@ -293,13 +293,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.smartMinHealthy, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
 
-  // Auto-save: Ultimate-Resolve settings
+  // Auto-save: Ultimate-Fallback settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ ultimateResolve }), 500);
+    const timer = setTimeout(() => saveSettings({ ultimateFallback }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ultimateResolve.enabled, ultimateResolve.healthCheckEnabled, ultimateResolve.whenToResolve, ultimateResolve.userPickFallback, ultimateResolve.candidateCount, ultimateResolve.preferenceMode, ultimateResolve.archiveInspection, ultimateResolve.sampleCount, ultimateResolve.maxAttempts, ultimateResolve.desiredBackups, ultimateResolve.backupProcessingLimit, ultimateResolve.priorityMoviesTimeoutSeconds, ultimateResolve.priorityTvTimeoutSeconds, ultimateResolve.prioritySeasonPackTimeoutSeconds, ultimateResolve.speedMoviesTimeoutSeconds, ultimateResolve.speedTvTimeoutSeconds, ultimateResolve.speedSeasonPackTimeoutSeconds, ultimateResolve.healthCheckIndexers, saveSettings]);
+  }, [ultimateFallback.enabled, ultimateFallback.healthCheckEnabled, ultimateFallback.whenToResolve, ultimateFallback.userPickFallback, ultimateFallback.candidateCount, ultimateFallback.preferenceMode, ultimateFallback.archiveInspection, ultimateFallback.sampleCount, ultimateFallback.maxAttempts, ultimateFallback.desiredBackups, ultimateFallback.backupProcessingLimit, ultimateFallback.priorityMoviesTimeoutSeconds, ultimateFallback.priorityTvTimeoutSeconds, ultimateFallback.prioritySeasonPackTimeoutSeconds, ultimateFallback.speedMoviesTimeoutSeconds, ultimateFallback.speedTvTimeoutSeconds, ultimateFallback.speedSeasonPackTimeoutSeconds, ultimateFallback.healthCheckIndexers, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {
@@ -603,11 +603,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           ? [...order.slice(0, healthIdx + 1), 'nzbDatabase', ...order.slice(healthIdx + 1)]
           : [...order, 'nzbDatabase'];
       }
-      if (!order.includes('ultimateResolve')) {
+      if (!order.includes('ultimateFallback')) {
         const zyclopsIdx = order.indexOf('zyclops');
         order = zyclopsIdx !== -1
-          ? [...order.slice(0, zyclopsIdx + 1), 'ultimateResolve', ...order.slice(zyclopsIdx + 1)]
-          : [...order, 'ultimateResolve'];
+          ? [...order.slice(0, zyclopsIdx + 1), 'ultimateFallback', ...order.slice(zyclopsIdx + 1)]
+          : [...order, 'ultimateFallback'];
       }
       setCardOrder(order);
 
@@ -772,9 +772,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         ...(data.healthChecks || {})
       });
 
-      setUltimateResolve({
-        ...DEFAULT_ULTIMATE_RESOLVE,
-        ...(data.ultimateResolve || {})
+      setUltimateFallback({
+        ...DEFAULT_ULTIMATE_FALLBACK,
+        ...(data.ultimateFallback || {})
       });
 
       // Load synced indexers from config
@@ -1303,8 +1303,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     statsSortDir, setStatsSortDir,
     statsExpandedIndexer, setStatsExpandedIndexer,
 
-    // Ultimate-Resolve
-    ultimateResolve, setUltimateResolve,
+    // Ultimate-Fallback
+    ultimateFallback, setUltimateFallback,
 
     // Health checks
     healthChecks, setHealthChecks,

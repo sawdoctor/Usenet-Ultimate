@@ -360,7 +360,7 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
-// Migrate NZB Fallback → Ultimate Resolve. UR fully replaces fallback semantics;
+// Migrate NZB Fallback → Ultimate Fallback. UF fully replaces fallback semantics;
 // translate the legacy config so streams keep working without user intervention.
 {
   const c = configData as any;
@@ -372,16 +372,16 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
 
   if (hadFallback) {
     const fallbackWasEnabled = c.nzbdavFallbackEnabled === true;
-    const userHasUR = c.ultimateResolve?.enabled !== undefined;
+    const userHasUR = c.ultimateFallback?.enabled !== undefined;
     if (fallbackWasEnabled && !userHasUR) {
-      const ur = (c.ultimateResolve ??= {});
+      const ur = (c.ultimateFallback ??= {});
       ur.enabled = true;
       ur.healthCheckEnabled = false;
       ur.candidateCount = 1;
       ur.desiredBackups = 0;
       ur.preferenceMode = 'priority';
       ur.whenToResolve = c.autoResolveOnSearch === false ? 'on-tile-selection' : 'on-results';
-      ur.userPickFallback = c.nzbdavFallbackOrder === 'selected' ? 'fallback-chain' : 'ur-lobby';
+      ur.userPickFallback = c.nzbdavFallbackOrder === 'selected' ? 'fallback-chain' : 'uf-lobby';
       ur.maxAttempts = typeof c.nzbdavMaxFallbacks === 'number' ? c.nzbdavMaxFallbacks : 0;
     }
     delete c.nzbdavFallbackEnabled;
@@ -391,13 +391,43 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     delete c.autoResolveTargets;
     saveConfigFile(configData);
     console.log(fallbackWasEnabled && !userHasUR
-      ? '✅ Migrated NZB Fallback → Ultimate Resolve (sequential, no health checks, no backups)'
+      ? '✅ Migrated NZB Fallback → Ultimate Fallback (sequential, no health checks, no backups)'
       : '✅ Removed legacy NZB Fallback config fields');
   }
 
   const removedEnv = ['NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER', 'AUTO_RESOLVE_ON_SEARCH', 'AUTO_RESOLVE_TARGETS'];
   const stillSet = removedEnv.filter(name => process.env[name] !== undefined && process.env[name] !== '');
   if (stillSet.length > 0) {
-    console.warn(`⚠️  Deprecated env vars set but ignored: ${stillSet.join(', ')}. NZB Fallback was replaced by Ultimate Resolve — remove these from your environment.`);
+    console.warn(`⚠️  Deprecated env vars set but ignored: ${stillSet.join(', ')}. NZB Fallback was replaced by Ultimate Fallback — remove these from your environment.`);
+  }
+}
+
+// Rebrand: Ultimate Fallback → Ultimate Fallback. Pure rename; feature stays
+// enabled. Translates the config object key + the userPickFallback 'uf-lobby'
+// value, and warns about deprecated env vars.
+{
+  const c = configData as any;
+  const hadOldUR = c.ultimateFallback !== undefined;
+  if (hadOldUR && c.ultimateFallback === undefined) {
+    c.ultimateFallback = c.ultimateFallback;
+    delete c.ultimateFallback;
+    if (c.ultimateFallback?.userPickFallback === 'uf-lobby') {
+      c.ultimateFallback.userPickFallback = 'uf-lobby';
+    }
+    saveConfigFile(configData);
+    console.log('✅ Rebranded ultimateFallback → ultimateFallback');
+  }
+
+  if (Array.isArray(c.cardOrder)) {
+    const idx = c.cardOrder.indexOf('ultimateFallback');
+    if (idx !== -1) {
+      c.cardOrder[idx] = 'ultimateFallback';
+      saveConfigFile(configData);
+    }
+  }
+
+  const stillSetUR = Object.keys(process.env).filter(k => k.startsWith('ULTIMATE_FALLBACK_'));
+  if (stillSetUR.length > 0) {
+    console.warn(`⚠️  Deprecated env vars set but ignored: ${stillSetUR.join(', ')}. Ultimate Fallback was renamed to Ultimate Fallback — use ULTIMATE_FALLBACK_* instead.`);
   }
 }

@@ -124,7 +124,7 @@ export interface Config {
   movieFilters?: FilterConfig;   // Movie-specific sort/filter overrides (falls back to filters)
   tvFilters?: FilterConfig;      // TV-specific sort/filter overrides (falls back to filters)
   healthChecks?: HealthCheckConfig; // Health check settings for NZB verification
-  ultimateResolve?: UltimateResolveConfig; // Ultimate-Resolve: combined fallback + health checking
+  ultimateFallback?: UltimateFallbackConfig; // Ultimate-Fallback: combined fallback + health checking
   autoPlay?: AutoPlayConfig;   // Auto-play / binge group settings
   streamDisplayConfig?: StreamDisplayConfig; // Stream display customization
   syncedIndexers?: SyncedIndexer[]; // Indexers synced from Prowlarr or NZBHydra
@@ -307,12 +307,12 @@ export interface HealthCheckConfig {
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
 }
 
-// Ultimate-Resolve: combines retry-on-failure with Health Checking for fastest resolution
-export interface UltimateResolveConfig {
+// Ultimate-Fallback: combines retry-on-failure with Health Checking for fastest resolution
+export interface UltimateFallbackConfig {
   enabled: boolean;
   healthCheckEnabled?: boolean;        // Run NNTP health-check pre-flight before nzbdav submission (default true)
-  whenToResolve: 'on-results' | 'on-tile-selection';   // When to fire UR — on search results (default) or on user tile click
-  userPickFallback: 'ur-lobby' | 'failure-video' | 'fallback-chain';      // When an individual stream tile fails — fall back to UR (default) or show failure video
+  whenToResolve: 'on-results' | 'on-tile-selection';   // When to fire UF — on search results (default) or on user tile click
+  userPickFallback: 'uf-lobby' | 'failure-video' | 'fallback-chain';      // When an individual stream tile fails — fall back to UF (default) or show failure video
   candidateCount: number;              // Active pool size (1-10, default 3)
   preferenceMode: 'priority' | 'speed';
   archiveInspection: boolean;

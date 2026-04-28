@@ -213,7 +213,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     // One-liner for external-player regression diagnosis. Throttled so Range
     // probes from an active player don't flood the log.
     const kind = (req.query.user_pick === '1' || req.query.t) ? 'user_pick'
-      : req.params.filename === 'ultimate-resolve' ? 'UR'
+      : req.params.filename === 'ultimate-fallback' ? 'UF'
       : 'other';
     const hitKey = `${kind}::${req.params.filename ?? '-'}`;
     if (!loggedStreamHits.has(hitKey)) {

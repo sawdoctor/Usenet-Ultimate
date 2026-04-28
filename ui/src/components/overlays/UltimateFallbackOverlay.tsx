@@ -1,5 +1,5 @@
 // What this does:
-//   Ultimate Resolve configuration overlay — combines retry-on-failure with Health Checking
+//   Ultimate Fallback configuration overlay — combines retry-on-failure with Health Checking
 //   for the fastest possible NZB resolution
 
 import { useCallback, useEffect } from 'react';
@@ -9,13 +9,13 @@ import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import type { HealthChecksState, UsenetProvider } from '../../types';
 import { ProviderManager } from '../shared/ProviderManager';
 
-interface UltimateResolveOverlayProps {
+interface UltimateFallbackOverlayProps {
   onClose: () => void;
-  ultimateResolve: {
+  ultimateFallback: {
     enabled: boolean;
     healthCheckEnabled: boolean;
     whenToResolve: 'on-results' | 'on-tile-selection';
-    userPickFallback: 'ur-lobby' | 'failure-video' | 'fallback-chain';
+    userPickFallback: 'uf-lobby' | 'failure-video' | 'fallback-chain';
     candidateCount: number;
     preferenceMode: 'priority' | 'speed';
     archiveInspection: boolean;
@@ -31,7 +31,7 @@ interface UltimateResolveOverlayProps {
     speedSeasonPackTimeoutSeconds: number;
     healthCheckIndexers: Record<string, boolean>;
   };
-  setUltimateResolve: React.Dispatch<React.SetStateAction<UltimateResolveOverlayProps['ultimateResolve']>>;
+  setUltimateFallback: React.Dispatch<React.SetStateAction<UltimateFallbackOverlayProps['ultimateFallback']>>;
   healthChecks: HealthChecksState;
   setHealthChecks: React.Dispatch<React.SetStateAction<HealthChecksState>>;
   nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
@@ -43,10 +43,10 @@ interface UltimateResolveOverlayProps {
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
-export function UltimateResolveOverlay({
+export function UltimateFallbackOverlay({
   onClose,
-  ultimateResolve,
-  setUltimateResolve,
+  ultimateFallback,
+  setUltimateFallback,
   healthChecks,
   setHealthChecks,
   nzbdavStreamingMethod,
@@ -56,57 +56,57 @@ export function UltimateResolveOverlay({
   nzbdavPipeBufferMB,
   setNzbdavPipeBufferMB,
   apiFetch,
-}: UltimateResolveOverlayProps) {
-  const update = useCallback(<K extends keyof typeof ultimateResolve>(key: K, value: (typeof ultimateResolve)[K]) => {
-    setUltimateResolve(prev => ({ ...prev, [key]: value }));
-  }, [setUltimateResolve]);
+}: UltimateFallbackOverlayProps) {
+  const update = useCallback(<K extends keyof typeof ultimateFallback>(key: K, value: (typeof ultimateFallback)[K]) => {
+    setUltimateFallback(prev => ({ ...prev, [key]: value }));
+  }, [setUltimateFallback]);
 
-  const candidateDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.max(1, prev.candidateCount - 1) })), [setUltimateResolve]));
-  const candidateInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  const candidateDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => ({ ...prev, candidateCount: Math.max(1, prev.candidateCount - 1) })), [setUltimateFallback]));
+  const candidateInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const ceiling = prev.maxAttempts > 0 ? Math.min(10, prev.maxAttempts) : 10;
     return { ...prev, candidateCount: Math.min(ceiling, prev.candidateCount + 1) };
-  }), [setUltimateResolve]));
-  const attemptsDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  }), [setUltimateFallback]));
+  const attemptsDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const newAttempts = Math.max(0, prev.maxAttempts - 1);
     const newCandidateCount = newAttempts > 0 && prev.candidateCount > newAttempts ? newAttempts : prev.candidateCount;
     return { ...prev, maxAttempts: newAttempts, candidateCount: newCandidateCount };
-  }), [setUltimateResolve]));
-  const attemptsInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  }), [setUltimateFallback]));
+  const attemptsInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const newAttempts = Math.min(20, prev.maxAttempts + 1);
     const newCandidateCount = newAttempts > 0 && prev.candidateCount > newAttempts ? newAttempts : prev.candidateCount;
     return { ...prev, maxAttempts: newAttempts, candidateCount: newCandidateCount };
-  }), [setUltimateResolve]));
-  const backupsDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.max(0, prev.desiredBackups - 1) })), [setUltimateResolve]));
-  const backupsInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.min(10, prev.desiredBackups + 1) })), [setUltimateResolve]));
-  const bplDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, backupProcessingLimit: Math.max(0, prev.backupProcessingLimit - 1) })), [setUltimateResolve]));
-  const bplInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, backupProcessingLimit: Math.min(20, prev.backupProcessingLimit + 1) })), [setUltimateResolve]));
+  }), [setUltimateFallback]));
+  const backupsDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => ({ ...prev, desiredBackups: Math.max(0, prev.desiredBackups - 1) })), [setUltimateFallback]));
+  const backupsInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => ({ ...prev, desiredBackups: Math.min(10, prev.desiredBackups + 1) })), [setUltimateFallback]));
+  const bplDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => ({ ...prev, backupProcessingLimit: Math.max(0, prev.backupProcessingLimit - 1) })), [setUltimateFallback]));
+  const bplInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => ({ ...prev, backupProcessingLimit: Math.min(20, prev.backupProcessingLimit + 1) })), [setUltimateFallback]));
 
   // Wait-time +/- hooks. Each action reads prev.preferenceMode so the active set
   // is always the one being mutated — no stale closure across mode toggles.
-  const moviesDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  const moviesDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds';
     return { ...prev, [key]: Math.max(1, prev[key] - 1) };
-  }), [setUltimateResolve]));
-  const moviesInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  }), [setUltimateFallback]));
+  const moviesInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds';
     return { ...prev, [key]: Math.min(90, prev[key] + 1) };
-  }), [setUltimateResolve]));
-  const tvDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  }), [setUltimateFallback]));
+  const tvDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds';
     return { ...prev, [key]: Math.max(1, prev[key] - 1) };
-  }), [setUltimateResolve]));
-  const tvInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  }), [setUltimateFallback]));
+  const tvInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds';
     return { ...prev, [key]: Math.min(90, prev[key] + 1) };
-  }), [setUltimateResolve]));
-  const seasonPackDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  }), [setUltimateFallback]));
+  const seasonPackDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds';
     return { ...prev, [key]: Math.max(1, prev[key] - 1) };
-  }), [setUltimateResolve]));
-  const seasonPackInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+  }), [setUltimateFallback]));
+  const seasonPackInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds';
     return { ...prev, [key]: Math.min(90, prev[key] + 1) };
-  }), [setUltimateResolve]));
+  }), [setUltimateFallback]));
 
   // Cancel any active hold-to-accelerate when preferenceMode toggles, so the
   // user explicitly re-presses to continue against the new mode's value.
@@ -115,33 +115,33 @@ export function UltimateResolveOverlay({
     tvDec.onPointerUp(); tvInc.onPointerUp();
     seasonPackDec.onPointerUp(); seasonPackInc.onPointerUp();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ultimateResolve.preferenceMode]);
+  }, [ultimateFallback.preferenceMode]);
 
-  const isPriority = ultimateResolve.preferenceMode === 'priority';
-  const moviesValue = isPriority ? ultimateResolve.priorityMoviesTimeoutSeconds : ultimateResolve.speedMoviesTimeoutSeconds;
-  const tvValue = isPriority ? ultimateResolve.priorityTvTimeoutSeconds : ultimateResolve.speedTvTimeoutSeconds;
-  const seasonPackValue = isPriority ? ultimateResolve.prioritySeasonPackTimeoutSeconds : ultimateResolve.speedSeasonPackTimeoutSeconds;
+  const isPriority = ultimateFallback.preferenceMode === 'priority';
+  const moviesValue = isPriority ? ultimateFallback.priorityMoviesTimeoutSeconds : ultimateFallback.speedMoviesTimeoutSeconds;
+  const tvValue = isPriority ? ultimateFallback.priorityTvTimeoutSeconds : ultimateFallback.speedTvTimeoutSeconds;
+  const seasonPackValue = isPriority ? ultimateFallback.prioritySeasonPackTimeoutSeconds : ultimateFallback.speedSeasonPackTimeoutSeconds;
   const setMoviesValue = (v: number) => update(isPriority ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds', Math.min(90, Math.max(1, v)));
   const setTvValue = (v: number) => update(isPriority ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds', Math.min(90, Math.max(1, v)));
   const setSeasonPackValue = (v: number) => update(isPriority ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds', Math.min(90, Math.max(1, v)));
   const resetActiveModeWaitTimes = () => {
     if (isPriority) {
-      setUltimateResolve(prev => ({ ...prev, priorityMoviesTimeoutSeconds: 30, priorityTvTimeoutSeconds: 15, prioritySeasonPackTimeoutSeconds: 30 }));
+      setUltimateFallback(prev => ({ ...prev, priorityMoviesTimeoutSeconds: 30, priorityTvTimeoutSeconds: 15, prioritySeasonPackTimeoutSeconds: 30 }));
     } else {
-      setUltimateResolve(prev => ({ ...prev, speedMoviesTimeoutSeconds: 20, speedTvTimeoutSeconds: 10, speedSeasonPackTimeoutSeconds: 20 }));
+      setUltimateFallback(prev => ({ ...prev, speedMoviesTimeoutSeconds: 20, speedTvTimeoutSeconds: 10, speedSeasonPackTimeoutSeconds: 20 }));
     }
   };
 
   const enabledPoolProviders = healthChecks.providers.filter(p => p.enabled && p.type === 'pool').length;
   const hasProviders = enabledPoolProviders > 0 || healthChecks.providers.some(p => p.enabled && p.type === 'backup');
-  const maxConnections = ultimateResolve.healthCheckEnabled ? ultimateResolve.candidateCount * Math.max(1, enabledPoolProviders) : 0;
+  const maxConnections = ultimateFallback.healthCheckEnabled ? ultimateFallback.candidateCount * Math.max(1, enabledPoolProviders) : 0;
 
   const handleProvidersChange = useCallback((providers: UsenetProvider[]) => {
     setHealthChecks(prev => ({ ...prev, providers }));
   }, [setHealthChecks]);
 
-  // Backend forces proxy when both fallback AND UR are off — mirror here so the UI stays truthful
-  const effectiveMethod = !ultimateResolve.enabled ? 'proxy' as const : nzbdavStreamingMethod;
+  // Backend forces proxy when both fallback AND UF are off — mirror here so the UI stays truthful
+  const effectiveMethod = !ultimateFallback.enabled ? 'proxy' as const : nzbdavStreamingMethod;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -153,7 +153,7 @@ export function UltimateResolveOverlay({
                 <Crown className="w-4 h-4 text-white" />
               </div>
               <h3 className="text-xl font-bold bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent">
-                Ultimate Resolve
+                Ultimate Fallback
               </h3>
             </div>
             <button onClick={() => onClose()} className="text-slate-400 hover:text-slate-200 transition-colors">
@@ -165,31 +165,31 @@ export function UltimateResolveOverlay({
 
           {/* Description */}
           <ul className="text-xs text-slate-400 leading-relaxed list-disc list-inside space-y-1">
-            <li>Ultimate Resolve is the fastest way to start streaming a healthy NZB. It races one or more NZB candidates in parallel, verifies each is alive before and during submission, and streams from the best candidate based on your preference mode, highest priority or first to resolve.</li>
+            <li>Ultimate Fallback is the fastest way to start streaming a healthy NZB. It races one or more NZB candidates in parallel, verifies each is alive before and during submission, and streams from the best candidate based on your preference mode, highest priority or first to resolve.</li>
             <li>When backups are enabled, the pipeline keeps running after the primary starts to pre-cache container-matched fallbacks, if the stream dies mid-playback, the next one is already loaded.</li>
           </ul>
 
           {/* Enable Toggle */}
           <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-200">Enable Ultimate Resolve</span>
+            <span className="text-sm font-medium text-slate-200">Enable Ultimate Fallback</span>
             <button
-              aria-label="Enable Ultimate Resolve"
-              aria-pressed={ultimateResolve.enabled}
-              onClick={() => update('enabled', !ultimateResolve.enabled)}
+              aria-label="Enable Ultimate Fallback"
+              aria-pressed={ultimateFallback.enabled}
+              onClick={() => update('enabled', !ultimateFallback.enabled)}
               className={clsx(
                 "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
-                ultimateResolve.enabled ? "bg-amber-500" : "bg-slate-600"
+                ultimateFallback.enabled ? "bg-amber-500" : "bg-slate-600"
               )}
             >
               <div className={clsx(
                 "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
-                ultimateResolve.enabled ? "left-5" : "left-1"
+                ultimateFallback.enabled ? "left-5" : "left-1"
               )} />
             </button>
           </div>
 
           {/* Streaming Method */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <label id="ur-streaming-method-label" className="block text-sm font-medium text-slate-300">Streaming Method</label>
             <div role="radiogroup" aria-labelledby="ur-streaming-method-label" className="flex gap-3">
               {(['pipe', 'proxy', 'direct'] as const).map((method) => (
@@ -218,9 +218,9 @@ export function UltimateResolveOverlay({
             </p>
           </div>
 
-          {/* Stream Buffer — hidden for direct mode (no buffer needed); uses effectiveMethod so pipe appears when UR + fallback both off */}
+          {/* Stream Buffer — hidden for direct mode (no buffer needed); uses effectiveMethod so pipe appears when UF + fallback both off */}
           {effectiveMethod !== 'direct' && (
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-slate-300">{effectiveMethod === 'pipe' ? 'Pipe Stream Buffer' : 'Dual-Stage Proxy Stream Buffer'}</div>
               <button
@@ -251,22 +251,22 @@ export function UltimateResolveOverlay({
           )}
 
           {/* Empty providers warning */}
-          {ultimateResolve.enabled && ultimateResolve.healthCheckEnabled && !hasProviders && (
+          {ultimateFallback.enabled && ultimateFallback.healthCheckEnabled && !hasProviders && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
               <p className="text-xs text-amber-400">
-                Configure at least one Usenet provider in Health Checks to use Ultimate Resolve.
+                Configure at least one Usenet provider in Health Checks to use Ultimate Fallback.
               </p>
             </div>
           )}
 
           {/* When to Resolve */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="text-sm font-medium text-slate-300">When to Resolve</div>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="radio"
                 name="whenToResolve"
-                checked={ultimateResolve.whenToResolve === 'on-results'}
+                checked={ultimateFallback.whenToResolve === 'on-results'}
                 onChange={() => update('whenToResolve', 'on-results')}
                 className="mt-1 accent-amber-400"
               />
@@ -279,7 +279,7 @@ export function UltimateResolveOverlay({
               <input
                 type="radio"
                 name="whenToResolve"
-                checked={ultimateResolve.whenToResolve === 'on-tile-selection'}
+                checked={ultimateFallback.whenToResolve === 'on-tile-selection'}
                 onChange={() => update('whenToResolve', 'on-tile-selection')}
                 className="mt-1 accent-amber-400"
               />
@@ -291,26 +291,26 @@ export function UltimateResolveOverlay({
           </div>
 
           {/* On Individual Stream Failure */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="text-sm font-medium text-slate-300">On Individual Stream Failure</div>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="radio"
                 name="userPickFallback"
-                checked={ultimateResolve.userPickFallback === 'ur-lobby'}
-                onChange={() => update('userPickFallback', 'ur-lobby')}
+                checked={ultimateFallback.userPickFallback === 'uf-lobby'}
+                onChange={() => update('userPickFallback', 'uf-lobby')}
                 className="mt-1 accent-amber-400"
               />
               <div>
-                <div className="text-sm text-slate-200 font-medium">Use Ultimate Resolve</div>
-                <p className="text-xs text-slate-500">Reroute to Ultimate Resolve so a backup candidate can take over.</p>
+                <div className="text-sm text-slate-200 font-medium">Use Ultimate Fallback</div>
+                <p className="text-xs text-slate-500">Reroute to Ultimate Fallback so a backup candidate can take over.</p>
               </div>
             </label>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="radio"
                 name="userPickFallback"
-                checked={ultimateResolve.userPickFallback === 'fallback-chain'}
+                checked={ultimateFallback.userPickFallback === 'fallback-chain'}
                 onChange={() => update('userPickFallback', 'fallback-chain')}
                 className="mt-1 accent-amber-400"
               />
@@ -323,7 +323,7 @@ export function UltimateResolveOverlay({
               <input
                 type="radio"
                 name="userPickFallback"
-                checked={ultimateResolve.userPickFallback === 'failure-video'}
+                checked={ultimateFallback.userPickFallback === 'failure-video'}
                 onChange={() => update('userPickFallback', 'failure-video')}
                 className="mt-1 accent-amber-400"
               />
@@ -335,13 +335,13 @@ export function UltimateResolveOverlay({
           </div>
 
           {/* Prefer Priority / Prefer Speed */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="text-sm font-medium text-slate-300">Preference Mode</div>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="radio"
                 name="preferenceMode"
-                checked={ultimateResolve.preferenceMode === 'priority'}
+                checked={ultimateFallback.preferenceMode === 'priority'}
                 onChange={() => update('preferenceMode', 'priority')}
                 className="mt-1 accent-amber-400"
               />
@@ -354,7 +354,7 @@ export function UltimateResolveOverlay({
               <input
                 type="radio"
                 name="preferenceMode"
-                checked={ultimateResolve.preferenceMode === 'speed'}
+                checked={ultimateFallback.preferenceMode === 'speed'}
                 onChange={() => update('preferenceMode', 'speed')}
                 className="mt-1 accent-amber-400"
               />
@@ -367,7 +367,7 @@ export function UltimateResolveOverlay({
           </div>
 
           {/* NZBDav Wait Times — per-mode set */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div className="text-sm font-medium text-slate-300">NZBDav Wait Times</div>
@@ -524,14 +524,14 @@ export function UltimateResolveOverlay({
               </div>
             </div>
             <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
-              <li>The time Ultimate Resolve will wait for a health-verified NZB to finish processing in NZBDav before moving on to the next candidate.</li>
+              <li>The time Ultimate Fallback will wait for a health-verified NZB to finish processing in NZBDav before moving on to the next candidate.</li>
               <li>Priority and Speed modes use a separate set of wait times, switch the Preference Mode above to edit each one.</li>
               <li>Hold the +/- buttons to accelerate. Min 1s, max 1 min 30s.</li>
             </ul>
           </div>
 
           {/* Primary Attempt Limit (with nested Parallel NZB Candidates) */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-300 whitespace-nowrap">Primary Attempt Limit</span>
               <div className="flex items-center gap-2">
@@ -539,14 +539,14 @@ export function UltimateResolveOverlay({
                   {...attemptsDec}
                   className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                 >−</button>
-                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-10 text-center">{ultimateResolve.maxAttempts === 0 ? 'All' : ultimateResolve.maxAttempts}</span>
+                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-10 text-center">{ultimateFallback.maxAttempts === 0 ? 'All' : ultimateFallback.maxAttempts}</span>
                 <button
                   {...attemptsInc}
                   className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                 >+</button>
               </div>
             </div>
-            <div className="text-xs text-slate-500">How many NZBs UR will try before giving up. Library hits don't count.</div>
+            <div className="text-xs text-slate-500">How many NZBs UF will try before giving up. Library hits don't count.</div>
             <div className="text-xs text-amber-400/50">Values: All, 1–20</div>
 
             <div className="border-l-2 border-amber-500/20 pl-3 ml-1 mt-3 space-y-2">
@@ -557,7 +557,7 @@ export function UltimateResolveOverlay({
                     {...candidateDec}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >−</button>
-                  <span className="text-lg font-bold text-amber-400/90 tabular-nums w-6 text-center">{ultimateResolve.candidateCount}</span>
+                  <span className="text-lg font-bold text-amber-400/90 tabular-nums w-6 text-center">{ultimateFallback.candidateCount}</span>
                   <button
                     {...candidateInc}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
@@ -569,7 +569,7 @@ export function UltimateResolveOverlay({
                 <>
                   <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
                     <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
-                    <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
+                    <span>max NNTP connections ({ultimateFallback.candidateCount} candidate{ultimateFallback.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
                   </div>
                   <div className="text-xs text-amber-400/50 mt-1">
                     These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
@@ -580,7 +580,7 @@ export function UltimateResolveOverlay({
           </div>
 
           {/* Desired Backups */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-300 whitespace-nowrap">Desired Backups</span>
               <div className="flex items-center gap-2">
@@ -588,7 +588,7 @@ export function UltimateResolveOverlay({
                   {...backupsDec}
                   className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                 >−</button>
-                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-10 text-center">{ultimateResolve.desiredBackups === 0 ? 'Off' : ultimateResolve.desiredBackups}</span>
+                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-10 text-center">{ultimateFallback.desiredBackups === 0 ? 'Off' : ultimateFallback.desiredBackups}</span>
                 <button
                   {...backupsInc}
                   className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
@@ -598,7 +598,7 @@ export function UltimateResolveOverlay({
             <div className="text-xs text-slate-500">Container-matched backups to pre-resolve after the primary. Processing stops once this number is reached (or candidates are exhausted). Backups must match the primary's container type (MKV, MP4, etc.).</div>
             <div className="text-xs text-amber-400/50">Values: Off, 1–10</div>
 
-            {ultimateResolve.desiredBackups > 0 && (
+            {ultimateFallback.desiredBackups > 0 && (
               <div className="border-l-2 border-amber-500/20 pl-3 ml-1 mt-3 space-y-2">
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-slate-400 whitespace-nowrap">Backup Processing Limit</span>
@@ -607,7 +607,7 @@ export function UltimateResolveOverlay({
                       {...bplDec}
                       className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                     >−</button>
-                    <span className="text-lg font-bold text-amber-400/90 tabular-nums w-8 text-center">{ultimateResolve.backupProcessingLimit === 0 ? 'All' : ultimateResolve.backupProcessingLimit}</span>
+                    <span className="text-lg font-bold text-amber-400/90 tabular-nums w-8 text-center">{ultimateFallback.backupProcessingLimit === 0 ? 'All' : ultimateFallback.backupProcessingLimit}</span>
                     <button
                       {...bplInc}
                       className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
@@ -617,38 +617,38 @@ export function UltimateResolveOverlay({
                 <div className="text-xs text-slate-500">Cap on extra NZB grabs after the primary resolves, in search of more backups. NZBs grabbed earlier (while still searching for the primary) flow through as free backups and don't count. Library hits don't either.</div>
                 <div className="text-xs text-amber-400/50">Values: All, 1–20</div>
                 <div className="text-xs text-amber-400/50">
-                  At least <span className="text-sm font-semibold tabular-nums">{ultimateResolve.candidateCount}</span> NZB{ultimateResolve.candidateCount !== 1 ? 's' : ''} grabbed during primary search (more if early candidates fail), then {ultimateResolve.backupProcessingLimit === 0 ? <span className="text-sm font-semibold">unlimited</span> : <>up to <span className="text-sm font-semibold tabular-nums">{ultimateResolve.backupProcessingLimit}</span> more</>} additional grab{ultimateResolve.backupProcessingLimit !== 1 ? 's' : ''} for backups.
+                  At least <span className="text-sm font-semibold tabular-nums">{ultimateFallback.candidateCount}</span> NZB{ultimateFallback.candidateCount !== 1 ? 's' : ''} grabbed during primary search (more if early candidates fail), then {ultimateFallback.backupProcessingLimit === 0 ? <span className="text-sm font-semibold">unlimited</span> : <>up to <span className="text-sm font-semibold tabular-nums">{ultimateFallback.backupProcessingLimit}</span> more</>} additional grab{ultimateFallback.backupProcessingLimit !== 1 ? 's' : ''} for backups.
                 </div>
               </div>
             )}
           </div>
 
           {/* Health Checking — toggle, provider config, sample count, archive inspection */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
                 <div className="text-sm font-medium text-slate-300">Health Checking</div>
                 <div className="text-xs text-slate-500 mt-0.5">
-                  Verifies every candidate in parallel before and during nzbdav submission, sampling articles to confirm the NZB is alive and detecting its container format up front. Disable to skip the parallel phase, UR will submit candidates straight to nzbdav and detect each container after extraction.
+                  Verifies every candidate in parallel before and during nzbdav submission, sampling articles to confirm the NZB is alive and detecting its container format up front. Disable to skip the parallel phase, UF will submit candidates straight to nzbdav and detect each container after extraction.
                 </div>
               </div>
               <button
                 aria-label="Enable Health Checking"
-                aria-pressed={ultimateResolve.healthCheckEnabled}
-                onClick={() => update('healthCheckEnabled', !ultimateResolve.healthCheckEnabled)}
+                aria-pressed={ultimateFallback.healthCheckEnabled}
+                onClick={() => update('healthCheckEnabled', !ultimateFallback.healthCheckEnabled)}
                 className={clsx(
                   "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
-                  ultimateResolve.healthCheckEnabled ? "bg-amber-500" : "bg-slate-600"
+                  ultimateFallback.healthCheckEnabled ? "bg-amber-500" : "bg-slate-600"
                 )}
               >
                 <div className={clsx(
                   "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
-                  ultimateResolve.healthCheckEnabled ? "left-5" : "left-1"
+                  ultimateFallback.healthCheckEnabled ? "left-5" : "left-1"
                 )} />
               </button>
             </div>
 
-            <div className={clsx("space-y-4 transition-opacity", !ultimateResolve.healthCheckEnabled && "opacity-40 pointer-events-none")}>
+            <div className={clsx("space-y-4 transition-opacity", !ultimateFallback.healthCheckEnabled && "opacity-40 pointer-events-none")}>
               {/* Usenet Providers (shared with Health Checks) */}
               <ProviderManager
                 providers={healthChecks.providers}
@@ -667,7 +667,7 @@ export function UltimateResolveOverlay({
                       onClick={() => update('sampleCount', count)}
                       className={clsx(
                         "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
-                        ultimateResolve.sampleCount === count
+                        ultimateFallback.sampleCount === count
                           ? "bg-amber-500/20 border border-amber-500/40 text-amber-300"
                           : "bg-slate-700/40 border border-slate-600/30 text-slate-400 hover:text-slate-200 hover:border-slate-500/50"
                       )}
@@ -679,17 +679,17 @@ export function UltimateResolveOverlay({
                 <p className="text-xs text-slate-500">More samples means more accurate health checks but slightly slower.</p>
               </div>
 
-              {/* Archive Inspection — always on for UR */}
+              {/* Archive Inspection — always on for UF */}
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium text-slate-200">Archive Header Inspection</div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Inspects RAR and 7Z archives to detect the container format, encryption, and
-                    nested archives. Always on for Ultimate Resolve because backup matching works
+                    nested archives. Always on for Ultimate Fallback because backup matching works
                     best when detecting each candidate's format up front.
                   </p>
                 </div>
-                {ultimateResolve.healthCheckEnabled && (
+                {ultimateFallback.healthCheckEnabled && (
                   <span
                     className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1 flex-shrink-0"
                     aria-label="Always on"
@@ -705,11 +705,11 @@ export function UltimateResolveOverlay({
           <div className="pt-2">
             <button
               onClick={() => {
-                setUltimateResolve({
+                setUltimateFallback({
                   enabled: false,
                   healthCheckEnabled: true,
                   whenToResolve: 'on-results',
-                  userPickFallback: 'ur-lobby',
+                  userPickFallback: 'uf-lobby',
                   candidateCount: 3,
                   preferenceMode: 'priority',
                   archiveInspection: true,

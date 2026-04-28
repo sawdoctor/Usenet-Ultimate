@@ -111,7 +111,7 @@ interface ReadyEntry { data: StreamData; indexerName?: string; createdAt: number
 const readyCache = new Map<string, ReadyEntry>();
 
 /** Dead NZBs — persisted to disk, survives restarts */
-/** size: post-resolve video bytes when known (UR / 404-eviction paths), else indexer-reported NZB bytes (search-time / health-check paths) */
+/** size: post-resolve video bytes when known (UF / 404-eviction paths), else indexer-reported NZB bytes (search-time / health-check paths) */
 interface DeadNzbEntry { title: string; indexerName?: string; size?: number; error: Error; createdAt: number; expiresAt: number }
 const deadNzbCache = new Map<string, DeadNzbEntry>();
 
@@ -219,14 +219,14 @@ export function getDeadCacheKey(nzbUrl: string, episodePattern?: string): string
   return episodePattern ? `${normalized}::${episodePattern}` : normalized;
 }
 
-/** Write a resolved stream directly to readyCache (used by Ultimate-Resolve to bypass getOrCreateStream). */
+/** Write a resolved stream directly to readyCache (used by Ultimate-Fallback to bypass getOrCreateStream). */
 export function setReadyCacheEntry(cacheKey: string, data: StreamData, indexerName?: string): void {
   const now = Date.now();
   readyCache.set(cacheKey, { data, indexerName, createdAt: now, expiresAt: now + getReadyTTLMs() });
   saveCacheToDisk();
 }
 
-/** Write a failed NZB directly to deadNzbCache (used by Ultimate-Resolve to bypass getOrCreateStream). */
+/** Write a failed NZB directly to deadNzbCache (used by Ultimate-Fallback to bypass getOrCreateStream). */
 export function setDeadNzbEntry(nzbUrl: string, title: string, error: Error, episodePattern?: string, indexerName?: string, size?: number): void {
   const key = getDeadCacheKey(nzbUrl, episodePattern);
   const now = Date.now();
@@ -337,10 +337,10 @@ export async function getOrCreateStream(
   const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix);
 
   // Set as pending with a TTL — if the promise hangs, the entry expires and
-  // subsequent requests can retry instead of hanging forever.  When UR is
+  // subsequent requests can retry instead of hanging forever.  When UF is
   // off (no budget), the promise handlers (.then/.catch) clean up the entry so
   // no TTL-based expiry is needed.
-  const ur = globalConfig.ultimateResolve;
+  const ur = globalConfig.ultimateFallback;
   const maxTimeout = ur?.enabled === true
     ? Math.max(
         ur.priorityMoviesTimeoutSeconds, ur.priorityTvTimeoutSeconds, ur.prioritySeasonPackTimeoutSeconds,

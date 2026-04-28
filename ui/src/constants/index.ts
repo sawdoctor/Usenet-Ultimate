@@ -173,13 +173,13 @@ export const DEFAULT_FILTERS = {
   allowMultiEpisodeFiles: true,
 };
 
-export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'ultimateResolve', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'ultimateFallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
 
-export const DEFAULT_ULTIMATE_RESOLVE = {
+export const DEFAULT_ULTIMATE_FALLBACK = {
   enabled: false,
   healthCheckEnabled: true,
   whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
-  userPickFallback: 'ur-lobby' as 'ur-lobby' | 'failure-video' | 'fallback-chain',
+  userPickFallback: 'uf-lobby' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
   candidateCount: 3,
   preferenceMode: 'priority' as 'priority' | 'speed',
   archiveInspection: true,
@@ -187,7 +187,7 @@ export const DEFAULT_ULTIMATE_RESOLVE = {
   maxAttempts: 0,
   desiredBackups: 2,
   backupProcessingLimit: 3,
-  // Keep in sync with src/nzbdav/timeoutDefaults.ts (UR_TIMEOUT_DEFAULTS).
+  // Keep in sync with src/nzbdav/timeoutDefaults.ts (UF_TIMEOUT_DEFAULTS).
   priorityMoviesTimeoutSeconds: 30,
   priorityTvTimeoutSeconds: 15,
   prioritySeasonPackTimeoutSeconds: 30,

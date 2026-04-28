@@ -61,7 +61,7 @@ export interface DashboardTabProps {
   autoPlay: AutoPlayState;
   streamDisplayConfig: StreamDisplayConfig;
   healthChecks: HealthChecksState;
-  ultimateResolve: {
+  ultimateFallback: {
     enabled: boolean;
     candidateCount: number;
     preferenceMode: 'priority' | 'speed';
@@ -100,7 +100,7 @@ export function DashboardTab({
   autoPlay,
   streamDisplayConfig,
   healthChecks,
-  ultimateResolve,
+  ultimateFallback,
   statsData,
   fetchStats,
   hasIndexers,
@@ -243,7 +243,7 @@ export function DashboardTab({
                     </div>
                     <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
                       {config.streamingMode === 'nzbdav'
-                        ? <>NZBDav<span className="text-lg font-normal text-purple-400 ml-2">+ {!ultimateResolve.enabled ? 'Dual-Stage Proxy' : nzbdavStreamingMethod === 'pipe' ? 'Pipe' : nzbdavStreamingMethod === 'direct' ? 'Direct' : 'Dual-Stage Proxy'}</span></>
+                        ? <>NZBDav<span className="text-lg font-normal text-purple-400 ml-2">+ {!ultimateFallback.enabled ? 'Dual-Stage Proxy' : nzbdavStreamingMethod === 'pipe' ? 'Pipe' : nzbdavStreamingMethod === 'direct' ? 'Direct' : 'Dual-Stage Proxy'}</span></>
                         : 'Native'}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
@@ -697,13 +697,13 @@ export function DashboardTab({
                     </div>
                   </div>
                 ),
-                ultimateResolve: (
+                ultimateFallback: (
                   <div
-                    key="ultimateResolve"
+                    key="ultimateFallback"
                     draggable
-                    onDragStart={() => handleCardDragStart('ultimateResolve')}
-                    onDragOver={(e) => handleCardDragOver(e, 'ultimateResolve')}
-                    onDrop={(e) => handleCardDrop(e, 'ultimateResolve')}
+                    onDragStart={() => handleCardDragStart('ultimateFallback')}
+                    onDragOver={(e) => handleCardDragOver(e, 'ultimateFallback')}
+                    onDrop={(e) => handleCardDrop(e, 'ultimateFallback')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
                       "card p-4 group transition-all relative overflow-hidden",
@@ -712,20 +712,20 @@ export function DashboardTab({
                         : "cursor-move hover:!border-amber-400/50 hover:!shadow-amber-500/30 active:!border-amber-400/50 active:!shadow-amber-500/30",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-amber-400 scale-105",
-                      ultimateResolve.enabled && streamingMode === 'nzbdav' && "!border-amber-500/30"
+                      ultimateFallback.enabled && streamingMode === 'nzbdav' && "!border-amber-500/30"
                     )}
                     onClick={() => {
-                      if (!draggedCard && streamingMode === 'nzbdav') setActiveOverlay('ultimateResolve');
+                      if (!draggedCard && streamingMode === 'nzbdav') setActiveOverlay('ultimateFallback');
                     }}
                   >
-                    {ultimateResolve.enabled && (
+                    {ultimateFallback.enabled && (
                       <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5 animate-pulse" style={{ animationDuration: '4s' }} />
                     )}
                     <div className="relative flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
                       <div className={clsx(
                         "w-6 h-6 rounded-lg flex items-center justify-center",
-                        ultimateResolve.enabled
+                        ultimateFallback.enabled
                           ? "bg-gradient-to-br from-amber-500 to-yellow-600 shadow-lg shadow-amber-500/25"
                           : "bg-slate-700"
                       )}>
@@ -733,24 +733,24 @@ export function DashboardTab({
                       </div>
                       <span className={clsx(
                         "text-sm font-medium",
-                        ultimateResolve.enabled
+                        ultimateFallback.enabled
                           ? "bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent"
                           : "text-slate-400"
-                      )}>Ultimate Resolve</span>
+                      )}>Ultimate Fallback</span>
                     </div>
                     <div className={clsx(
                       "relative text-3xl font-bold transition-colors",
-                      ultimateResolve.enabled
+                      ultimateFallback.enabled
                         ? "bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent"
                         : "group-hover:text-amber-400 group-active:text-amber-400"
                     )}>
-                      {ultimateResolve.enabled
-                        ? <>Enabled{ultimateResolve.desiredBackups > 0 && <span className="text-lg font-normal text-amber-400 ml-2">+ {ultimateResolve.desiredBackups} NZB Backup{ultimateResolve.desiredBackups === 1 ? '' : 's'}</span>}</>
+                      {ultimateFallback.enabled
+                        ? <>Enabled{ultimateFallback.desiredBackups > 0 && <span className="text-lg font-normal text-amber-400 ml-2">+ {ultimateFallback.desiredBackups} NZB Backup{ultimateFallback.desiredBackups === 1 ? '' : 's'}</span>}</>
                         : 'Disabled'}
                     </div>
                     <div className="relative text-xs text-slate-500 mt-1">
-                      {ultimateResolve.enabled
-                        ? `${ultimateResolve.candidateCount} candidate${ultimateResolve.candidateCount !== 1 ? 's' : ''} · ${ultimateResolve.preferenceMode === 'priority' ? 'Priority' : 'Speed'} mode`
+                      {ultimateFallback.enabled
+                        ? `${ultimateFallback.candidateCount} candidate${ultimateFallback.candidateCount !== 1 ? 's' : ''} · ${ultimateFallback.preferenceMode === 'priority' ? 'Priority' : 'Speed'} mode`
                         : 'Click to configure \u2192'}
                     </div>
                   </div>

@@ -9,11 +9,11 @@
  *   env var > config.json > hardcoded default
  */
 
-import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateResolveConfig } from '../types.js';
+import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateFallbackConfig } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
-import { UR_TIMEOUT_DEFAULTS } from '../nzbdav/timeoutDefaults.js';
+import { UF_TIMEOUT_DEFAULTS } from '../nzbdav/timeoutDefaults.js';
 
 /** Parse a 'true'/'false' env var string. Returns undefined if not set. */
 function envBool(name: string): boolean | undefined {
@@ -404,31 +404,31 @@ export const config: Config = {
   get indexerPriority() {
     return configData.indexerPriority;
   },
-  get ultimateResolve(): UltimateResolveConfig {
-    const ur = configData.ultimateResolve;
-    const enabled = envBool('ULTIMATE_RESOLVE_ENABLED') ?? ur?.enabled ?? false;
-    const healthCheckEnabled = envBool('ULTIMATE_RESOLVE_HEALTH_CHECK_ENABLED') ?? ur?.healthCheckEnabled ?? true;
-    const whenToResolve = envEnum('ULTIMATE_RESOLVE_WHEN_TO_RESOLVE', ['on-results', 'on-tile-selection']) ?? ur?.whenToResolve ?? 'on-results';
-    const userPickFallback = envEnum('ULTIMATE_RESOLVE_USER_PICK_FALLBACK', ['ur-lobby', 'failure-video', 'fallback-chain']) ?? ur?.userPickFallback ?? 'ur-lobby';
-    const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_RESOLVE_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
-    const preferenceMode = envEnum('ULTIMATE_RESOLVE_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'priority';
-    // Archive inspection is mandatory for UR — its container-matching guarantee
+  get ultimateFallback(): UltimateFallbackConfig {
+    const ur = configData.ultimateFallback;
+    const enabled = envBool('ULTIMATE_FALLBACK_ENABLED') ?? ur?.enabled ?? false;
+    const healthCheckEnabled = envBool('ULTIMATE_FALLBACK_HEALTH_CHECK_ENABLED') ?? ur?.healthCheckEnabled ?? true;
+    const whenToResolve = envEnum('ULTIMATE_FALLBACK_WHEN_TO_RESOLVE', ['on-results', 'on-tile-selection']) ?? ur?.whenToResolve ?? 'on-results';
+    const userPickFallback = envEnum('ULTIMATE_FALLBACK_USER_PICK_FALLBACK', ['uf-lobby', 'failure-video', 'fallback-chain']) ?? ur?.userPickFallback ?? 'uf-lobby';
+    const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_FALLBACK_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
+    const preferenceMode = envEnum('ULTIMATE_FALLBACK_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'priority';
+    // Archive inspection is mandatory for UF — its container-matching guarantee
     // (each backup matches the primary's container type) depends on reading
     // archive headers at health-check time. Without it, archive candidates
-    // come back with unknown container type and UR can't filter mismatches
+    // come back with unknown container type and UF can't filter mismatches
     // before submitting them to nzbdav.
     const archiveInspection = true;
-    const rawSample = envInt('ULTIMATE_RESOLVE_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
+    const rawSample = envInt('ULTIMATE_FALLBACK_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
     const sampleCount: 3 | 7 = rawSample === 7 ? 7 : 3;
-    const maxAttempts = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_MAX_ATTEMPTS') ?? ur?.maxAttempts ?? 0));
-    const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_RESOLVE_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 2));
-    const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 3));
-    const priorityMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.priority.movies));
-    const priorityTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_PRIORITY_TV_TIMEOUT') ?? ur?.priorityTvTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.priority.tv));
-    const prioritySeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_PRIORITY_SEASON_PACK_TIMEOUT') ?? ur?.prioritySeasonPackTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.priority.seasonPack));
-    const speedMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_MOVIES_TIMEOUT') ?? ur?.speedMoviesTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.movies));
-    const speedTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_TV_TIMEOUT') ?? ur?.speedTvTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.tv));
-    const speedSeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.seasonPack));
+    const maxAttempts = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_MAX_ATTEMPTS') ?? ur?.maxAttempts ?? 0));
+    const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_FALLBACK_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 2));
+    const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 3));
+    const priorityMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.movies));
+    const priorityTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_TV_TIMEOUT') ?? ur?.priorityTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.tv));
+    const prioritySeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_SEASON_PACK_TIMEOUT') ?? ur?.prioritySeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.seasonPack));
+    const speedMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_MOVIES_TIMEOUT') ?? ur?.speedMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.movies));
+    const speedTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_TV_TIMEOUT') ?? ur?.speedTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.tv));
+    const speedSeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.seasonPack));
     return {
       enabled,
       healthCheckEnabled,

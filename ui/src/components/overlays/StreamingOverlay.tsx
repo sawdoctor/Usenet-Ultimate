@@ -30,7 +30,7 @@ interface StreamingOverlayProps {
   nzbdavPipeBufferMB: number;
   setNzbdavPipeBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
-  ultimateResolveEnabled: boolean;
+  ultimateFallbackEnabled: boolean;
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavTestNzbStatus: 'idle' | 'sending' | 'success' | 'error';
   nzbdavTestNzbMessage: string;
@@ -63,15 +63,15 @@ export function StreamingOverlay({
   nzbdavPipeBufferMB,
   setNzbdavPipeBufferMB,
   nzbdavStreamingMethod,
-  ultimateResolveEnabled,
+  ultimateFallbackEnabled,
   nzbdavConnectionStatus,
   nzbdavTestNzbStatus,
   nzbdavTestNzbMessage,
   checkNzbdavConnection,
   sendNzbdavTestNzb,
 }: StreamingOverlayProps) {
-  // Backend forces proxy when UR is off — mirror here so the UI stays truthful
-  const effectiveMethod = !ultimateResolveEnabled ? 'proxy' as const : nzbdavStreamingMethod;
+  // Backend forces proxy when UF is off — mirror here so the UI stays truthful
+  const effectiveMethod = !ultimateFallbackEnabled ? 'proxy' as const : nzbdavStreamingMethod;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>

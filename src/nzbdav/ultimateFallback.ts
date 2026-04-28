@@ -1,5 +1,5 @@
 /**
- * Ultimate-Resolve
+ * Ultimate-Fallback
  *
  * Combines retry-on-failure with Health Checking for the fastest possible
  * NZB resolution. Runs four parallel layers simultaneously:
@@ -45,7 +45,7 @@ interface CandidateState {
   grabFailed?: boolean;        // Grab never produced an NZB (indexer/network/VPN transient) — don't persist to dead NZB DB
 }
 
-interface UltimateResolveOptions {
+interface UltimateFallbackOptions {
   candidateCount: number;
   preferenceMode: 'priority' | 'speed';
   archiveInspection: boolean;
@@ -66,8 +66,8 @@ interface UltimateResolveOptions {
 
 const activeSessions = new Map<string, AbortController>();
 
-// UR-vetted backup metadata for in-session serving (no TTL coupling with fallback groups).
-export interface UrBackupStream {
+// UF-vetted backup metadata for in-session serving (no TTL coupling with fallback groups).
+export interface UfBackupStream {
   nzbUrl: string;
   videoPath: string;
   title: string;
@@ -80,7 +80,7 @@ interface DeferredStream {
   resolve: (data: StreamData) => void;
   reject: (err: Error) => void;
   backupUrls?: Set<string>;   // NZB URLs of verified backups (for fallback loop prioritization)
-  backupStreams?: UrBackupStream[]; // Parallel array with videoPaths — UR tile serves these directly when primary breaks
+  backupStreams?: UfBackupStream[]; // Parallel array with videoPaths — UF tile serves these directly when primary breaks
   lastVettedUrl?: string;      // Last NZB URL pulled into pool (for sequential resume point)
 }
 const sessionPromises = new Map<string, DeferredStream>();
@@ -92,8 +92,8 @@ export function getSessionPromise(sessionKey: string): Promise<StreamData> | nul
 }
 
 /** Get backup URLs, vetted streams, and last vetted URL for a session key. Used by the
- *  fallback loop (backupUrls prioritization) and the UR tile gate (backupStreams direct serve). */
-export function getSessionBackups(sessionKey: string): { backupUrls: Set<string>; backupStreams: UrBackupStream[]; lastVettedUrl?: string } | null {
+ *  fallback loop (backupUrls prioritization) and the UF tile gate (backupStreams direct serve). */
+export function getSessionBackups(sessionKey: string): { backupUrls: Set<string>; backupStreams: UfBackupStream[]; lastVettedUrl?: string } | null {
   const deferred = sessionPromises.get(sessionKey);
   if (!deferred?.backupUrls?.size && !deferred?.backupStreams?.length) return null;
   return {
@@ -103,16 +103,16 @@ export function getSessionBackups(sessionKey: string): { backupUrls: Set<string>
   };
 }
 
-/** Check if any Ultimate-Resolve sessions are active. */
+/** Check if any Ultimate-Fallback sessions are active. */
 export function hasAnySessions(): boolean {
   return activeSessions.size > 0;
 }
 
-/** Cancel all running Ultimate-Resolve sessions (called on settings change). */
-export function cancelAllUltimateResolves(): void {
+/** Cancel all running Ultimate-Fallback sessions (called on settings change). */
+export function cancelAllUltimateFallbacks(): void {
   const activeCount = activeSessions.size;
   if (activeCount > 0) {
-    console.warn(`👑 Cancelling ${activeCount} active Ultimate-Resolve session(s)`);
+    console.warn(`👑 Cancelling ${activeCount} active Ultimate-Fallback session(s)`);
   }
   for (const [, controller] of activeSessions) {
     controller.abort();
@@ -125,10 +125,10 @@ export function cancelAllUltimateResolves(): void {
   // Reject pending deferreds so awaiting lobbies wake. DO NOT delete from
   // sessionPromises — resolved entries are cached primary streams; deleting
   // them severs in-flight playback for clients still polling the lobby URL.
-  // The per-session cleanup setTimeout in ultimateResolveFromCandidates is
+  // The per-session cleanup setTimeout in ultimateFallbackFromCandidates is
   // the sole deletion path. Rejecting an already-resolved promise is a no-op.
   for (const [, deferred] of sessionPromises) {
-    deferred.reject(new Error('Ultimate-Resolve cancelled'));
+    deferred.reject(new Error('Ultimate-Fallback cancelled'));
   }
 }
 
@@ -175,11 +175,11 @@ async function probeVideo(config: NZBDavConfig, videoPath: string, logPrefix: st
 
 // ── Main pipeline ────────────────────────────────────────────────────
 
-export async function ultimateResolveFromCandidates(
+export async function ultimateFallbackFromCandidates(
   sessionKey: string,
   candidates: FallbackCandidate[],
   nzbdavConfig: NZBDavConfig,
-  options: UltimateResolveOptions,
+  options: UltimateFallbackOptions,
   episodePattern?: string,
   contentType?: string,
   episodesInSeason?: number,
@@ -197,10 +197,10 @@ export async function ultimateResolveFromCandidates(
   const deferred: DeferredStream = { promise: sessionPromise, resolve: sessionResolve, reject: sessionReject, backupUrls: new Set(), backupStreams: [] };
   sessionPromises.set(sessionKey, deferred);
 
-  const tag = `👑 Ultimate-Resolve [${sessionKey}]`;
+  const tag = `👑 Ultimate-Fallback [${sessionKey}]`;
   const providers = (globalConfig.healthChecks?.providers ?? []).filter(p => p.enabled);
   const userAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
-  const healthCheckEnabled = globalConfig.ultimateResolve?.healthCheckEnabled !== false;
+  const healthCheckEnabled = globalConfig.ultimateFallback?.healthCheckEnabled !== false;
   const hasProviders = healthCheckEnabled && providers.length > 0;
   const pool = hasProviders ? new NntpConnectionPool() : undefined;
   if (!healthCheckEnabled) {

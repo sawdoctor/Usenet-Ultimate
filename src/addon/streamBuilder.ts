@@ -20,19 +20,19 @@ import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
-// Ultimate Resolve tile + query param identifiers
-const UR_TILE_BASE_NAME = '👑 Ultimate Resolve';
-const UR_STREAM_PATH = 'ultimate-resolve';
+// Ultimate Fallback tile + query param identifiers
+const UF_TILE_BASE_NAME = '👑 Ultimate Fallback';
+const UF_STREAM_PATH = 'ultimate-fallback';
 const QUERY_PARAM_USER_PICK = 'user_pick';
 const USER_PICK_FLAG = `&${QUERY_PARAM_USER_PICK}=1`;
 
-/** Build the UR tile's display name + title based on the active preference mode.
+/** Build the UF tile's display name + title based on the active preference mode.
  *  Brand goes in the `name` chip (left), mode + description in `title` (right detail). */
-function urTileDisplay(mode: 'speed' | 'priority' | undefined): { name: string; title: string } {
+function ufTileDisplay(mode: 'speed' | 'priority' | undefined): { name: string; title: string } {
   if (mode === 'priority') {
-    return { name: UR_TILE_BASE_NAME, title: '⚬ Priority Mode\n⚬ Auto-select highest-quality healthy stream' };
+    return { name: UF_TILE_BASE_NAME, title: '⚬ Priority Mode\n⚬ Auto-select highest-quality healthy stream' };
   }
-  return { name: UR_TILE_BASE_NAME, title: '⚬ Speed Mode\n⚬ Auto-select fastest healthy stream' };
+  return { name: UF_TILE_BASE_NAME, title: '⚬ Speed Mode\n⚬ Auto-select fastest healthy stream' };
 }
 
 /** Regular-tile episode params — only emits for season packs with both season & episode set.
@@ -78,7 +78,7 @@ export interface StreamBuildOutput {
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, now, runtime } = ctx;
   // sessionKey includes manifestKey so concurrent requests from different Stremio installations
-  // don't share UR session state (avoids cross-tenant state leaks on multi-user deployments).
+  // don't share UF session state (avoids cross-tenant state leaks on multi-user deployments).
   const streamManifestKey = requestContext.getStore()?.manifestKey || '';
   const sessionKey = imdbId ? `${streamManifestKey}:${type}:${imdbId}:${season ?? ''}:${episode ?? ''}` : '';
   const skParam = sessionKey ? `&sk=${encodeURIComponent(sessionKey)}` : '';
@@ -89,7 +89,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Create fallback group for NZBDav mode (auto-retry next NZB on failure)
   let fallbackGroupId: string | undefined;
   let fallbackCandidates: FallbackCandidate[] | undefined;
-  if (config.streamingMode === 'nzbdav' && config.ultimateResolve?.enabled) {
+  if (config.streamingMode === 'nzbdav' && config.ultimateFallback?.enabled) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
 
     fallbackCandidates = allResults
@@ -343,31 +343,31 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     }
   }
 
-  // Prepend synthetic Ultimate Resolve tile so users can opt into the UR lobby explicitly.
-  // Guarded by streamingMode=nzbdav: UR resolves via NZBDav, so showing the tile in other
+  // Prepend synthetic Ultimate Fallback tile so users can opt into the UF lobby explicitly.
+  // Guarded by streamingMode=nzbdav: UF resolves via NZBDav, so showing the tile in other
   // modes would produce a URL the handler can't serve. sessionKey gate skips item pages
   // that don't have an imdbId (shouldn't happen in practice, but defensive).
   if (
-    config.ultimateResolve?.enabled
+    config.ultimateFallback?.enabled
     && config.streamingMode === 'nzbdav'
     && sessionKey
   ) {
-    // fbg lets the handler reach the full candidate list when UR-vetted
+    // fbg lets the handler reach the full candidate list when UF-vetted
     // backups are exhausted (fall-through iteration in streamHandler).
     // Older clients with cached URLs lacking fbg degrade gracefully — no
     // fall-through, just the failure video like before.
     const fbgQuery = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-    const urUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UR_STREAM_PATH}?sk=${encodeURIComponent(sessionKey)}${fbgQuery}`;
-    // bingeGroup matches regular tiles so cross-episode auto-play can continue via UR.
-    const urBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? 'usenetultimate' : undefined;
-    const urDisplay = urTileDisplay(config.ultimateResolve?.preferenceMode);
+    const ufUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UF_STREAM_PATH}?sk=${encodeURIComponent(sessionKey)}${fbgQuery}`;
+    // bingeGroup matches regular tiles so cross-episode auto-play can continue via UF.
+    const ufBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? 'usenetultimate' : undefined;
+    const ufDisplay = ufTileDisplay(config.ultimateFallback?.preferenceMode);
     streams.unshift({
-      name: urDisplay.name,
-      title: urDisplay.title,
-      url: urUrl,
+      name: ufDisplay.name,
+      title: ufDisplay.title,
+      url: ufUrl,
       behaviorHints: {
         notWebReady: false,
-        bingeGroup: urBingeGroup,
+        bingeGroup: ufBingeGroup,
       },
     });
   }

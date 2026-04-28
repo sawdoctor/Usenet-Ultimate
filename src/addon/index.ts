@@ -24,7 +24,7 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
@@ -140,31 +140,31 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return filtered;
     };
 
-    // === SHARED: Trigger auto-resolve or Ultimate-Resolve if enabled ===
+    // === SHARED: Trigger auto-resolve or Ultimate-Fallback if enabled ===
     const triggerAutoResolve = (fallbackCandidates: any[] | undefined, episodesInSeason?: number) => {
       if (!fallbackCandidates?.length) return;
 
       const contentKey = `${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`;
-      const urManifestKey = requestContext.getStore()?.manifestKey || '';
-      const sessionKey = `${urManifestKey}:${contentKey}`;
+      const ufManifestKey = requestContext.getStore()?.manifestKey || '';
+      const sessionKey = `${ufManifestKey}:${contentKey}`;
       const nzbdavConfig = buildNzbdavConfig();
       const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
         ? buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config))
         : undefined;
 
-      // Ultimate-Resolve takes priority — handles health checking + nzbdav internally.
-      // Guarded by streamingMode=nzbdav: UR resolves via NZBDav, so running it for other modes
+      // Ultimate-Fallback takes priority — handles health checking + nzbdav internally.
+      // Guarded by streamingMode=nzbdav: UF resolves via NZBDav, so running it for other modes
       // wastes cycles and produces a tile URL the handler can't serve.
-      if (config.ultimateResolve?.enabled && config.streamingMode === 'nzbdav') {
-        // On-tile-selection: defer UR until the user clicks the lobby tile.
-        // The lobby handler in streamHandler.ts triggers UR there.
-        if (config.ultimateResolve.whenToResolve === 'on-tile-selection') return;
-        const ur = config.ultimateResolve;
-        ultimateResolveFromCandidates(
+      if (config.ultimateFallback?.enabled && config.streamingMode === 'nzbdav') {
+        // On-tile-selection: defer UF until the user clicks the lobby tile.
+        // The lobby handler in streamHandler.ts triggers UF there.
+        if (config.ultimateFallback.whenToResolve === 'on-tile-selection') return;
+        const ur = config.ultimateFallback;
+        ultimateFallbackFromCandidates(
           sessionKey, fallbackCandidates, nzbdavConfig,
           { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
           epPattern, type, episodesInSeason,
-        ).catch(err => console.error('❌ Ultimate-Resolve error:', err));
+        ).catch(err => console.error('❌ Ultimate-Fallback error:', err));
         return;
       }
 
@@ -178,7 +178,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       // Apply current user filter/sort preferences (deprioritized packs appended after sort)
       allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);
 
-      // Health checks pre-filter results before UR sees them; UR also performs
+      // Health checks pre-filter results before UF sees them; UF also performs
       // its own per-candidate verification. Pass pre-existing health data so the
       // coordinator skips already-checked results and smart mode counts them
       // toward its threshold. Inner gate respects config.healthChecks.enabled.
@@ -216,8 +216,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
         if (hits > 0) console.log(`📚 Display-library: marked ${hits}/${allResults.length} result(s) as in-library`);
       }
 
-      // Auto-queue to NZBDav if enabled (skipped when Ultimate-Resolve manages this)
-      if (!config.ultimateResolve?.enabled) {
+      // Auto-queue to NZBDav if enabled (skipped when Ultimate-Fallback manages this)
+      if (!config.ultimateFallback?.enabled) {
         autoQueueToNzbdav(allResults, healthMap, titleMeta.type, titleMeta.season, titleMeta.episode, titleMeta.episodesInSeason);
       }
 

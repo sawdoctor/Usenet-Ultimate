@@ -1,5 +1,5 @@
 // Compact stepper for indexer request-timeout fields. Mirrors the wait-time
-// stepper style used by Ultimate Resolve: circular −/+ buttons
+// stepper style used by Ultimate Fallback: circular −/+ buttons
 // with hold-to-accelerate, large bold value, and a Reset-to-default link that
 // only appears when the current value differs from the default.
 

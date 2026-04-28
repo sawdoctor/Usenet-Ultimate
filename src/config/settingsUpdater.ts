@@ -117,11 +117,11 @@ export function updateSettings(settings: {
     hideBlocked: boolean;
     healthCheckIndexers?: Record<string, boolean>;
   };
-  ultimateResolve?: {
+  ultimateFallback?: {
     enabled: boolean;
     healthCheckEnabled?: boolean;
     whenToResolve?: 'on-results' | 'on-tile-selection';
-    userPickFallback?: 'ur-lobby' | 'failure-video' | 'fallback-chain';
+    userPickFallback?: 'uf-lobby' | 'failure-video' | 'fallback-chain';
     candidateCount?: number;
     preferenceMode?: 'priority' | 'speed';
     archiveInspection?: boolean;
@@ -349,18 +349,18 @@ export function updateSettings(settings: {
   if (settings.streamDisplayConfig !== undefined) {
     configData.streamDisplayConfig = settings.streamDisplayConfig;
   }
-  // UR transition detection — gate cancel + cache-clear narrowly so unrelated
-  // UR field tweaks don't nuke in-flight playback or purge useful search caches.
-  let urEnableTransitioned = false;
-  let urIndexersChanged = false;
-  if (settings.ultimateResolve !== undefined) {
-    const wasUrEnabled = configData.ultimateResolve?.enabled === true;
-    const prevHcIndexersJson = JSON.stringify(configData.ultimateResolve?.healthCheckIndexers ?? {});
-    configData.ultimateResolve = { ...configData.ultimateResolve, ...settings.ultimateResolve };
-    const isUrEnabled = configData.ultimateResolve?.enabled === true;
-    urEnableTransitioned = wasUrEnabled && !isUrEnabled;
-    urIndexersChanged =
-      JSON.stringify(configData.ultimateResolve?.healthCheckIndexers ?? {}) !== prevHcIndexersJson;
+  // UF transition detection — gate cancel + cache-clear narrowly so unrelated
+  // UF field tweaks don't nuke in-flight playback or purge useful search caches.
+  let ufEnableTransitioned = false;
+  let ufIndexersChanged = false;
+  if (settings.ultimateFallback !== undefined) {
+    const wasUfEnabled = configData.ultimateFallback?.enabled === true;
+    const prevHcIndexersJson = JSON.stringify(configData.ultimateFallback?.healthCheckIndexers ?? {});
+    configData.ultimateFallback = { ...configData.ultimateFallback, ...settings.ultimateFallback };
+    const isUfEnabled = configData.ultimateFallback?.enabled === true;
+    ufEnableTransitioned = wasUfEnabled && !isUfEnabled;
+    ufIndexersChanged =
+      JSON.stringify(configData.ultimateFallback?.healthCheckIndexers ?? {}) !== prevHcIndexersJson;
   }
 
   // Enforce minimum cacheTTL when auto play is enabled
@@ -369,15 +369,15 @@ export function updateSettings(settings: {
   }
 
 
-  // Only cancel UR sessions on a genuine enable→disable transition. Tweaks to
+  // Only cancel UF sessions on a genuine enable→disable transition. Tweaks to
   // timeouts / candidate count / etc. let in-flight pipelines finish — users
   // are already watching them. Search cache only needs clearing when the set
-  // of vetting indexers changes (or on a disable, since UR tile injection
+  // of vetting indexers changes (or on a disable, since UF tile injection
   // depends on the enabled flag).
-  if (urEnableTransitioned) {
-    import('../nzbdav/ultimateResolve.js').then(m => m.cancelAllUltimateResolves()).catch(() => {});
+  if (ufEnableTransitioned) {
+    import('../nzbdav/ultimateFallback.js').then(m => m.cancelAllUltimateFallbacks()).catch(() => {});
   }
-  if (urEnableTransitioned || urIndexersChanged) {
+  if (ufEnableTransitioned || ufIndexersChanged) {
     import('../addon/index.js').then(m => m.clearSearchCache()).catch(() => {});
   }
 

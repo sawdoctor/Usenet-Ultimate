@@ -29,7 +29,7 @@ import { AutoPlayOverlay } from './components/overlays/AutoPlayOverlay';
 import { StatsOverlay } from './components/overlays/StatsOverlay';
 import FiltersOverlay from './components/overlays/FiltersOverlay';
 import HealthChecksOverlay from './components/overlays/HealthChecksOverlay';
-import { UltimateResolveOverlay } from './components/overlays/UltimateResolveOverlay';
+import { UltimateFallbackOverlay } from './components/overlays/UltimateFallbackOverlay';
 import { StreamDisplayOverlay } from './components/overlays/StreamDisplayOverlay';
 import { ZyclopsOverlay } from './components/overlays/ZyclopsOverlay';
 import { LogsOverlay } from './components/overlays/LogsOverlay';
@@ -702,7 +702,7 @@ function App() {
           nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
           setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
           nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
-          ultimateResolveEnabled={ac.ultimateResolve.enabled}
+          ultimateFallbackEnabled={ac.ultimateFallback.enabled}
           checkNzbdavConnection={ac.checkNzbdavConnection}
           sendNzbdavTestNzb={ac.sendNzbdavTestNzb}
         />
@@ -806,12 +806,12 @@ function App() {
         />
       )}
 
-      {/* Ultimate-Resolve Overlay */}
-      {ac.activeOverlay === 'ultimateResolve' && (
-        <UltimateResolveOverlay
+      {/* Ultimate-Fallback Overlay */}
+      {ac.activeOverlay === 'ultimateFallback' && (
+        <UltimateFallbackOverlay
           onClose={() => ac.setActiveOverlay(null)}
-          ultimateResolve={ac.ultimateResolve}
-          setUltimateResolve={ac.setUltimateResolve}
+          ultimateFallback={ac.ultimateFallback}
+          setUltimateFallback={ac.setUltimateFallback}
           healthChecks={ac.healthChecks}
           setHealthChecks={ac.setHealthChecks}
           nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
@@ -1019,7 +1019,7 @@ function App() {
             autoPlay={ac.autoPlay}
             streamDisplayConfig={ac.streamDisplayConfig}
             healthChecks={ac.healthChecks}
-            ultimateResolve={ac.ultimateResolve}
+            ultimateFallback={ac.ultimateFallback}
             statsData={ac.statsData}
             fetchStats={ac.fetchStats}
             hasIndexers={!!hasIndexers}

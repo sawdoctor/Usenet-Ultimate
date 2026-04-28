@@ -1,7 +1,7 @@
 /**
- * Ultimate Resolve Timeout Defaults & Shared Selector
+ * Ultimate Fallback Timeout Defaults & Shared Selector
  *
- * Default per-content wait times for Ultimate Resolve's nzbdav job-completion
+ * Default per-content wait times for Ultimate Fallback's nzbdav job-completion
  * step, plus the helper that selects the right timeout based on content type
  * and season-pack status.
  */
@@ -12,7 +12,7 @@ export interface TimeoutSet {
   seasonPack: number;
 }
 
-export const UR_TIMEOUT_DEFAULTS = {
+export const UF_TIMEOUT_DEFAULTS = {
   priority: { movies: 30, tv: 15, seasonPack: 30 },
   speed:    { movies: 20, tv: 10, seasonPack: 20 },
 } satisfies Record<'priority' | 'speed', TimeoutSet>;

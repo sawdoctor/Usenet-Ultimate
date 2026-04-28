@@ -1,5 +1,5 @@
 // What this does:
-//   Shared Usenet provider management component used by Health Checks and Ultimate-Resolve overlays.
+//   Shared Usenet provider management component used by Health Checks and Ultimate-Fallback overlays.
 //   Handles add/edit/delete/reorder/test providers via CRUD API endpoints.
 
 import { useState } from 'react';

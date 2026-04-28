@@ -15,8 +15,8 @@ export { getOrCreateStream, getCacheKey, getDeadCacheKey, isStreamCached, isDead
 // Cache utilities
 export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
 
-// Ultimate-Resolve (combined retry-on-failure + health checking pipeline)
-export { ultimateResolveFromCandidates, cancelAllUltimateResolves, getSessionPromise, hasAnySessions } from './ultimateResolve.js';
+// Ultimate-Fallback (combined retry-on-failure + health checking pipeline)
+export { ultimateFallbackFromCandidates, cancelAllUltimateFallbacks, getSessionPromise, hasAnySessions } from './ultimateFallback.js';
 
 // Shared utilities
 export { buildEpisodePattern, buildNzbdavConfig, isNzbdavLibraryConfigured } from './utils.js';
