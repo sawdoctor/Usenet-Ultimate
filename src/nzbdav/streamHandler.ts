@@ -520,7 +520,7 @@ export async function handleStream(
   // walked past the click), so we don't gate on the clicked NZB's dead state — the cache hit is
   // already a known-good resolution.
   const isFreshRequest = candidateStart === 0 && !req.query._ci;
-  if (isFreshRequest && candidates.length > 0) {
+  if (isFreshRequest && candidates.length > 0 && !isUfTileRequest) {
     {
       const dedupKey = getCacheKey(candidates[0].nzbUrl, candidates[0].title) + (episodePattern ? `:${episodePattern}` : '');
       const cached = recentDeliveries.get(dedupKey);
@@ -627,6 +627,7 @@ export async function handleStream(
           const shouldLogLobby = !lastLobby || lastLobby.mode !== mode;
           lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
           if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Fallback result for ${sessionKey}`);
+          else console.log(`👑 Lobby: cached resolve served (sk=${sessionKey})`);
           const lobbySizeSuffix = streamData.videoSize ? ` (${formatBytes(streamData.videoSize)})` : '';
           if (mode !== 'direct') {
             const inline = proxyFn && !lobbyFallbackOn;
