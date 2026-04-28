@@ -361,7 +361,8 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
 }
 
 // Migrate NZB Fallback → Ultimate Fallback. UF fully replaces fallback semantics;
-// translate the legacy config so streams keep working without user intervention.
+// migrants land on the new UF default baseline (on-tile-selection + failure-video)
+// rather than deriving from prior NZB Fallback toggles — fresh start.
 {
   const c = configData as any;
   const hadFallback = c.nzbdavFallbackEnabled !== undefined
@@ -380,8 +381,8 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
       ur.candidateCount = 1;
       ur.desiredBackups = 0;
       ur.preferenceMode = 'priority';
-      ur.whenToResolve = c.autoResolveOnSearch === false ? 'on-tile-selection' : 'on-results';
-      ur.userPickFallback = c.nzbdavFallbackOrder === 'selected' ? 'fallback-chain' : 'uf-lobby';
+      ur.whenToResolve = 'on-tile-selection';
+      ur.userPickFallback = 'failure-video';
       ur.maxAttempts = typeof c.nzbdavMaxFallbacks === 'number' ? c.nzbdavMaxFallbacks : 0;
     }
     delete c.nzbdavFallbackEnabled;

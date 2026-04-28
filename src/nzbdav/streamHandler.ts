@@ -753,10 +753,10 @@ export async function handleStream(
   const ufLobbyAvailable = globalConfig.ultimateFallback?.enabled === true;
   const sessionBackups = sessionKey ? getSessionBackups(sessionKey) : null;
   if (userPick && redirectCount === 0) {
-    console.log(`🎯 User-pick attempt: userPickFallback=${globalConfig.ultimateFallback?.userPickFallback ?? 'uf-lobby'}, sk=${sessionKey || 'none'}, fbg=${fallbackGroupId || 'none'}`);
+    console.log(`🎯 User-pick attempt: userPickFallback=${globalConfig.ultimateFallback?.userPickFallback ?? 'failure-video'}, sk=${sessionKey || 'none'}, fbg=${fallbackGroupId || 'none'}`);
   }
   const candidateOrder: number[] = [];
-  const userPickMode = globalConfig.ultimateFallback?.userPickFallback ?? 'uf-lobby';
+  const userPickMode = globalConfig.ultimateFallback?.userPickFallback ?? 'failure-video';
   if (userPick && ufLobbyAvailable && userPickMode !== 'fallback-chain') {
     candidateOrder.push(candidateStart);
   } else if (userPick && userPickMode === 'fallback-chain') {

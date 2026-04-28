@@ -7,6 +7,7 @@ import { Crown, X, Film, Tv, Layers } from 'lucide-react';
 import clsx from 'clsx';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import type { HealthChecksState, UsenetProvider } from '../../types';
+import { DEFAULT_ULTIMATE_FALLBACK } from '../../constants';
 import { ProviderManager } from '../shared/ProviderManager';
 
 interface UltimateFallbackOverlayProps {
@@ -705,26 +706,7 @@ export function UltimateFallbackOverlay({
           <div className="pt-2">
             <button
               onClick={() => {
-                setUltimateFallback({
-                  enabled: false,
-                  healthCheckEnabled: true,
-                  whenToResolve: 'on-results',
-                  userPickFallback: 'uf-lobby',
-                  candidateCount: 3,
-                  preferenceMode: 'priority',
-                  archiveInspection: true,
-                  sampleCount: 3,
-                  maxAttempts: 0,
-                  desiredBackups: 2,
-                  backupProcessingLimit: 3,
-                  priorityMoviesTimeoutSeconds: 30,
-                  priorityTvTimeoutSeconds: 15,
-                  prioritySeasonPackTimeoutSeconds: 30,
-                  speedMoviesTimeoutSeconds: 20,
-                  speedTvTimeoutSeconds: 10,
-                  speedSeasonPackTimeoutSeconds: 20,
-                  healthCheckIndexers: {},
-                });
+                setUltimateFallback({ ...DEFAULT_ULTIMATE_FALLBACK });
                 setNzbdavStreamingMethod('proxy');
               }}
               className="btn-secondary w-full"

@@ -407,10 +407,10 @@ export const config: Config = {
   get ultimateFallback(): UltimateFallbackConfig {
     const ur = configData.ultimateFallback;
     const enabled = envBool('ULTIMATE_FALLBACK_ENABLED') ?? ur?.enabled ?? false;
-    const healthCheckEnabled = envBool('ULTIMATE_FALLBACK_HEALTH_CHECK_ENABLED') ?? ur?.healthCheckEnabled ?? true;
-    const whenToResolve = envEnum('ULTIMATE_FALLBACK_WHEN_TO_RESOLVE', ['on-results', 'on-tile-selection']) ?? ur?.whenToResolve ?? 'on-results';
-    const userPickFallback = envEnum('ULTIMATE_FALLBACK_USER_PICK_FALLBACK', ['uf-lobby', 'failure-video', 'fallback-chain']) ?? ur?.userPickFallback ?? 'uf-lobby';
-    const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_FALLBACK_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
+    const healthCheckEnabled = envBool('ULTIMATE_FALLBACK_HEALTH_CHECK_ENABLED') ?? ur?.healthCheckEnabled ?? false;
+    const whenToResolve = envEnum('ULTIMATE_FALLBACK_WHEN_TO_RESOLVE', ['on-results', 'on-tile-selection']) ?? ur?.whenToResolve ?? 'on-tile-selection';
+    const userPickFallback = envEnum('ULTIMATE_FALLBACK_USER_PICK_FALLBACK', ['uf-lobby', 'failure-video', 'fallback-chain']) ?? ur?.userPickFallback ?? 'failure-video';
+    const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_FALLBACK_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 1));
     const preferenceMode = envEnum('ULTIMATE_FALLBACK_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'priority';
     // Archive inspection is mandatory for UF — its container-matching guarantee
     // (each backup matches the primary's container type) depends on reading
@@ -421,7 +421,7 @@ export const config: Config = {
     const rawSample = envInt('ULTIMATE_FALLBACK_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
     const sampleCount: 3 | 7 = rawSample === 7 ? 7 : 3;
     const maxAttempts = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_MAX_ATTEMPTS') ?? ur?.maxAttempts ?? 0));
-    const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_FALLBACK_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 2));
+    const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_FALLBACK_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 0));
     const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 3));
     const priorityMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.movies));
     const priorityTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_TV_TIMEOUT') ?? ur?.priorityTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.tv));

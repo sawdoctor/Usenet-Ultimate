@@ -310,15 +310,15 @@ export interface HealthCheckConfig {
 // Ultimate-Fallback: combines retry-on-failure with Health Checking for fastest resolution
 export interface UltimateFallbackConfig {
   enabled: boolean;
-  healthCheckEnabled?: boolean;        // Run NNTP health-check pre-flight before nzbdav submission (default true)
-  whenToResolve: 'on-results' | 'on-tile-selection';   // When to fire UF — on search results (default) or on user tile click
-  userPickFallback: 'uf-lobby' | 'failure-video' | 'fallback-chain';      // When an individual stream tile fails — fall back to UF (default) or show failure video
-  candidateCount: number;              // Active pool size (1-10, default 3)
+  healthCheckEnabled?: boolean;        // Run NNTP health-check pre-flight before nzbdav submission (default false)
+  whenToResolve: 'on-results' | 'on-tile-selection';   // When to fire UF — on search results or on user tile click (default on-tile-selection)
+  userPickFallback: 'uf-lobby' | 'failure-video' | 'fallback-chain';      // When an individual stream tile fails — show failure video (default), fall into UF lobby, or walk the chain
+  candidateCount: number;              // Active pool size (1-10, default 1)
   preferenceMode: 'priority' | 'speed';
   archiveInspection: boolean;
   sampleCount: 3 | 7;
   maxAttempts: number;                 // Cap on total primary search attempts before giving up (0 = unlimited, 1-20 = cap, default 0). Library hits don't count.
-  desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count, default 2)
+  desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count, default 0)
   backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all, 1-20 = limit, default 3)
   // Per-mode nzbdav job-completion wait times (1-90s). Active set picked by preferenceMode at runtime.
   priorityMoviesTimeoutSeconds: number;

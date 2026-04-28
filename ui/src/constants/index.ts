@@ -177,15 +177,15 @@ export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclop
 
 export const DEFAULT_ULTIMATE_FALLBACK = {
   enabled: false,
-  healthCheckEnabled: true,
-  whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
-  userPickFallback: 'uf-lobby' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
-  candidateCount: 3,
+  healthCheckEnabled: false,
+  whenToResolve: 'on-tile-selection' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 1,
   preferenceMode: 'priority' as 'priority' | 'speed',
   archiveInspection: true,
   sampleCount: 3 as 3 | 7,
   maxAttempts: 0,
-  desiredBackups: 2,
+  desiredBackups: 0,
   backupProcessingLimit: 3,
   // Keep in sync with src/nzbdav/timeoutDefaults.ts (UF_TIMEOUT_DEFAULTS).
   priorityMoviesTimeoutSeconds: 30,
