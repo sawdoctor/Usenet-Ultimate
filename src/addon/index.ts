@@ -306,6 +306,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       country: titleInfo.country,
       season, episode,
       episodesInSeason: titleInfo.episodesInSeason,
+      priorSeasonsEpisodeCount: titleInfo.priorSeasonsEpisodeCount,
       additionalTitles: titleInfo.additionalTitles,
       isAnime: titleInfo.isAnime,
       titleYear: titleInfo.titleYear,

@@ -101,6 +101,7 @@ export interface SearchConfig {
   junkFilter?: boolean;  // Strip bare archive parts and NZB containers from search results (default true)
   displayLibraryInResults?: boolean;  // Mark search results that exist in the WebDAV library with the 📚 icon (default true)
   cacheEmptyResults?: boolean;  // Cache search responses that returned zero results (default true)
+  absoluteEpisodeFallback?: boolean;  // Series text-search: retry with absolute episode numbering (Title E31) when the SxxExx query returns zero results. UTS only. (default true)
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';

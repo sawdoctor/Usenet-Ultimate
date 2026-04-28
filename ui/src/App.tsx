@@ -584,6 +584,8 @@ function App() {
           setJunkFilter={ac.setJunkFilter}
           displayLibraryInResults={ac.displayLibraryInResults}
           setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
+          absoluteEpisodeFallback={ac.absoluteEpisodeFallback}
+          setAbsoluteEpisodeFallback={ac.setAbsoluteEpisodeFallback}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}

@@ -102,6 +102,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [junkFilter, setJunkFilter] = useState(true);
   const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
   const [displayLibraryInResults, setDisplayLibraryInResults] = useState(true);
+  const [absoluteEpisodeFallback, setAbsoluteEpisodeFallback] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -363,12 +364,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         urlDedup,
         junkFilter,
         displayLibraryInResults,
+        absoluteEpisodeFallback,
         cacheEmptyResults,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, displayLibraryInResults, cacheEmptyResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, displayLibraryInResults, absoluteEpisodeFallback, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -522,6 +524,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setUrlDedup(sc?.urlDedup !== false);
       setJunkFilter(sc?.junkFilter !== false);
       setDisplayLibraryInResults(sc?.displayLibraryInResults !== false);
+      setAbsoluteEpisodeFallback(sc?.absoluteEpisodeFallback !== false);
       setCacheEmptyResults(sc?.cacheEmptyResults !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
@@ -1219,6 +1222,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     urlDedup, setUrlDedup,
     junkFilter, setJunkFilter,
     displayLibraryInResults, setDisplayLibraryInResults,
+    absoluteEpisodeFallback, setAbsoluteEpisodeFallback,
     cacheEmptyResults, setCacheEmptyResults,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,

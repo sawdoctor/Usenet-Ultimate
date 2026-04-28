@@ -31,6 +31,8 @@ export interface SearchContext {
   season?: number;
   episode?: number;
   episodesInSeason?: number;
+  /** Cumulative episode count across prior seasons. Feeds the absolute-numbering fallback. */
+  priorSeasonsEpisodeCount?: number;
   additionalTitles?: string[];
   isAnime: boolean;
   titleYear?: string;
@@ -42,7 +44,7 @@ export interface SearchContext {
  * Search via the configured index manager (Prowlarr, NZBHydra, or Newznab).
  */
 export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
-  const { type, imdbId, title, year, country, season, episode, episodesInSeason, additionalTitles, isAnime, titleYear, animeResolvedIds } = ctx;
+  const { type, imdbId, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, additionalTitles, isAnime, titleYear, animeResolvedIds } = ctx;
 
   if (config.indexManager === 'prowlarr' && config.prowlarrUrl && config.prowlarrApiKey) {
     // === PROWLARR MODE ===
@@ -356,6 +358,56 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       }
     }
 
+    // Absolute-episode fallback: covers indexers that file releases under
+    // continuous absolute numbering (Title E31) rather than Title S03E07.
+    // When combined results are zero after the main pass + standard
+    // text-fallback, retry every non-timed-out indexer with E{absolute}.
+    // By this point each has already had a UTS attempt (either configured
+    // or via the L315 fallback above), so all are valid retry targets.
+    // UTS-only — ID methods don't use the SxxExx vs E{n} distinction.
+    // Downstream isTextSearchMatch still requires the resolved title to
+    // appear in the result, so non-matching releases get filtered.
+    if (
+      results.length === 0
+      && type === 'series'
+      && season !== undefined
+      && episode !== undefined
+      && config.searchConfig?.absoluteEpisodeFallback !== false
+    ) {
+      const retryIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
+      if (retryIndexers.length > 0) {
+        if (priorSeasonsEpisodeCount === undefined) {
+          console.warn(`⚠️  Absolute episode fallback: priorSeasonsEpisodeCount unavailable (Cinemeta gap), using per-season E${episode}`);
+        }
+        const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
+        console.log(`🔢 Absolute episode fallback: retrying ${retryIndexers.length} indexer(s) with E${absoluteEp}`);
+        const fallbackPromises = retryIndexers.map(async (indexer) => {
+          const startTime = Date.now();
+          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+          try {
+            const fbResults = await searcher.searchTVShow(
+              imdbId, title, season, episode, episodesInSeason, year, country,
+              undefined, 'text', additionalTitles, titleYear,
+              { numberingScheme: 'absolute', absoluteEp }
+            );
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, true, responseTime, fbResults.length);
+            return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
+          } catch (error) {
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+            console.error(`❌ Error in absolute episode fallback for ${indexer.name}:`, error);
+            return [];
+          }
+        });
+        const fallbackResults = await Promise.all(fallbackPromises);
+        results = fallbackResults.flat();
+        console.log(`   🔢 Absolute episode fallback returned ${results.length} results`);
+      }
+    }
+
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each.
     // Skip indexers that have timed out at any prior point in this cycle.
     if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0) {
@@ -390,8 +442,50 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           }
         });
 
-        const altResults = (await Promise.all(altPromises)).flat();
+        let altResults = (await Promise.all(altPromises)).flat();
         console.log(`   🎯 Alt-title retry returned ${altResults.length} results`);
+
+        // Absolute-episode fallback for the alt title — same rationale as the
+        // primary-title fallback above. If the alt-title SxxExx came back
+        // empty and we're searching a series with the toggle on, retry the
+        // alt title with E{absolute}.
+        if (
+          altResults.length === 0
+          && type === 'series'
+          && season !== undefined
+          && episode !== undefined
+          && config.searchConfig?.absoluteEpisodeFallback !== false
+        ) {
+          const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
+          const absoluteAltIndexers = altIndexers.filter(i => !timedOutIndexers.has(i.name));
+          if (absoluteAltIndexers.length > 0) {
+            console.log(`🔢 Absolute episode fallback (alt title "${altTitle}"): retrying ${absoluteAltIndexers.length} indexer(s) with E${absoluteEp}`);
+            const absPromises = absoluteAltIndexers.map(async (indexer) => {
+              const startTime = Date.now();
+              const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+              try {
+                const fbResults = await searcher.searchTVShow(
+                  imdbId, altTitle, season, episode, episodesInSeason, year, country,
+                  undefined, 'text', undefined, titleYear,
+                  { numberingScheme: 'absolute', absoluteEp }
+                );
+                if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                const responseTime = Date.now() - startTime;
+                trackQuery(indexer.name, true, responseTime, fbResults.length);
+                return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
+              } catch (error) {
+                if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                const responseTime = Date.now() - startTime;
+                trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+                console.error(`❌ Error in absolute episode fallback (alt title) for ${indexer.name}:`, error);
+                return [];
+              }
+            });
+            altResults = (await Promise.all(absPromises)).flat();
+            console.log(`   🔢 Absolute episode fallback (alt title) returned ${altResults.length} results`);
+          }
+        }
+
         if (altResults.length > 0) {
           results = altResults;
           break;
@@ -411,7 +505,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     return [];
   }
 
-  const { type, title, year, country, season, episode, episodesInSeason, additionalTitles, titleYear } = ctx;
+  const { type, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, additionalTitles, titleYear } = ctx;
   const easynewsStartTime = Date.now();
   const easynewsTimeoutEnabled = config.searchTimeoutOverride !== undefined ? true : config.easynewsTimeoutEnabled;
   const easynewsTimeoutSeconds = config.searchTimeoutOverride ?? config.easynewsTimeout;
@@ -427,7 +521,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     if (type === 'movie') {
       results = await searcher.searchMovie(title, year, country, additionalTitles, titleYear);
     } else if (type === 'series' && season !== undefined && episode !== undefined) {
-      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear);
+      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount);
     } else {
       results = [];
     }

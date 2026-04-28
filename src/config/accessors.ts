@@ -145,6 +145,7 @@ export const config: Config = {
     const sc = configData.searchConfig || { includeSeasonPacks: true };
     const urlDedupEnv = envBool('URL_DEDUP');
     const displayLibraryEnv = envBool('DISPLAY_LIBRARY_IN_RESULTS');
+    const absoluteEpFallbackEnv = envBool('ABSOLUTE_EPISODE_FALLBACK');
     const junkFilterEnv = envBool('JUNK_FILTER');
     const cacheEmptyResultsEnv = envBool('CACHE_EMPTY_RESULTS');
     return {
@@ -152,6 +153,7 @@ export const config: Config = {
       // Always present in the response (default true). Other 3 fields below
       // remain conditionally spread because they default to undefined.
       displayLibraryInResults: displayLibraryEnv ?? sc.displayLibraryInResults ?? true,
+      absoluteEpisodeFallback: absoluteEpFallbackEnv ?? sc.absoluteEpisodeFallback ?? true,
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
       ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
       ...(cacheEmptyResultsEnv !== undefined && { cacheEmptyResults: cacheEmptyResultsEnv }),

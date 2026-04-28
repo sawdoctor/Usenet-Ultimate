@@ -25,6 +25,8 @@ export interface ResolvedTitleInfo {
   genres?: string[];
   /** Number of episodes in the requested season */
   episodesInSeason?: number;
+  /** Cumulative episode count across seasons before the requested one (excludes specials/season 0). Used by the absolute-numbering fallback. */
+  priorSeasonsEpisodeCount?: number;
   /** Additional title variants for text search (e.g. Cinemeta title when different from resolved) */
   additionalTitles?: string[];
   /** Whether this content is detected as anime (Animation + Japan) */
@@ -46,7 +48,7 @@ async function resolveFromCinemeta(
   type: string,
   imdbId: string,
   season?: number
-): Promise<{ title: string; year?: string; country?: string; genres?: string[]; episodesInSeason?: number; runtime?: number }> {
+): Promise<{ title: string; year?: string; country?: string; genres?: string[]; episodesInSeason?: number; priorSeasonsEpisodeCount?: number; runtime?: number }> {
   try {
     const url = `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`;
     const response = await axios.get(url, { timeout: 5000 });
@@ -55,11 +57,15 @@ async function resolveFromCinemeta(
       const year = meta.releaseInfo?.match(/^\d{4}/)?.[0] || meta.year?.toString();
       const country = meta.country || undefined;
       const genres: string[] | undefined = Array.isArray(meta.genres) ? meta.genres : undefined;
-      // Count episodes in the requested season from the videos array
+      // Count episodes in the requested season + cumulative count of prior seasons
+      // (skipping specials at season 0). The prior count feeds the absolute-
+      // numbering fallback in the orchestrator.
       let episodesInSeason: number | undefined;
+      let priorSeasonsEpisodeCount: number | undefined;
       if (season !== undefined && Array.isArray(meta.videos)) {
         episodesInSeason = meta.videos.filter((v: any) => v.season === season).length;
         if (episodesInSeason === 0) episodesInSeason = undefined;
+        priorSeasonsEpisodeCount = meta.videos.filter((v: any) => v.season > 0 && v.season < season).length;
       }
       // Parse runtime (e.g. "148 min" → 8880 seconds)
       let runtime: number | undefined;
@@ -68,7 +74,7 @@ async function resolveFromCinemeta(
         if (mins > 0) runtime = mins * 60;
       }
       console.log(`🎯 Resolved ${imdbId} → "${meta.name}" (${year || 'unknown year'}, ${country || 'unknown country'})${episodesInSeason ? ` [S${season}: ${episodesInSeason} episodes]` : ''}${genres ? ` [${genres.join(', ')}]` : ''}${runtime ? ` [${Math.round(runtime / 60)}min]` : ''}`);
-      return { title: meta.name, year, country, genres, episodesInSeason, runtime };
+      return { title: meta.name, year, country, genres, episodesInSeason, priorSeasonsEpisodeCount, runtime };
     }
   } catch (error) {
     console.warn(`⚠️  Failed to resolve title for ${imdbId}:`, (error as Error).message);
@@ -206,6 +212,7 @@ export async function resolveTitle(
     country,
     genres,
     episodesInSeason,
+    priorSeasonsEpisodeCount: resolved.priorSeasonsEpisodeCount,
     additionalTitles,
     isAnime,
     runtime,

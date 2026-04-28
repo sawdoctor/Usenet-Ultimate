@@ -72,6 +72,8 @@ interface IndexManagerOverlayProps {
   // Display library in results
   displayLibraryInResults: boolean;
   setDisplayLibraryInResults: React.Dispatch<React.SetStateAction<boolean>>;
+  absoluteEpisodeFallback: boolean;
+  setAbsoluteEpisodeFallback: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Indexer priority dedup
   indexerPriorityDedup: boolean;
@@ -209,6 +211,8 @@ export function IndexManagerOverlay({
   setJunkFilter,
   displayLibraryInResults,
   setDisplayLibraryInResults,
+  absoluteEpisodeFallback,
+  setAbsoluteEpisodeFallback,
   indexerPriorityDedup,
   setIndexerPriorityDedup,
   indexerPriority,
@@ -437,6 +441,24 @@ export function IndexManagerOverlay({
                       Enable Ultimate Text Search per-indexer below. For best results pair with TMDB and TVDB API keys.
                     </p>
                   </div>
+                </div>
+
+                {/* Absolute episode fallback (Ultimate Text Search retry on zero-result series queries) */}
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-slate-300">Absolute Episode Fallback</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="absolute-episode-fallback"
+                        checked={absoluteEpisodeFallback}
+                        onChange={(e) => setAbsoluteEpisodeFallback(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500">When a series text-search returns zero results for a SxxExx query, retry with absolute episode numbering (Title E31 instead of S03E07). Applies to Ultimate Text Search only.</div>
                 </div>
 
                 {/* TMDB API Key */}

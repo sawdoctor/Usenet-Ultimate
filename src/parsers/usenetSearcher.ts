@@ -332,6 +332,7 @@ export class UsenetSearcher {
     searchMethod?: string,
     additionalTitles?: string[],
     titleYear?: string,
+    options?: { numberingScheme?: 'seasonal' | 'absolute'; absoluteEp?: number },
   ): Promise<NZBSearchResult[]> {
     try {
       const tvMethods = this.indexer.tvSearchMethod;
@@ -341,19 +342,31 @@ export class UsenetSearcher {
       if (method === 'text') {
         const s = season.toString().padStart(2, '0');
         const e = episode.toString().padStart(2, '0');
-        const query = stripDiacritics(`${title} S${s}E${e}`);
+        const isAbsolute = options?.numberingScheme === 'absolute' && options.absoluteEp !== undefined;
+        const query = isAbsolute
+          ? stripDiacritics(`${title} E${options!.absoluteEp!.toString().padStart(2, '0')}`)
+          : stripDiacritics(`${title} S${s}E${e}`);
         console.log(`📺 TV text search for: ${query}`);
         const results = await this.search(query, '5000'); // Category 5000 = TV
         const before = results.length;
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+        // On absolute-numbering retries, strip the bare E\d token before
+        // matching: extractTitleFromRelease only anchors on SxxExx, so a release
+        // like "Lady Of Law E23 1080p..." would extract as "Lady Of Law E23"
+        // and fail equality. The \b boundary leaves "S03E23" untouched.
+        const matchTitle = isAbsolute
+          ? (s: string) => s.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ')
+          : (s: string) => s;
+        const filtered = results.filter(r => isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
         if (before !== filtered.length) {
-          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const removed = results.filter(r => !isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
           console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
           removed.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
 
-        // Season pack search (only if enabled)
-        const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
+        // Skip season-pack search on absolute-numbering retries — pack queries
+        // use the seasonal `Title S03` format which doesn't apply when we're
+        // probing absolute episode numbers.
+        const includeSeasonPacks = !isAbsolute && (config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks);
         if (includeSeasonPacks) {
           const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
           const spAdditionalPages = config.searchConfig?.seasonPackAdditionalPages;

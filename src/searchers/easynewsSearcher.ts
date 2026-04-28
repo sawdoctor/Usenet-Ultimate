@@ -115,6 +115,7 @@ export class EasynewsSearcher {
     country?: string,
     additionalTitles?: string[],
     titleYear?: string,
+    priorSeasonsEpisodeCount?: number,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
@@ -208,6 +209,38 @@ export class EasynewsSearcher {
             }
           }
           filtered.push(...altFiltered);
+          break;
+        }
+      }
+    }
+
+    // Absolute-episode fallback. If primary SxxExx + alt-title SxxExx both
+    // returned 0, retry primary then each alt title with E{absolute} for
+    // indexers that file releases under continuous numbering. Toggle-gated.
+    if (filtered.length === 0 && !this.timedOut && config.searchConfig?.absoluteEpisodeFallback !== false) {
+      const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
+      if (priorSeasonsEpisodeCount === undefined) {
+        console.warn(`⚠️  EasyNews absolute fallback: priorSeasonsEpisodeCount unavailable, using per-season E${episode}`);
+      }
+      const candidates = [title, ...(additionalTitles ?? [])];
+      for (const candTitle of candidates) {
+        if (this.timedOut) break;
+        const absQuery = `${candTitle} E${absoluteEp.toString().padStart(2, '0')}`;
+        console.log(`🔢 EasyNews absolute fallback: "${absQuery}"`);
+        const absResults = await this.search(absQuery);
+        // Strip the bare E\d token before matching: the title-extractor only
+        // anchors on SxxExx, so a release like "Lady Of Law E23 1080p..." would
+        // extract as "Lady Of Law E23" and fail equality. The \b boundary keeps
+        // "S03E23" untouched (no boundary between digit-and-E inside SxxExx).
+        const stripAbsEp = (s: string) => s.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ');
+        const absFiltered = absResults.filter(r => isTextSearchMatch(candTitle, stripAbsEp(r.title), year, country, undefined, titleYear));
+        console.log(`   🔢 EasyNews absolute filter: ${absResults.length} → ${absFiltered.length}`);
+        if (absResults.length > 0 && absFiltered.length === 0) {
+          const sample = absResults.slice(0, 10).map(r => `      • ${r.title}`).join('\n');
+          console.log(`   🔢 EasyNews absolute rejected (showing ${Math.min(10, absResults.length)}/${absResults.length}):\n${sample}`);
+        }
+        if (absFiltered.length > 0) {
+          filtered.push(...absFiltered);
           break;
         }
       }
