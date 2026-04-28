@@ -100,7 +100,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [urlDedup, setUrlDedup] = useState(true);
   const [junkFilter, setJunkFilter] = useState(true);
   const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
-  const [displayLibraryInResults, setDisplayLibraryInResults] = useState(false);
+  const [displayLibraryInResults, setDisplayLibraryInResults] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -520,7 +520,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
       setUrlDedup(sc?.urlDedup !== false);
       setJunkFilter(sc?.junkFilter !== false);
-      setDisplayLibraryInResults(sc?.displayLibraryInResults === true);
+      setDisplayLibraryInResults(sc?.displayLibraryInResults !== false);
       setCacheEmptyResults(sc?.cacheEmptyResults !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);

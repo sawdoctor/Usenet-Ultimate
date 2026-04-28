@@ -149,8 +149,10 @@ export const config: Config = {
     const cacheEmptyResultsEnv = envBool('CACHE_EMPTY_RESULTS');
     return {
       ...sc,
+      // Always present in the response (default true). Other 3 fields below
+      // remain conditionally spread because they default to undefined.
+      displayLibraryInResults: displayLibraryEnv ?? sc.displayLibraryInResults ?? true,
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
-      ...(displayLibraryEnv !== undefined && { displayLibraryInResults: displayLibraryEnv }),
       ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
       ...(cacheEmptyResultsEnv !== undefined && { cacheEmptyResults: cacheEmptyResultsEnv }),
     };
