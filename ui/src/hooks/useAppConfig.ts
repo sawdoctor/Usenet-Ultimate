@@ -25,6 +25,7 @@ import {
   DEFAULT_FILTERS,
   DEFAULT_CARD_ORDER,
   DEFAULT_ULTIMATE_FALLBACK,
+  DEFAULT_INDEXER_TIMEOUT_SECONDS,
 } from '../constants';
 import { normalizeLineGroups } from '../utils/streamPreview';
 import { formatTTL, decomposeTTL, composeTTL } from '../utils/ttl';
@@ -43,14 +44,14 @@ const DEFAULT_NEW_INDEXER: NewIndexerForm = {
   name: '', url: '', apiKey: '', website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
   animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
-  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30,
+  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS,
 };
 
 const DEFAULT_EDIT_FORM: EditIndexerForm = {
   name: '', url: '', apiKey: '', enabled: true, website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
   animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
-  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30,
+  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS,
 };
 
 export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
@@ -529,7 +530,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setEasynewsPagination(data.easynewsPagination || false);
       setEasynewsMaxPages(data.easynewsMaxPages || 3);
       setEasynewsTimeoutEnabled(data.easynewsTimeoutEnabled !== false);
-      setEasynewsTimeout(data.easynewsTimeout ?? 30);
+      setEasynewsTimeout(data.easynewsTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS);
       setEasynewsMode(data.easynewsMode || 'nzb');
       setEasynewsHealthCheck(data.easynewsHealthCheck ?? true);
       setZyclopsEndpoint(data.zyclopsEndpoint || 'https://zyclops.elfhosted.com');
@@ -783,13 +784,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setProwlarrUrl(data.prowlarrUrl || 'http://localhost:9696');
       setProwlarrApiKey(data.prowlarrApiKey || '');
       setProwlarrTimeoutEnabled(data.prowlarrTimeoutEnabled !== false);
-      setProwlarrTimeout(data.prowlarrTimeout ?? 30);
+      setProwlarrTimeout(data.prowlarrTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS);
       setNzbhydraUrl(data.nzbhydraUrl || 'http://localhost:5076');
       setNzbhydraApiKey(data.nzbhydraApiKey || '');
       setNzbhydraUsername(data.nzbhydraUsername || '');
       setNzbhydraPassword(data.nzbhydraPassword || '');
       setNzbhydraTimeoutEnabled(data.nzbhydraTimeoutEnabled !== false);
-      setNzbhydraTimeout(data.nzbhydraTimeout ?? 30);
+      setNzbhydraTimeout(data.nzbhydraTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS);
       setNzbdavUrl(data.nzbdavUrl || 'http://localhost:3000');
       setNzbdavApiKey(data.nzbdavApiKey || '');
       setNzbdavWebdavUrl(data.nzbdavWebdavUrl || 'http://localhost:3000');

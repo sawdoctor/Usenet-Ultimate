@@ -74,10 +74,11 @@ export interface ZyclopsIndexerConfig {
   };
 }
 
-// Default timeout for indexer search requests (seconds).
-// Also the default for Zyclops-routed requests — Zyclops runs NNTP health checks
-// through a remote proxy, so 30s leaves headroom while staying below the 45s max.
-export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 30;
+// Default timeout for indexer search requests (seconds). 15s balances
+// responsiveness on fast networks with headroom for slower indexers;
+// users can raise the per-indexer value (max 45s) or the top-level
+// Prowlarr/NZBHydra/EasyNews override.
+export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 15;
 
 // Valid Zyclops backbone identifiers
 export const ZYCLOPS_BACKBONES = [

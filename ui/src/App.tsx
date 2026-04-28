@@ -7,6 +7,7 @@ import { LayoutDashboard, Download, Crown, LogOut } from 'lucide-react';
 import clsx from 'clsx';
 import indexerPresets from './indexerPresets.json';
 import type { Tab, IndexerPreset, Indexer, IndexerCaps } from './types';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from './constants';
 
 // Hooks
 import { useAuth } from './hooks/useAuth';
@@ -242,7 +243,7 @@ function App() {
         pagination: false,
         maxPages: 3,
         timeoutEnabled: true,
-        timeout: 30,
+        timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS,
       });
     }
   };
@@ -273,7 +274,7 @@ function App() {
         body: JSON.stringify(ac.newIndexer),
       });
       if (response.ok) {
-        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: 30 });
+        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS });
         ac.setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setShowAddIndexer(false);
@@ -305,7 +306,7 @@ function App() {
       pagination: indexer.pagination === true,
       maxPages: indexer.maxPages ?? 3,
       timeoutEnabled: indexer.timeoutEnabled !== false,
-      timeout: indexer.timeout ?? 30,
+      timeout: indexer.timeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS,
     });
   };
 

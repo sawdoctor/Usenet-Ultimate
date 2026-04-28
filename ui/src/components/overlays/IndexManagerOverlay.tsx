@@ -27,8 +27,7 @@ import clsx from 'clsx';
 import type { Config, Indexer, SyncedIndexer, IndexerCaps } from '../../types';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import { TimeoutStepper } from '../shared/TimeoutStepper';
-
-const DEFAULT_TIMEOUT_SECONDS = 30;
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
 
 interface IndexManagerOverlayProps {
   onClose: () => void;
@@ -837,7 +836,7 @@ export function IndexManagerOverlay({
                         <div className="pl-6">
                           <TimeoutStepper
                             value={easynewsTimeout}
-                            defaultValue={DEFAULT_TIMEOUT_SECONDS}
+                            defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
                             decProps={easynewsTimeoutDec}
                             incProps={easynewsTimeoutInc}
                             onChange={setEasynewsTimeout}
@@ -973,7 +972,7 @@ export function IndexManagerOverlay({
                       <div className="pl-6">
                         <TimeoutStepper
                           value={prowlarrTimeout}
-                          defaultValue={DEFAULT_TIMEOUT_SECONDS}
+                          defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
                           decProps={prowlarrTimeoutDec}
                           incProps={prowlarrTimeoutInc}
                           onChange={setProwlarrTimeout}
@@ -1316,7 +1315,7 @@ export function IndexManagerOverlay({
                       <div className="pl-6">
                         <TimeoutStepper
                           value={nzbhydraTimeout}
-                          defaultValue={DEFAULT_TIMEOUT_SECONDS}
+                          defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
                           decProps={nzbhydraTimeoutDec}
                           incProps={nzbhydraTimeoutInc}
                           onChange={setNzbhydraTimeout}

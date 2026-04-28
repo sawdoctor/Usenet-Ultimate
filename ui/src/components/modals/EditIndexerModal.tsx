@@ -8,8 +8,7 @@ import type { Config, IndexerCaps, EditIndexerForm } from '../../types';
 import { normalizeNewznabUrl } from '../../utils/normalizeNewznabUrl';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import { TimeoutStepper } from '../shared/TimeoutStepper';
-
-const DEFAULT_TIMEOUT_SECONDS = 30;
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
 
 interface EditIndexerModalProps {
   onClose: () => void;
@@ -175,7 +174,7 @@ export function EditIndexerModal({
               <div className="pl-6">
                 <TimeoutStepper
                   value={editForm.timeout}
-                  defaultValue={DEFAULT_TIMEOUT_SECONDS}
+                  defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
                   decProps={editTimeoutDec}
                   incProps={editTimeoutInc}
                   onChange={(next) => setEditForm(prev => ({ ...prev, timeout: next }))}

@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { UsenetIndexer, UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig, FilterConfig } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -213,13 +214,13 @@ if (active.length > 0) {
 // Timeout summary — logs the effective per-searcher defaults so operators can trace any later timeout event back to a known baseline.
 {
   const prowEnabled = configData.prowlarrTimeoutEnabled ?? true;
-  const prowSec = configData.prowlarrTimeout ?? 30;
+  const prowSec = configData.prowlarrTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
   const hydraEnabled = configData.nzbhydraTimeoutEnabled ?? true;
-  const hydraSec = configData.nzbhydraTimeout ?? 30;
+  const hydraSec = configData.nzbhydraTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
   const enEnabled = configData.easynewsTimeoutEnabled ?? true;
-  const enSec = configData.easynewsTimeout ?? 30;
+  const enSec = configData.easynewsTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
   const fmt = (on: boolean, s: number) => on ? `${s}s` : 'disabled';
-  console.log(`⏱️  Search timeouts — Prowlarr: ${fmt(prowEnabled, prowSec)}, NZBHydra: ${fmt(hydraEnabled, hydraSec)}, EasyNews: ${fmt(enEnabled, enSec)} (Newznab: per-indexer, default 30s, max 45s)`);
+  console.log(`⏱️  Search timeouts — Prowlarr: ${fmt(prowEnabled, prowSec)}, NZBHydra: ${fmt(hydraEnabled, hydraSec)}, EasyNews: ${fmt(enEnabled, enSec)} (Newznab: per-indexer, default ${DEFAULT_INDEXER_TIMEOUT_SECONDS}s, max 45s)`);
   const searchTimeoutRaw = process.env.SEARCH_TIMEOUT;
   if (searchTimeoutRaw && Number.isFinite(parseInt(searchTimeoutRaw, 10))) {
     const clamped = Math.max(1, Math.min(45, parseInt(searchTimeoutRaw, 10)));

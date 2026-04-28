@@ -3,6 +3,9 @@
 
 import type { StreamDisplayConfig, MockStreamData } from '../types';
 
+// Mirrors DEFAULT_INDEXER_TIMEOUT_SECONDS in src/types.ts. Keep in sync.
+export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 15;
+
 export const ZYCLOPS_BACKBONES = [
   'abavia', 'base-ip', 'elbracht', 'eweka-internet-services',
   'giganews', 'its-hosted', 'netnews', 'omicron',
