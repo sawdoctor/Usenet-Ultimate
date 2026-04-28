@@ -196,3 +196,43 @@ export const DEFAULT_ULTIMATE_FALLBACK = {
   speedSeasonPackTimeoutSeconds: 20,
   healthCheckIndexers: {} as Record<string, boolean>,
 };
+
+// Preset profiles for the UF overlay's Presets card. Spread over current state
+// so `enabled` and `healthCheckIndexers` are preserved across preset clicks.
+export const UF_PRESET_LEGACY_NZB_FALLBACK = {
+  healthCheckEnabled: false,
+  whenToResolve: 'on-tile-selection' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 1,
+  preferenceMode: 'priority' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 0,
+  backupProcessingLimit: 3,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
+};
+
+export const UF_PRESET_RECOMMENDED = {
+  healthCheckEnabled: true,
+  whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 3,
+  preferenceMode: 'priority' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 1,
+  backupProcessingLimit: 2,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
+};

@@ -2,12 +2,12 @@
 //   Ultimate Fallback configuration overlay — combines retry-on-failure with Health Checking
 //   for the fastest possible NZB resolution
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Crown, X, Film, Tv, Layers } from 'lucide-react';
 import clsx from 'clsx';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import type { HealthChecksState, UsenetProvider } from '../../types';
-import { DEFAULT_ULTIMATE_FALLBACK } from '../../constants';
+import { DEFAULT_ULTIMATE_FALLBACK, UF_PRESET_LEGACY_NZB_FALLBACK, UF_PRESET_RECOMMENDED } from '../../constants';
 import { ProviderManager } from '../shared/ProviderManager';
 
 interface UltimateFallbackOverlayProps {
@@ -60,6 +60,14 @@ export function UltimateFallbackOverlay({
 }: UltimateFallbackOverlayProps) {
   const update = useCallback(<K extends keyof typeof ultimateFallback>(key: K, value: (typeof ultimateFallback)[K]) => {
     setUltimateFallback(prev => ({ ...prev, [key]: value }));
+  }, [setUltimateFallback]);
+
+  // Ephemeral confirmation toast for the Presets card. Cleared 2.5s after click.
+  const [presetApplied, setPresetApplied] = useState<string | null>(null);
+  const applyPreset = useCallback((name: string, preset: typeof UF_PRESET_RECOMMENDED) => {
+    setUltimateFallback(prev => ({ ...prev, ...preset }));
+    setPresetApplied(name);
+    setTimeout(() => setPresetApplied(null), 500);
   }, [setUltimateFallback]);
 
   const candidateDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => ({ ...prev, candidateCount: Math.max(1, prev.candidateCount - 1) })), [setUltimateFallback]));
@@ -187,6 +195,49 @@ export function UltimateFallbackOverlay({
                 ultimateFallback.enabled ? "left-5" : "left-1"
               )} />
             </button>
+          </div>
+
+          {/* Presets */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 px-3 py-2 space-y-1.5 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
+            <div className="text-xs font-medium text-slate-400">Presets</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-0.5">
+                <button
+                  type="button"
+                  disabled={!ultimateFallback.enabled}
+                  onClick={() => applyPreset('Recommended', UF_PRESET_RECOMMENDED)}
+                  className={clsx(
+                    "w-full px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                    presetApplied === 'Recommended'
+                      ? "bg-amber-500/20 border-amber-500/50 text-amber-300 animate-blink"
+                      : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  Recommended
+                </button>
+                {presetApplied === 'Recommended' && (
+                  <div className="text-[10px] text-amber-400 animate-fade-in text-center">✓ Applied</div>
+                )}
+              </div>
+              <div className="space-y-0.5">
+                <button
+                  type="button"
+                  disabled={!ultimateFallback.enabled}
+                  onClick={() => applyPreset('Legacy NZB Fallback', UF_PRESET_LEGACY_NZB_FALLBACK)}
+                  className={clsx(
+                    "w-full px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                    presetApplied === 'Legacy NZB Fallback'
+                      ? "bg-amber-500/20 border-amber-500/50 text-amber-300 animate-blink"
+                      : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  Legacy NZB Fallback (Default)
+                </button>
+                {presetApplied === 'Legacy NZB Fallback' && (
+                  <div className="text-[10px] text-amber-400 animate-fade-in text-center">✓ Applied</div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Streaming Method */}
