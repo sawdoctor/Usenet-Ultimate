@@ -680,9 +680,10 @@ export function UltimateFallbackOverlay({
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
                 <div className="text-sm font-medium text-slate-300">Health Checking</div>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  Verifies every candidate in parallel before and during nzbdav submission, sampling articles to confirm the NZB is alive and detecting its container format up front. Disable to skip the parallel phase, UF will submit candidates straight to nzbdav and detect each container after extraction.
-                </div>
+                <ul className="text-xs text-slate-500 mt-0.5 list-disc list-inside space-y-1">
+                  <li>Enabling verifies every candidate in parallel before and during NZBDav submission, sampling articles to confirm the NZB is alive and detecting its container format up front. Evicting an NZBDav job if necessary and cleansing the submission pipleline at the same time.</li>
+                  <li>Disable to skip this parallel phase, Ultimate Fallback will submit candidates straight to nzbdav and detect each container after extraction.</li>
+                </ul>
               </div>
               <button
                 aria-label="Enable Health Checking"
