@@ -6,6 +6,12 @@
 //   'drop' (exclude filter — matching candidates are removed). SEL rules are
 //   score-only. The `regexScore` and `seScore` sort methods consume scores.
 //
+//   Each rule list (Regex / SEL) supports drag-and-drop reorder via a dedicated
+//   GripVertical handle (mouse/touch) plus chevron up/down for keyboard. Each
+//   list also has Select All / Deselect All and a Delete Selected (N) button
+//   gated by a confirmation modal — bulk operations live alongside per-row
+//   edits.
+//
 // Architecture note:
 //   The section receives the per-type `rules` block and an updater. All edits
 //   update the parent FiltersState in place; the existing debounced save hook
@@ -15,7 +21,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Trash2, ChevronUp, ChevronDown, Upload, AlertCircle, FlaskConical, X, ChevronLeft } from 'lucide-react';
+import { Plus, Trash2, ChevronUp, ChevronDown, Upload, AlertCircle, FlaskConical, X, ChevronLeft, GripVertical } from 'lucide-react';
 import clsx from 'clsx';
 import type { RulesBlock, RankedRegexRule, RankedSelRule } from '../../../types';
 
@@ -50,20 +56,59 @@ interface RegexRuleRowProps {
   onMoveDown: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onDragStart: () => void;
+  onDragOver: () => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
+  isDragging: boolean;
+  isDragOver: boolean;
   disabled?: boolean;
 }
 
 const RegexRuleRow = memo(function RegexRuleRow({
-  rule, onUpdate, onDelete, onMoveUp, onMoveDown, canMoveUp, canMoveDown, disabled,
+  rule, onUpdate, onDelete, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
+  selected, onToggleSelect, onDragStart, onDragOver, onDrop, onDragEnd,
+  isDragging, isDragOver, disabled,
 }: RegexRuleRowProps) {
   const enabled = rule.enabled !== false;
   const mode = rule.mode ?? 'score';
   return (
-    <div className={clsx(
-      "p-3 rounded-lg border bg-slate-800/40 space-y-2",
-      enabled ? "border-slate-700/50" : "border-slate-700/30 opacity-60"
-    )}>
+    <div
+      onDragOver={(e) => { e.preventDefault(); onDragOver(); }}
+      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+      className={clsx(
+        "p-3 rounded-lg border bg-slate-800/40 space-y-2 transition-all",
+        enabled ? "border-slate-700/50" : "border-slate-700/30 opacity-60",
+        isDragging && "opacity-50",
+        isDragOver && "ring-2 ring-purple-400"
+      )}
+    >
       <div className="flex items-start gap-2">
+        <div
+          draggable={!disabled}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          aria-label="Drag to reorder"
+          tabIndex={-1}
+          className={clsx(
+            "pt-1 text-slate-500 hover:text-slate-300 shrink-0",
+            disabled ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"
+          )}
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+        <div className="pt-1.5 shrink-0">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            disabled={disabled}
+            aria-label={`Select rule ${rule.name || ''}`}
+            className="w-4 h-4 accent-purple-500 cursor-pointer"
+          />
+        </div>
         <div className="flex flex-col gap-0.5 pt-1">
           <button
             type="button"
@@ -113,7 +158,6 @@ const RegexRuleRow = memo(function RegexRuleRow({
                     value={rule.score}
                     onChange={(e) => onUpdate({ score: clamp(parseInt(e.target.value || '0', 10) || 0, -10000, 10000) })}
                     disabled={disabled}
-                    title="Score. Positive boosts. Negative penalizes. Switch mode below to filter results in/out."
                     className="w-full px-2 py-1 text-sm bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
                   />
                 </div>
@@ -125,9 +169,6 @@ const RegexRuleRow = memo(function RegexRuleRow({
                       ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
                       : "bg-red-500/15 border-red-500/40 text-red-300"
                   )}
-                  title={mode === 'keep'
-                    ? "Keep matches: only candidates matching this rule (or any other keep rule) survive."
-                    : "Drop matches: candidates matching this rule are removed from results."}
                 >
                   {mode === 'keep' ? 'Keep' : 'Drop'}
                 </div>
@@ -166,7 +207,6 @@ const RegexRuleRow = memo(function RegexRuleRow({
               onChange={(e) => onUpdate({ mode: e.target.value as 'score' | 'keep' | 'drop' })}
               disabled={disabled}
               className="px-2 py-1 text-xs bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
-              title="Score: add to score on match. Keep matches: include filter (only matching candidates survive). Drop matches: exclude filter (matches are dropped)."
             >
               <option value="score">Score</option>
               <option value="keep">Keep matches</option>
@@ -175,24 +215,24 @@ const RegexRuleRow = memo(function RegexRuleRow({
           </div>
           <div className="flex gap-1.5">
             <div className="flex-1 min-w-0">
-              <label htmlFor={`rx-pat-${rule.id}`} className="sr-only">Regex pattern</label>
+              <label htmlFor={`rx-pat-${rule.id}`} className="block text-[10px] text-slate-500 mb-0.5">Pattern</label>
               <input
                 id={`rx-pat-${rule.id}`}
                 type="text"
                 value={rule.pattern}
-                placeholder="Pattern (regex source, no / / wrapping)"
+                placeholder="regex source, no / / wrapping"
                 onChange={(e) => onUpdate({ pattern: e.target.value })}
                 disabled={disabled}
                 className="w-full px-2 py-1 text-xs font-mono bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
               />
             </div>
             <div className="w-16">
-              <label htmlFor={`rx-flags-${rule.id}`} className="sr-only">Regex flags</label>
+              <label htmlFor={`rx-flags-${rule.id}`} className="block text-[10px] text-slate-500 mb-0.5">Flags</label>
               <input
                 id={`rx-flags-${rule.id}`}
                 type="text"
                 value={rule.flags ?? ''}
-                placeholder="flags"
+                placeholder="i g m"
                 onChange={(e) => onUpdate({ flags: e.target.value })}
                 disabled={disabled}
                 className="w-full px-2 py-1 text-xs font-mono bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
@@ -215,19 +255,58 @@ interface SelRuleRowProps {
   onMoveDown: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onDragStart: () => void;
+  onDragOver: () => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
+  isDragging: boolean;
+  isDragOver: boolean;
   disabled?: boolean;
 }
 
 const SelRuleRow = memo(function SelRuleRow({
-  rule, onUpdate, onDelete, onMoveUp, onMoveDown, canMoveUp, canMoveDown, disabled,
+  rule, onUpdate, onDelete, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
+  selected, onToggleSelect, onDragStart, onDragOver, onDrop, onDragEnd,
+  isDragging, isDragOver, disabled,
 }: SelRuleRowProps) {
   const enabled = rule.enabled !== false;
   return (
-    <div className={clsx(
-      "p-3 rounded-lg border bg-slate-800/40 space-y-2",
-      enabled ? "border-slate-700/50" : "border-slate-700/30 opacity-60"
-    )}>
+    <div
+      onDragOver={(e) => { e.preventDefault(); onDragOver(); }}
+      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+      className={clsx(
+        "p-3 rounded-lg border bg-slate-800/40 space-y-2 transition-all",
+        enabled ? "border-slate-700/50" : "border-slate-700/30 opacity-60",
+        isDragging && "opacity-50",
+        isDragOver && "ring-2 ring-purple-400"
+      )}
+    >
       <div className="flex items-start gap-2">
+        <div
+          draggable={!disabled}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          aria-label="Drag to reorder"
+          tabIndex={-1}
+          className={clsx(
+            "pt-1 text-slate-500 hover:text-slate-300 shrink-0",
+            disabled ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"
+          )}
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+        <div className="pt-1.5 shrink-0">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            disabled={disabled}
+            aria-label={`Select rule ${rule.name || ''}`}
+            className="w-4 h-4 accent-purple-500 cursor-pointer"
+          />
+        </div>
         <div className="flex flex-col gap-0.5 pt-1">
           <button
             type="button"
@@ -276,7 +355,6 @@ const SelRuleRow = memo(function SelRuleRow({
                   value={rule.score}
                   onChange={(e) => onUpdate({ score: clamp(parseInt(e.target.value || '0', 10) || 0, -10000, 10000) })}
                   disabled={disabled}
-                  title="Score. Positive boosts. Negative penalizes."
                   className="w-full px-2 py-1 text-sm bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
                 />
               </div>
@@ -439,7 +517,7 @@ function ImportDialog({ open, onClose, onImport, apiFetch }: ImportDialogProps) 
           <div className="p-4 space-y-3 overflow-y-auto">
             <p className="text-xs text-slate-500">
               Fetch from a URL, or paste ranked-rules JSON below. Flat (<code className="text-slate-400">rankedRegexPatterns</code> at root)
-              and community ranked-rules template shapes are both accepted. Templates with variant options (e.g. English / German) prompt you to pick before following their synced URLs.
+              and community ranked-rules template shapes are both accepted. Templates with variant inputs that gate which rules load, e.g. preferred languages, filtering engine, or release-tier toggles, prompt you to pick before following their synced URLs.
             </p>
             <div className="space-y-1.5">
               <label htmlFor="import-url" className="text-xs text-slate-400">Fetch from URL</label>
@@ -745,29 +823,48 @@ export default function RulesSection({ rules, onChange, apiFetch, disabled }: Ru
   const regex = rules?.rankedRegexPatterns ?? [];
   const sel   = rules?.rankedStreamExpressions ?? [];
 
-  // Default-collapse the body when the rule list is long (imported templates
-  // run 100+). Users who are actively editing small rule sets see the whole
-  // thing expanded by default.
-  const autoCollapse = regex.length + sel.length > 20;
-  const [expanded, setExpanded] = useState(!autoCollapse);
   const [regexExpanded, setRegexExpanded] = useState(regex.length <= 20);
   const [selExpanded, setSelExpanded]     = useState(sel.length   <= 20);
 
-  const update = (next: Partial<RulesBlock>) => {
-    onChange({ ...(rules ?? {}), ...next });
-  };
+  // Per-list selection sets for batch operations. Ephemeral — cleared on
+  // batch delete success and on import (rule ids may have changed).
+  const [selectedRegex, setSelectedRegex] = useState<Set<string>>(() => new Set());
+  const [selectedSel, setSelectedSel]     = useState<Set<string>>(() => new Set());
 
-  const updateRegex = useCallback((arr: RankedRegexRule[]) => update({ rankedRegexPatterns: arr }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rules]);
-  const updateSel = useCallback((arr: RankedSelRule[]) => update({ rankedStreamExpressions: arr }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rules]);
+  // DnD pointer state. `null` = no drag in flight.
+  const [draggedRegexId, setDraggedRegexId] = useState<string | null>(null);
+  const [dragOverRegexId, setDragOverRegexId] = useState<string | null>(null);
+  const [draggedSelId, setDraggedSelId] = useState<string | null>(null);
+  const [dragOverSelId, setDragOverSelId] = useState<string | null>(null);
 
-  const onAddRegex = () => updateRegex([...regex, { id: newId(), name: '', pattern: '', flags: 'i', score: 10, enabled: true, mode: 'score' }]);
-  const onAddSel   = () => updateSel([...sel, { id: newId(), name: '', expression: '', score: 10, enabled: true }]);
+  // Batch-delete confirmation modal target. `null` = closed.
+  const [confirmDelete, setConfirmDelete] = useState<{ kind: 'regex' | 'sel'; count: number } | null>(null);
 
-  const onImport = (imported: RulesBlock, mode: 'merge' | 'replace') => {
+  // Refs for memo-friendly callbacks (handlers keep stable identity across renders).
+  const rulesRef = useRef(rules);
+  rulesRef.current = rules;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const update = useCallback((next: Partial<RulesBlock>) => {
+    onChangeRef.current({ ...(rulesRef.current ?? {}), ...next });
+  }, []);
+
+  const updateRegex = useCallback((arr: RankedRegexRule[]) => update({ rankedRegexPatterns: arr }), [update]);
+  const updateSel   = useCallback((arr: RankedSelRule[]) => update({ rankedStreamExpressions: arr }), [update]);
+
+  const onAddRegex = useCallback(() => {
+    const cur = rulesRef.current?.rankedRegexPatterns ?? [];
+    updateRegex([...cur, { id: newId(), name: '', pattern: '', flags: 'i', score: 10, enabled: true, mode: 'score' }]);
+  }, [updateRegex]);
+  const onAddSel = useCallback(() => {
+    const cur = rulesRef.current?.rankedStreamExpressions ?? [];
+    updateSel([...cur, { id: newId(), name: '', expression: '', score: 10, enabled: true }]);
+  }, [updateSel]);
+
+  const onImport = useCallback((imported: RulesBlock, mode: 'merge' | 'replace') => {
+    const curRegex = rulesRef.current?.rankedRegexPatterns ?? [];
+    const curSel = rulesRef.current?.rankedStreamExpressions ?? [];
     if (mode === 'replace') {
       update({
         rankedRegexPatterns: imported.rankedRegexPatterns ?? [],
@@ -775,39 +872,164 @@ export default function RulesSection({ rules, onChange, apiFetch, disabled }: Ru
       });
     } else {
       update({
-        rankedRegexPatterns: [...regex, ...(imported.rankedRegexPatterns ?? [])],
-        rankedStreamExpressions: [...sel, ...(imported.rankedStreamExpressions ?? [])],
+        rankedRegexPatterns: [...curRegex, ...(imported.rankedRegexPatterns ?? [])],
+        rankedStreamExpressions: [...curSel, ...(imported.rankedStreamExpressions ?? [])],
       });
     }
+    setSelectedRegex(new Set());
+    setSelectedSel(new Set());
     setImportOpen(false);
-  };
+  }, [update]);
+
+  // ── Regex row handlers (stable identity) ──────────────────────────────
+  const regexHandlers = useCallback((idx: number, ruleId: string) => ({
+    onUpdate: (patch: Partial<RankedRegexRule>) => {
+      const cur = rulesRef.current?.rankedRegexPatterns ?? [];
+      const copy = cur.slice();
+      if (copy[idx]) copy[idx] = { ...copy[idx], ...patch };
+      updateRegex(copy);
+    },
+    onDelete: () => {
+      const cur = rulesRef.current?.rankedRegexPatterns ?? [];
+      updateRegex(cur.filter(r => r.id !== ruleId));
+      setSelectedRegex(prev => { if (!prev.has(ruleId)) return prev; const next = new Set(prev); next.delete(ruleId); return next; });
+    },
+    onMoveUp: () => {
+      const cur = rulesRef.current?.rankedRegexPatterns ?? [];
+      const i = cur.findIndex(r => r.id === ruleId);
+      if (i <= 0) return;
+      const copy = cur.slice();
+      [copy[i - 1], copy[i]] = [copy[i], copy[i - 1]];
+      updateRegex(copy);
+    },
+    onMoveDown: () => {
+      const cur = rulesRef.current?.rankedRegexPatterns ?? [];
+      const i = cur.findIndex(r => r.id === ruleId);
+      if (i < 0 || i >= cur.length - 1) return;
+      const copy = cur.slice();
+      [copy[i], copy[i + 1]] = [copy[i + 1], copy[i]];
+      updateRegex(copy);
+    },
+    onToggleSelect: () => {
+      setSelectedRegex(prev => {
+        const next = new Set(prev);
+        if (next.has(ruleId)) next.delete(ruleId); else next.add(ruleId);
+        return next;
+      });
+    },
+    onDragStart: () => setDraggedRegexId(ruleId),
+    onDragOver: () => setDragOverRegexId(ruleId),
+    onDrop: () => {
+      const cur = rulesRef.current?.rankedRegexPatterns ?? [];
+      if (!draggedRegexId || draggedRegexId === ruleId) return;
+      const from = cur.findIndex(r => r.id === draggedRegexId);
+      const to = cur.findIndex(r => r.id === ruleId);
+      if (from < 0 || to < 0) return;
+      const copy = cur.slice();
+      const [moved] = copy.splice(from, 1);
+      copy.splice(to, 0, moved);
+      updateRegex(copy);
+      setDraggedRegexId(null);
+      setDragOverRegexId(null);
+    },
+    onDragEnd: () => { setDraggedRegexId(null); setDragOverRegexId(null); },
+  }), [updateRegex, draggedRegexId]);
+
+  // ── SEL row handlers (stable identity) ────────────────────────────────
+  const selHandlers = useCallback((idx: number, ruleId: string) => ({
+    onUpdate: (patch: Partial<RankedSelRule>) => {
+      const cur = rulesRef.current?.rankedStreamExpressions ?? [];
+      const copy = cur.slice();
+      if (copy[idx]) copy[idx] = { ...copy[idx], ...patch };
+      updateSel(copy);
+    },
+    onDelete: () => {
+      const cur = rulesRef.current?.rankedStreamExpressions ?? [];
+      updateSel(cur.filter(r => r.id !== ruleId));
+      setSelectedSel(prev => { if (!prev.has(ruleId)) return prev; const next = new Set(prev); next.delete(ruleId); return next; });
+    },
+    onMoveUp: () => {
+      const cur = rulesRef.current?.rankedStreamExpressions ?? [];
+      const i = cur.findIndex(r => r.id === ruleId);
+      if (i <= 0) return;
+      const copy = cur.slice();
+      [copy[i - 1], copy[i]] = [copy[i], copy[i - 1]];
+      updateSel(copy);
+    },
+    onMoveDown: () => {
+      const cur = rulesRef.current?.rankedStreamExpressions ?? [];
+      const i = cur.findIndex(r => r.id === ruleId);
+      if (i < 0 || i >= cur.length - 1) return;
+      const copy = cur.slice();
+      [copy[i], copy[i + 1]] = [copy[i + 1], copy[i]];
+      updateSel(copy);
+    },
+    onToggleSelect: () => {
+      setSelectedSel(prev => {
+        const next = new Set(prev);
+        if (next.has(ruleId)) next.delete(ruleId); else next.add(ruleId);
+        return next;
+      });
+    },
+    onDragStart: () => setDraggedSelId(ruleId),
+    onDragOver: () => setDragOverSelId(ruleId),
+    onDrop: () => {
+      const cur = rulesRef.current?.rankedStreamExpressions ?? [];
+      if (!draggedSelId || draggedSelId === ruleId) return;
+      const from = cur.findIndex(r => r.id === draggedSelId);
+      const to = cur.findIndex(r => r.id === ruleId);
+      if (from < 0 || to < 0) return;
+      const copy = cur.slice();
+      const [moved] = copy.splice(from, 1);
+      copy.splice(to, 0, moved);
+      updateSel(copy);
+      setDraggedSelId(null);
+      setDragOverSelId(null);
+    },
+    onDragEnd: () => { setDraggedSelId(null); setDragOverSelId(null); },
+  }), [updateSel, draggedSelId]);
+
+  // ── Bulk operations ───────────────────────────────────────────────────
+  const onSelectAllRegex = useCallback(() => setSelectedRegex(new Set((rulesRef.current?.rankedRegexPatterns ?? []).map(r => r.id))), []);
+  const onDeselectAllRegex = useCallback(() => setSelectedRegex(new Set()), []);
+  const onSelectAllSel = useCallback(() => setSelectedSel(new Set((rulesRef.current?.rankedStreamExpressions ?? []).map(r => r.id))), []);
+  const onDeselectAllSel = useCallback(() => setSelectedSel(new Set()), []);
+
+  const onBatchDeleteRegex = useCallback(() => {
+    const cur = rulesRef.current?.rankedRegexPatterns ?? [];
+    updateRegex(cur.filter(r => !selectedRegex.has(r.id)));
+    setSelectedRegex(new Set());
+    setConfirmDelete(null);
+  }, [updateRegex, selectedRegex]);
+  const onBatchDeleteSel = useCallback(() => {
+    const cur = rulesRef.current?.rankedStreamExpressions ?? [];
+    updateSel(cur.filter(r => !selectedSel.has(r.id)));
+    setSelectedSel(new Set());
+    setConfirmDelete(null);
+  }, [updateSel, selectedSel]);
+
+  // ESC closes the confirmation modal
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setConfirmDelete(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmDelete]);
 
   return (
     <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
       <div className="flex items-start justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setExpanded(v => !v)}
-          aria-expanded={expanded}
-          aria-controls="rules-section-body"
-          className="flex-1 min-w-0 text-left flex items-start gap-2 group"
-        >
-          <ChevronDown className={clsx(
-            "w-4 h-4 text-slate-400 shrink-0 mt-0.5 transition-transform group-hover:text-slate-200",
-            expanded ? "" : "-rotate-90"
-          )} />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-slate-300 flex flex-wrap items-center gap-2">
-              Ranked Rules
-              {(regex.length > 0 || sel.length > 0) && (
-                <span className="text-xs font-normal text-slate-500">({regex.length} regex, {sel.length} SEL)</span>
-              )}
-            </div>
-            <div className="text-xs text-slate-500 mt-0.5">
-              Score releases with regex patterns and Stream Expression Language. <span className="text-slate-400">Score 0</span> excludes, <span className="text-emerald-400">positive</span> boosts, <span className="text-red-400">negative</span> penalizes. Enable the <span className="font-medium text-slate-400">regexScore</span> or <span className="font-medium text-slate-400">seScore</span> sort methods above to use these for ranking.
-            </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-slate-300 flex flex-wrap items-center gap-2">
+            Ranked Rules
+            {(regex.length > 0 || sel.length > 0) && (
+              <span className="text-xs font-normal text-slate-500">({regex.length} regex, {sel.length} SEL)</span>
+            )}
           </div>
-        </button>
+          <div className="text-xs text-slate-500 mt-0.5">
+            Score releases with regex patterns and Stream Expression Language (SEL). <span className="text-emerald-400">Positive</span> boosts, <span className="text-red-400">negative</span> penalizes. Score <span className="text-slate-400">0</span> contributes nothing to ranking, useful for tagging or for SEL templates that compute the math. Set Mode to <span className="text-emerald-400">Keep</span> or <span className="text-red-400">Drop</span> to filter results in/out instead. Enable the <span className="font-medium text-slate-400">regexScore</span> or <span className="font-medium text-slate-400">seScore</span> sort methods below to use these for ranking.
+          </div>
+        </div>
         <button
           type="button"
           onClick={() => setImportOpen(true)}
@@ -819,12 +1041,9 @@ export default function RulesSection({ rules, onChange, apiFetch, disabled }: Ru
         </button>
       </div>
 
-      {expanded && (<div id="rules-section-body" className="space-y-4">
-
-
       {/* Regex rules */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setRegexExpanded(v => !v)}
@@ -838,40 +1057,69 @@ export default function RulesSection({ rules, onChange, apiFetch, disabled }: Ru
             )} />
             Regex Rules <span className="text-slate-500 font-normal">({regex.length})</span>
           </button>
-          <button
-            type="button"
-            onClick={onAddRegex}
-            disabled={disabled}
-            aria-label="Add regex rule"
-            className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onSelectAllRegex}
+              disabled={disabled || regex.length === 0 || selectedRegex.size === regex.length}
+              className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={onDeselectAllRegex}
+              disabled={disabled || selectedRegex.size === 0}
+              className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Deselect All
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete({ kind: 'regex', count: selectedRegex.size })}
+              disabled={disabled || selectedRegex.size === 0}
+              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Delete Selected ({selectedRegex.size})
+            </button>
+            <button
+              type="button"
+              onClick={onAddRegex}
+              disabled={disabled}
+              aria-label="Add regex rule"
+              className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          </div>
         </div>
         {regexExpanded && (<div id="rules-regex-body" className="space-y-2">
           {regex.length === 0 ? (
             <div className="text-xs text-slate-500 italic px-2 py-3">No regex rules yet. Add one above, or import from JSON.</div>
           ) : (
-            regex.map((rule, idx) => (
-              <RegexRuleRow
-                key={rule.id}
-                rule={rule}
-                disabled={disabled}
-                canMoveUp={idx > 0}
-                canMoveDown={idx < regex.length - 1}
-                onUpdate={(patch) => { const copy = regex.slice(); copy[idx] = { ...rule, ...patch }; updateRegex(copy); }}
-                onDelete={() => updateRegex(regex.filter((_, i) => i !== idx))}
-                onMoveUp={() => { const copy = regex.slice(); [copy[idx - 1], copy[idx]] = [copy[idx], copy[idx - 1]]; updateRegex(copy); }}
-                onMoveDown={() => { const copy = regex.slice(); [copy[idx], copy[idx + 1]] = [copy[idx + 1], copy[idx]]; updateRegex(copy); }}
-              />
-            ))
+            regex.map((rule, idx) => {
+              const h = regexHandlers(idx, rule.id);
+              return (
+                <RegexRuleRow
+                  key={rule.id}
+                  rule={rule}
+                  disabled={disabled}
+                  canMoveUp={idx > 0}
+                  canMoveDown={idx < regex.length - 1}
+                  selected={selectedRegex.has(rule.id)}
+                  isDragging={draggedRegexId === rule.id}
+                  isDragOver={dragOverRegexId === rule.id && draggedRegexId !== rule.id}
+                  {...h}
+                />
+              );
+            })
           )}
         </div>)}
       </div>
 
       {/* SEL rules */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setSelExpanded(v => !v)}
@@ -885,43 +1133,76 @@ export default function RulesSection({ rules, onChange, apiFetch, disabled }: Ru
             )} />
             Stream Expression Rules <span className="text-slate-500 font-normal">({sel.length})</span>
           </button>
-          <button
-            type="button"
-            onClick={onAddSel}
-            disabled={disabled}
-            aria-label="Add SEL rule"
-            className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onSelectAllSel}
+              disabled={disabled || sel.length === 0 || selectedSel.size === sel.length}
+              className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={onDeselectAllSel}
+              disabled={disabled || selectedSel.size === 0}
+              className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Deselect All
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete({ kind: 'sel', count: selectedSel.size })}
+              disabled={disabled || selectedSel.size === 0}
+              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Delete Selected ({selectedSel.size})
+            </button>
+            <button
+              type="button"
+              onClick={onAddSel}
+              disabled={disabled}
+              aria-label="Add SEL rule"
+              className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          </div>
         </div>
         {selExpanded && (<div id="rules-sel-body" className="space-y-2">
           {sel.length === 0 ? (
             <div className="text-xs text-slate-500 italic px-2 py-3">No SEL rules yet. Attributes: resolution, codec, releaseGroup, visualTag, audioTag, videoTag, edition, language, size, title, filename, indexer, age, seeders.</div>
           ) : (
-            sel.map((rule, idx) => (
-              <SelRuleRow
-                key={rule.id}
-                rule={rule}
-                disabled={disabled}
-                canMoveUp={idx > 0}
-                canMoveDown={idx < sel.length - 1}
-                onUpdate={(patch) => { const copy = sel.slice(); copy[idx] = { ...rule, ...patch }; updateSel(copy); }}
-                onDelete={() => updateSel(sel.filter((_, i) => i !== idx))}
-                onMoveUp={() => { const copy = sel.slice(); [copy[idx - 1], copy[idx]] = [copy[idx], copy[idx - 1]]; updateSel(copy); }}
-                onMoveDown={() => { const copy = sel.slice(); [copy[idx], copy[idx + 1]] = [copy[idx + 1], copy[idx]]; updateSel(copy); }}
-              />
-            ))
+            sel.map((rule, idx) => {
+              const h = selHandlers(idx, rule.id);
+              return (
+                <SelRuleRow
+                  key={rule.id}
+                  rule={rule}
+                  disabled={disabled}
+                  canMoveUp={idx > 0}
+                  canMoveDown={idx < sel.length - 1}
+                  selected={selectedSel.has(rule.id)}
+                  isDragging={draggedSelId === rule.id}
+                  isDragOver={dragOverSelId === rule.id && draggedSelId !== rule.id}
+                  {...h}
+                />
+              );
+            })
           )}
         </div>)}
       </div>
 
-      </div>)}
-
-      {/* Live test field — outside the collapse so it stays accessible when
-          the rule list is collapsed. You shouldn't have to expand 300+ rules
-          just to poke a test title through the ranker. */}
+      {/* Live test field — stays accessible regardless of section state. */}
       {(regex.length > 0 || sel.length > 0) && <LiveTestField rules={rules} apiFetch={apiFetch} />}
+
+      {confirmDelete && (
+        <ConfirmDeleteModal
+          count={confirmDelete.count}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={confirmDelete.kind === 'regex' ? onBatchDeleteRegex : onBatchDeleteSel}
+        />
+      )}
 
       <ImportDialog
         open={importOpen}
@@ -930,5 +1211,46 @@ export default function RulesSection({ rules, onChange, apiFetch, disabled }: Ru
         apiFetch={apiFetch}
       />
     </div>
+  );
+}
+
+// ─── Inline batch-delete confirmation modal ──────────────────────────
+
+interface ConfirmDeleteModalProps {
+  count: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function ConfirmDeleteModal({ count, onCancel, onConfirm }: ConfirmDeleteModalProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { cancelRef.current?.focus(); }, []);
+  return createPortal(
+    <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-slate-900 border border-slate-700/50 rounded-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-700/30">
+          <h3 className="text-sm font-medium text-slate-200">Delete {count} rule{count === 1 ? '' : 's'}?</h3>
+        </div>
+        <div className="p-4 text-xs text-slate-400">This cannot be undone.</div>
+        <div className="px-4 pb-4 flex justify-end gap-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:text-slate-100 hover:bg-slate-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-xs rounded bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
