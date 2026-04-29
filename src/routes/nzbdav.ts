@@ -291,7 +291,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     '.mpg':  'video/mpeg',
     '.mpeg': 'video/mpeg',
   };
-  const DEFAULT_VIDEO_MIME = 'video/mp4';
+  const DEFAULT_VIDEO_MIME = 'video/x-matroska';
   const GENERIC_UPSTREAM_MIME = new Set(['application/octet-stream', 'application/x-download', 'binary/octet-stream']);
 
   // Throttle the MIME-override log to first-hit-per-videoPath per 60 s —
