@@ -9,8 +9,13 @@
  *   4. nzbdav submission (one active job at a time, direct API calls for cancellation control)
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { config as globalConfig } from '../config/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { getLatestVersions } from '../versionFetcher.js';
 import { performHealthCheck } from '../health/healthCheckPipeline.js';
 import { NntpConnectionPool } from '../health/nntpConnection.js';
@@ -82,9 +87,85 @@ interface DeferredStream {
   backupUrls?: Set<string>;   // NZB URLs of verified backups (for fallback loop prioritization)
   backupStreams?: UfBackupStream[]; // Parallel array with videoPaths — UF tile serves these directly when primary breaks
   lastVettedUrl?: string;      // Last NZB URL pulled into pool (for sequential resume point)
+  resolvedData?: StreamData;   // Set on resolve so disk persistence can read settled state
+  expiresAt?: number;          // Set on resolve; matches the in-memory cleanup timer
 }
 const sessionPromises = new Map<string, DeferredStream>();
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Resolved sessions outlive the addon process via disk persistence so that
+// a player reconnecting to /stream/ultimate-fallback?sk=… after an addon
+// restart still finds its session and gets a 302 to /v?path=…. Mirrors the
+// pattern in streamCache.ts (loadCacheFromDisk / saveCacheToDisk).
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000 + 30_000;
+const UF_SESSIONS_FILE = path.join(__dirname, '..', '..', 'config', 'uf-sessions.json');
+const UF_SESSIONS_SCHEMA_VERSION = 1;
+
+interface SerializedSession {
+  version: number;
+  sessionKey: string;
+  streamData: StreamData;
+  backupStreams: UfBackupStream[];
+  backupUrls: string[];
+  lastVettedUrl?: string;
+  expiresAt: number;
+}
+
+function loadSessionsFromDisk(): void {
+  const now = Date.now();
+  try {
+    const raw = JSON.parse(fs.readFileSync(UF_SESSIONS_FILE, 'utf-8')) as SerializedSession[];
+    for (const entry of raw) {
+      if (entry.version !== UF_SESSIONS_SCHEMA_VERSION) {
+        console.warn(`⚠️  Discarding UF session (schema v${entry.version} != v${UF_SESSIONS_SCHEMA_VERSION})`);
+        continue;
+      }
+      if (entry.expiresAt > now) {
+        const promise = Promise.resolve(entry.streamData);
+        promise.catch(() => {});
+        const deferred: DeferredStream = {
+          promise,
+          resolve: () => {},
+          reject: () => {},
+          backupUrls: new Set(entry.backupUrls ?? []),
+          backupStreams: entry.backupStreams ?? [],
+          lastVettedUrl: entry.lastVettedUrl,
+          resolvedData: entry.streamData,
+          expiresAt: entry.expiresAt,
+        };
+        sessionPromises.set(entry.sessionKey, deferred);
+        const ms = entry.expiresAt - now;
+        cleanupTimers.set(entry.sessionKey, setTimeout(() => {
+          sessionPromises.delete(entry.sessionKey);
+          cleanupTimers.delete(entry.sessionKey);
+          saveSessionsToDisk();
+        }, ms));
+      }
+    }
+    if (sessionPromises.size) console.log(`💾 Loaded ${sessionPromises.size} UF session(s) from disk`);
+  } catch {}
+}
+
+function saveSessionsToDisk(): void {
+  const data: SerializedSession[] = [];
+  const now = Date.now();
+  for (const [key, d] of sessionPromises) {
+    if (d.resolvedData && d.expiresAt && d.expiresAt > now) {
+      data.push({
+        version: UF_SESSIONS_SCHEMA_VERSION,
+        sessionKey: key,
+        streamData: d.resolvedData,
+        backupStreams: d.backupStreams ?? [],
+        backupUrls: [...(d.backupUrls ?? [])],
+        lastVettedUrl: d.lastVettedUrl,
+        expiresAt: d.expiresAt,
+      });
+    }
+  }
+  try { fs.writeFileSync(UF_SESSIONS_FILE, JSON.stringify(data, null, 2)); } catch {}
+}
+
+loadSessionsFromDisk();
 
 /** Get the session promise for a session key (used by stream handler lobby). */
 export function getSessionPromise(sessionKey: string): Promise<StreamData> | null {
@@ -190,11 +271,20 @@ export async function ultimateFallbackFromCandidates(
   activeSessions.set(sessionKey, controller);
 
   // Create deferred promise — lobby awaits this to get the resolved stream
-  let sessionResolve!: (data: StreamData) => void;
+  let sessionResolveRaw!: (data: StreamData) => void;
   let sessionReject!: (err: Error) => void;
-  const sessionPromise = new Promise<StreamData>((res, rej) => { sessionResolve = res; sessionReject = rej; });
+  const sessionPromise = new Promise<StreamData>((res, rej) => { sessionResolveRaw = res; sessionReject = rej; });
   sessionPromise.catch(() => {});
-  const deferred: DeferredStream = { promise: sessionPromise, resolve: sessionResolve, reject: sessionReject, backupUrls: new Set(), backupStreams: [] };
+  const deferred: DeferredStream = { promise: sessionPromise, resolve: sessionResolveRaw, reject: sessionReject, backupUrls: new Set(), backupStreams: [] };
+  // Wrap resolve to stamp the persistable fields and write to disk so the
+  // session survives an addon restart.
+  const sessionResolve = (data: StreamData) => {
+    deferred.resolvedData = data;
+    deferred.expiresAt = Date.now() + SESSION_TTL_MS;
+    sessionResolveRaw(data);
+    saveSessionsToDisk();
+  };
+  deferred.resolve = sessionResolve;
   sessionPromises.set(sessionKey, deferred);
 
   const tag = `👑 Ultimate-Fallback [${sessionKey}]`;
@@ -880,11 +970,15 @@ export async function ultimateFallbackFromCandidates(
   } finally {
     pool?.destroyAll();
     activeSessions.delete(sessionKey);
-    // Keep session promise available for 2h30s so auto-play / binge watching can find it after episodes finish
+    // Persist end-of-pipeline state — captures final backup arrays + lastVettedUrl
+    // so a UF tile click after addon restart can serve from the vetted backups.
+    saveSessionsToDisk();
+    // Keep session promise available for SESSION_TTL_MS so auto-play / binge watching can find it after episodes finish
     const timer = setTimeout(() => {
       sessionPromises.delete(sessionKey);
       cleanupTimers.delete(sessionKey);
-    }, 2 * 60 * 60 * 1000 + 30_000);
+      saveSessionsToDisk();
+    }, SESSION_TTL_MS);
     cleanupTimers.set(sessionKey, timer);
   }
 }
