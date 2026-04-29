@@ -24,7 +24,7 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
@@ -43,6 +43,7 @@ export function clearSearchCache(): void {
   cache.flushAll();
   clearFallbackGroups();
   clearTimeoutEntries();
+  clearResolvedSessions();
 }
 
 // Define addon manifest - tells Stremio what we support

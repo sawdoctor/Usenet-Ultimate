@@ -192,6 +192,28 @@ export function hasAnySessions(): boolean {
   return activeSessions.size > 0;
 }
 
+/** Drop all resolved (non-in-flight) sessions. Wired into clearSearchCache so
+ *  "start fresh" honors user intent — cached resolutions disappear with the
+ *  underlying searches. In-flight sessions are skipped so someone currently
+ *  mid-playback finishes their resolution. */
+export function clearResolvedSessions(): void {
+  let cleared = 0;
+  for (const sessionKey of [...sessionPromises.keys()]) {
+    if (activeSessions.has(sessionKey)) continue;
+    const timer = cleanupTimers.get(sessionKey);
+    if (timer) {
+      clearTimeout(timer);
+      cleanupTimers.delete(sessionKey);
+    }
+    sessionPromises.delete(sessionKey);
+    cleared++;
+  }
+  if (cleared > 0) {
+    console.log(`🧹 Cleared ${cleared} resolved UF session(s)`);
+    saveSessionsToDisk();
+  }
+}
+
 /** Cancel all running Ultimate-Fallback sessions (called on settings change). */
 export function cancelAllUltimateFallbacks(): void {
   const activeCount = activeSessions.size;
