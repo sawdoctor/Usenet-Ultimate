@@ -30,6 +30,8 @@ import { formatBytes } from '../parsers/metadataParsers.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
+type LibraryHit = { candidate: FallbackCandidate; index: number; data: StreamData };
+
 interface CandidateState {
   candidate: FallbackCandidate;
   poolIndex: number;
@@ -48,6 +50,7 @@ interface CandidateState {
   replaced?: boolean;          // Replacement already pulled for this dead candidate
   nzbdavDeadWritten?: boolean; // setDeadNzbEntry already wrote a specific nzbdav-failure entry — don't shadow it with a generic URL-only one at end-of-pipeline
   grabFailed?: boolean;        // Grab never produced an NZB (indexer/network/VPN transient) — don't persist to dead NZB DB
+  libraryHitDeferred?: LibraryHit; // Priority mode: library hit waiting for an earlier in-flight candidate to terminate
 }
 
 interface UltimateFallbackOptions {
@@ -351,7 +354,6 @@ export async function ultimateFallbackFromCandidates(
     let backupLimitReached = false;
     let postPrimaryGrabs = 0;
 
-    type LibraryHit = { candidate: FallbackCandidate; index: number; data: StreamData };
     const hits: LibraryHit[] = libraryResults
       .filter((r): r is LibraryHit => r.data !== null)
       .sort((a, b) => a.index - b.index);
@@ -359,12 +361,20 @@ export async function ultimateFallbackFromCandidates(
 
     // Promote a library-matched pool member to primary (if no primary yet) or backup.
     // Caller decides whether to start a grab — promoted candidates never need one.
-    const promoteLibraryCandidate = (cs: CandidateState): 'primary' | 'backup' | 'duplicate' | 'mismatch' | 'already-promoted' | null => {
+    const promoteLibraryCandidate = (cs: CandidateState): 'primary' | 'backup' | 'duplicate' | 'mismatch' | 'already-promoted' | 'deferred' | null => {
       const hit = hits.find(h => h.candidate.nzbUrl === cs.candidate.nzbUrl);
       if (!hit) return null;
       if (libraryResolvedUrls.has(cs.candidate.nzbUrl)) return 'already-promoted';
       const hitExt = path.extname(hit.data.videoPath).slice(1).toUpperCase();
       if (!primaryResolved) {
+        // Priority mode: don't let a library hit leapfrog earlier candidates whose
+        // grabs/jobs are still in flight. Park it; pullReplacement re-checks on
+        // every blocker-clear event and promotes once the path is clear.
+        if (options.preferenceMode === 'priority' && hasEarlierInFlight(cs.poolIndex)) {
+          cs.libraryHitDeferred = hit;
+          console.log(`${tag}   ⚠️ Library hit deferred (priority mode) — ${hit.candidate.title.substring(0, 60)} [${hit.candidate.indexerName}]`);
+          return 'deferred';
+        }
         const libElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
         console.log(`${tag} 📚 Library hit — ${hit.candidate.title} [${hit.candidate.indexerName}]`);
         const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
@@ -439,6 +449,14 @@ export async function ultimateFallbackFromCandidates(
       activePool.push(cs);
       return cs;
     };
+
+    // Priority mode: a library hit at poolIndex N must wait for any earlier
+    // candidate still actively grabbing or running an nzbdav job to finish first.
+    const hasEarlierInFlight = (poolIndex: number): boolean =>
+      activePool.some(c =>
+        c.poolIndex < poolIndex &&
+        (c.grabStatus === 'grabbing' || c.nzbdavStatus === 'submitted')
+      );
 
     for (let i = 0; i < poolSize && nextCandidateIdx < allCandidates.length; i++) {
       const c = allCandidates[nextCandidateIdx];
@@ -554,6 +572,20 @@ export async function ultimateFallbackFromCandidates(
     };
 
     const pullReplacement = (): CandidateState | null => {
+      // Priority mode: a candidate may have been parked with a deferred library
+      // hit while an earlier candidate was in flight. Re-evaluate now — the
+      // caller fired this from a blocker-clearing transition.
+      if (!primaryResolved && options.preferenceMode === 'priority') {
+        const parked = activePool
+          .filter(c => c.libraryHitDeferred)
+          .sort((a, b) => a.poolIndex - b.poolIndex);
+        for (const cs of parked) {
+          cs.libraryHitDeferred = undefined;
+          const result = promoteLibraryCandidate(cs);
+          if (result === 'primary') return null;
+          // 'deferred' means still blocked — promoteLibraryCandidate re-set the field.
+        }
+      }
       if (backupLimitReached) return null;
       // Also check live counts. The flag flips top-of-loop but pullReplacement
       // is called inline from the completion handlers — without this, a fresh
