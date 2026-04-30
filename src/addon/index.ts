@@ -25,7 +25,7 @@ const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
-import { resolveTitle } from './titleResolver.js';
+import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
@@ -34,6 +34,7 @@ import { isDeadNzbByUrl, isDeadNzb, getDeadCacheKey } from '../nzbdav/streamCach
 import { requestContext } from '../requestContext.js';
 import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
 import { isDatabaseLoaded } from '../anime/animeDatabase.js';
+import { resolveEpisodeCountFromTvdbId } from '../idResolver.js';
 
 // Create cache for search results
 // Use stdTTL: 0 (no expiry) and manage TTL per-entry via cache.set() so runtime changes take effect
@@ -276,7 +277,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`\n🔍 Searching for ${type} ${imdbId}${season !== undefined ? ` S${season}E${episode}` : ''} [${config.indexManager}]`);
 
     // === STEP 1: TITLE RESOLUTION ===
-    let titleInfo;
+    let titleInfo: ResolvedTitleInfo;
     if (animeResolved && !animeResolved.imdbId && animeResolved.title) {
       titleInfo = {
         title: animeResolved.title,
@@ -286,12 +287,34 @@ builder.defineStreamHandler(async ({ type, id }) => {
         genres: ['Animation'],
         isAnime: true,
         episodesInSeason: undefined,
+        priorSeasonsEpisodeCount: undefined,
+        absoluteEpisodeNumber: undefined,
+        tvdbPriorSeasonsCount: undefined,
         additionalTitles: undefined,
         runtime: undefined,
         episodeName: undefined,
         hasRemake: undefined,
         titleYear: undefined,
       };
+      // Synthetic path has no imdbId, so resolveTitle's eager TVDB call doesn't
+      // fire. When animeResolved gives us a TVDB ID directly, fetch the same
+      // series data so anime via Kitsu/MAL/AniList/AniDB without IMDB mappings
+      // gets full feature parity (absolute-fallback chain, bitrate display,
+      // season-pack episode-size estimation). Cinemeta cumulative tier is
+      // structurally unavailable on this path (no imdbId to query).
+      if (animeResolved.tvdbId && season !== undefined) {
+        const tvdbIdNum = parseInt(animeResolved.tvdbId, 10);
+        if (Number.isFinite(tvdbIdNum) && tvdbIdNum > 0) {
+          const tvdbResult = await resolveEpisodeCountFromTvdbId(tvdbIdNum, season, episode);
+          if (tvdbResult) {
+            titleInfo.episodesInSeason = tvdbResult.count;
+            if (tvdbResult.runtime) titleInfo.runtime = tvdbResult.runtime;
+            if (tvdbResult.episodeName) titleInfo.episodeName = tvdbResult.episodeName;
+            if (tvdbResult.absoluteNumber) titleInfo.absoluteEpisodeNumber = tvdbResult.absoluteNumber;
+            if (tvdbResult.priorSeasonsCount !== undefined) titleInfo.tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
+          }
+        }
+      }
     } else {
       titleInfo = await resolveTitle(type, imdbId, season, episode);
       if (animeId) {
