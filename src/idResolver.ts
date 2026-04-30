@@ -453,81 +453,205 @@ async function resolveTvmazeId(
   return null;
 }
 
+// ── Per-series TVDB episode cache ────────────────────────────────────
+// One paginated all-episodes fetch per imdbId populates seasonCounts (used for
+// cumulative-episode math) and per-(season,episode) data (runtime, name,
+// canonical absoluteNumber). One fetch covers any season query against the
+// cached series.
+interface TvdbSeriesEpisodeData {
+  seasonCounts: Record<number, number>;  // excludes S0 specials
+  episodes: Record<number, Record<number, { runtime?: number; name?: string; absoluteNumber?: number }>>;
+}
+
+// In-flight fetch deduplication: concurrent callers for the same imdbId
+// share a single TVDB call. try/finally guarantees cleanup on every path
+// (success, throw, cap hit) so future callers don't await a rejected promise.
+const inFlightSeriesFetches = new Map<string, Promise<TvdbSeriesEpisodeData | undefined>>();
+
+const TVDB_PAGINATION_CAP = 50;          // ~25K episodes worst case
+const TVDB_PER_PAGE_TIMEOUT_MS = 5000;
+
 /**
- * Resolve the number of episodes in a season via TVDB.
- * Uses the TVDB series ID (resolved from IMDB ID) to query season episodes.
- * Returns the episode count, or undefined if unavailable.
+ * Fetch an entire series' episode list from TVDB and shape it into seasonCounts
+ * + per-(season,episode) data. Paginated via links.next. On 401 mid-pagination,
+ * refreshes the token and retries the failed page once. Any other error aborts
+ * the entire fetch and returns undefined (caller falls through to Cinemeta).
+ */
+async function fetchTvdbSeriesEpisodes(imdbId: string): Promise<TvdbSeriesEpisodeData | undefined> {
+  const tvdbResult = await findOnTvdb(imdbId, 'series');
+  if (!tvdbResult) return undefined;
+
+  let token = await getTvdbToken();
+  if (!token) return undefined;
+
+  const seasonCounts: Record<number, number> = {};
+  const episodes: Record<number, Record<number, { runtime?: number; name?: string; absoluteNumber?: number }>> = {};
+  let pageCount = 0;
+
+  // Page numbers are 0-indexed in TVDB v4. We follow links.next when present
+  // and fall back to incrementing `page` directly (the next URL has the same
+  // path, just page=N+1).
+  const baseUrl = `https://api4.thetvdb.com/v4/series/${tvdbResult.id}/episodes/default`;
+  let nextUrl: string | null = `${baseUrl}?page=0`;
+
+  while (nextUrl) {
+    if (pageCount >= TVDB_PAGINATION_CAP) {
+      console.warn(`⚠️  TVDB episode pagination cap reached for ${imdbId} (${TVDB_PAGINATION_CAP} pages), falling through to Cinemeta`);
+      return undefined;
+    }
+
+    let response: any;
+    try {
+      response = await axios.get(nextUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: TVDB_PER_PAGE_TIMEOUT_MS,
+      });
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        // Token expired mid-pagination. Refresh and retry this page once.
+        console.log('🔗 TVDB token expired mid-pagination, refreshing');
+        idCache.del('tvdb:token');
+        const fresh = await getTvdbToken();
+        if (!fresh) return undefined;
+        token = fresh;
+        try {
+          response = await axios.get(nextUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: TVDB_PER_PAGE_TIMEOUT_MS,
+          });
+        } catch (retryError) {
+          console.warn(`⚠️  TVDB episode fetch retry failed for ${imdbId}:`, (retryError as Error).message);
+          return undefined;
+        }
+      } else {
+        console.warn(`⚠️  TVDB episode fetch failed for ${imdbId} on page ${pageCount}:`, error.message);
+        return undefined;
+      }
+    }
+
+    const data = response.data?.data;
+    if (!data || !Array.isArray(data.episodes)) {
+      // Malformed page — abort rather than return partial data.
+      return undefined;
+    }
+
+    for (const ep of data.episodes) {
+      if (typeof ep.seasonNumber !== 'number' || ep.seasonNumber < 0) continue;
+      if (typeof ep.number !== 'number' || ep.number <= 0) continue;
+      // Per-episode entry is built for every aired season (including S0 specials)
+      // so callers can still look up specials by name. seasonCounts excludes S0
+      // because absolute numbering only counts aired episodes.
+      const epEntry: { runtime?: number; name?: string; absoluteNumber?: number } = {};
+      if (typeof ep.runtime === 'number' && ep.runtime > 0) epEntry.runtime = ep.runtime;
+      if (typeof ep.name === 'string' && ep.name.length > 0) epEntry.name = ep.name;
+      if (typeof ep.absoluteNumber === 'number' && ep.absoluteNumber > 0) epEntry.absoluteNumber = ep.absoluteNumber;
+      if (!episodes[ep.seasonNumber]) episodes[ep.seasonNumber] = {};
+      episodes[ep.seasonNumber][ep.number] = epEntry;
+      if (ep.seasonNumber > 0) {
+        seasonCounts[ep.seasonNumber] = (seasonCounts[ep.seasonNumber] ?? 0) + 1;
+      }
+    }
+
+    pageCount++;
+    const linksNext = response.data?.links?.next;
+    nextUrl = typeof linksNext === 'string' && linksNext.length > 0 ? linksNext : null;
+  }
+
+  if (pageCount === 0 || Object.keys(seasonCounts).length === 0) {
+    return undefined;
+  }
+
+  return { seasonCounts, episodes };
+}
+
+/**
+ * Resolve series-level TVDB episode data via a single all-episodes fetch.
+ * Cached per imdbId for 24h. Returns:
+ *   - count: episodes in the requested season
+ *   - runtime: requested episode's runtime in seconds, else season average
+ *   - episodeName: requested episode's title (used by remake/version detection)
+ *   - absoluteNumber: canonical absolute episode number when TVDB has it set
+ *   - priorSeasonsCount: cumulative episodes across seasons before the requested one
+ *
+ * One fetch populates the cache for all season queries against the same series,
+ * so multi-season searches make one TVDB call instead of N.
  */
 export async function resolveEpisodeCountFromTvdb(
   imdbId: string,
   season: number,
   episode?: number
-): Promise<{ count: number; runtime?: number; episodeName?: string } | undefined> {
+): Promise<{ count: number; runtime?: number; episodeName?: string; absoluteNumber?: number; priorSeasonsCount?: number } | undefined> {
   const apiKey = config.searchConfig?.tvdbApiKey;
   if (!apiKey) return undefined;
 
-  // Cache key for episode data (per-season, includes episode names map)
-  const cacheKey = `epdata:${imdbId}:${season}`;
-  const cached = idCache.get<{ count: number; runtime?: number; episodeNames?: Record<number, string> }>(cacheKey);
-  if (cached !== undefined) {
-    const episodeName = episode !== undefined ? cached.episodeNames?.[episode] : undefined;
-    return { count: cached.count, runtime: cached.runtime, episodeName };
-  }
+  const normalizedImdbId = imdbId.startsWith('tt') ? imdbId : `tt${imdbId}`;
+  const cacheKey = `tvdb:series:${normalizedImdbId}`;
 
-  try {
-    // Get the TVDB series ID (may already be cached from earlier lookups)
-    const tvdbResult = await findOnTvdb(imdbId, 'series');
-    if (!tvdbResult) return undefined;
+  const buildResult = (data: TvdbSeriesEpisodeData) => {
+    const count = data.seasonCounts[season] ?? 0;
+    if (count === 0) return undefined;
 
-    const token = await getTvdbToken();
-    if (!token) return undefined;
-
-    // Query episodes for the specific season
-    const response = await axios.get(
-      `https://api4.thetvdb.com/v4/series/${tvdbResult.id}/episodes/default`,
-      {
-        params: { season, page: 0 },
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 5000,
-      }
-    );
-
-    const episodes = response.data?.data?.episodes;
-    if (Array.isArray(episodes) && episodes.length > 0) {
-      // TVDB may paginate — count episodes matching the requested season
-      const seasonEps = episodes.filter((ep: any) => ep.seasonNumber === season);
-      const count = seasonEps.length;
-      if (count > 0) {
-        // Extract runtime: prefer specific episode, fall back to average across season
-        let runtime: number | undefined;
-        if (episode !== undefined) {
-          const targetEp = seasonEps.find((ep: any) => ep.number === episode);
-          if (targetEp?.runtime && targetEp.runtime > 0) runtime = targetEp.runtime * 60;
-        }
-        if (!runtime) {
-          const runtimes = seasonEps.map((ep: any) => ep.runtime).filter((r: any) => typeof r === 'number' && r > 0);
-          if (runtimes.length > 0) {
-            const avg = runtimes.reduce((a: number, b: number) => a + b, 0) / runtimes.length;
-            runtime = Math.round(avg) * 60;
-          }
-        }
-        // Build episode names map for remake/version detection
-        const episodeNames: Record<number, string> = {};
-        for (const ep of seasonEps) {
-          if (ep.number != null && ep.name) {
-            episodeNames[ep.number] = ep.name;
-          }
-        }
-        const cacheResult = { count, runtime, episodeNames };
-        idCache.set(cacheKey, cacheResult);
-        const episodeName = episode !== undefined ? episodeNames[episode] : undefined;
-        console.log(`🔗 TVDB episode count: ${imdbId} S${season.toString().padStart(2, '0')} → ${count} episodes${runtime ? ` (${Math.round(runtime / 60)}min)` : ''}${episodeName ? ` [${episodeName}]` : ''}`);
-        return { count, runtime, episodeName };
+    const seasonEps = data.episodes[season] ?? {};
+    let runtime: number | undefined;
+    let episodeName: string | undefined;
+    let absoluteNumber: number | undefined;
+    if (episode !== undefined) {
+      const targetEp = seasonEps[episode];
+      if (targetEp?.runtime) runtime = targetEp.runtime * 60;
+      if (targetEp?.name) episodeName = targetEp.name;
+      if (targetEp?.absoluteNumber) absoluteNumber = targetEp.absoluteNumber;
+    }
+    if (!runtime) {
+      const runtimes = Object.values(seasonEps).map(e => e.runtime).filter((r): r is number => typeof r === 'number' && r > 0);
+      if (runtimes.length > 0) {
+        runtime = Math.round(runtimes.reduce((a, b) => a + b, 0) / runtimes.length) * 60;
       }
     }
-  } catch (error) {
-    console.warn(`⚠️  TVDB episode count lookup failed for ${imdbId} S${season}:`, (error as Error).message);
+    let priorSeasonsCount = 0;
+    for (const [s, c] of Object.entries(data.seasonCounts)) {
+      const sn = Number(s);
+      if (sn > 0 && sn < season) priorSeasonsCount += c;
+    }
+    return { count, runtime, episodeName, absoluteNumber, priorSeasonsCount };
+  };
+
+  const cached = idCache.get<TvdbSeriesEpisodeData>(cacheKey);
+  if (cached !== undefined) {
+    return buildResult(cached);
   }
 
-  return undefined;
+  // Dedupe concurrent fetches for the same series. The Promise is shared so
+  // only one TVDB call fires per imdbId across overlapping callers.
+  let inflight = inFlightSeriesFetches.get(normalizedImdbId);
+  if (!inflight) {
+    inflight = (async () => {
+      try {
+        const data = await fetchTvdbSeriesEpisodes(imdbId);
+        if (data) idCache.set(cacheKey, data);
+        return data;
+      } finally {
+        inFlightSeriesFetches.delete(normalizedImdbId);
+      }
+    })();
+    inFlightSeriesFetches.set(normalizedImdbId, inflight);
+  }
+
+  let data: TvdbSeriesEpisodeData | undefined;
+  try {
+    data = await inflight;
+  } catch (error) {
+    console.warn(`⚠️  TVDB episode count lookup failed for ${imdbId} S${season}:`, (error as Error).message);
+    return undefined;
+  }
+  if (!data) return undefined;
+
+  const result = buildResult(data);
+  if (!result) return undefined;
+
+  const seasonStr = season.toString().padStart(2, '0');
+  const runtimeStr = result.runtime ? ` (${Math.round(result.runtime / 60)}min)` : '';
+  const nameStr = result.episodeName ? ` [${result.episodeName}]` : '';
+  const absStr = result.absoluteNumber ? ` [abs E${result.absoluteNumber}]` : '';
+  console.log(`🔗 TVDB episode count: ${imdbId} S${seasonStr} → ${result.count} episodes${runtimeStr}${nameStr}${absStr}`);
+  return result;
 }

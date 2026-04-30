@@ -33,6 +33,10 @@ export interface SearchContext {
   episodesInSeason?: number;
   /** Cumulative episode count across prior seasons. Feeds the absolute-numbering fallback. */
   priorSeasonsEpisodeCount?: number;
+  /** Canonical absolute episode number from TVDB (when set). Tier-1 source for the absolute-numbering fallback. */
+  absoluteEpisodeNumber?: number;
+  /** Cumulative episode count across prior aired seasons from TVDB. Tier-2 source when canonical isn't set. */
+  tvdbPriorSeasonsCount?: number;
   additionalTitles?: string[];
   isAnime: boolean;
   titleYear?: string;
@@ -44,7 +48,7 @@ export interface SearchContext {
  * Search via the configured index manager (Prowlarr, NZBHydra, or Newznab).
  */
 export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
-  const { type, imdbId, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, additionalTitles, isAnime, titleYear, animeResolvedIds } = ctx;
+  const { type, imdbId, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, isAnime, titleYear, animeResolvedIds } = ctx;
 
   if (config.indexManager === 'prowlarr' && config.prowlarrUrl && config.prowlarrApiKey) {
     // === PROWLARR MODE ===
@@ -412,10 +416,22 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     ) {
       const retryIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
       if (retryIndexers.length > 0) {
-        if (priorSeasonsEpisodeCount === undefined) {
+        // Three-tier source chain: TVDB canonical → TVDB cumulative → Cinemeta cumulative → per-season E{episode}.
+        // Tiers 1 and 2 come from the same eager TVDB call during title resolve, so picking between them is free.
+        let absoluteEp: number;
+        if (typeof absoluteEpisodeNumber === 'number') {
+          absoluteEp = absoluteEpisodeNumber;
+          console.log(`🔢 Absolute episode (TVDB canonical): "${title}" S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} → E${absoluteEp}`);
+        } else if (typeof tvdbPriorSeasonsCount === 'number') {
+          absoluteEp = tvdbPriorSeasonsCount + episode;
+          console.log(`🔢 Absolute episode (TVDB cumulative): "${title}" S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} → E${absoluteEp} (TVDB prior: ${tvdbPriorSeasonsCount} + ${episode})`);
+        } else if (priorSeasonsEpisodeCount !== undefined) {
+          absoluteEp = priorSeasonsEpisodeCount + episode;
+          console.log(`🔢 Absolute episode (Cinemeta cumulative): "${title}" S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} → E${absoluteEp} (Cinemeta prior: ${priorSeasonsEpisodeCount} + ${episode})`);
+        } else {
           console.warn(`⚠️  Absolute episode fallback: priorSeasonsEpisodeCount unavailable (Cinemeta gap), using per-season E${episode}`);
+          absoluteEp = episode;
         }
-        const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
         // When parallel mode is on, fan the absolute pass over primary + alts
         // upfront — the standard alt-title retry below is gated off in that
         // mode, so this is the only place alts get an E{absolute} probe.
@@ -502,7 +518,19 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           && episode !== undefined
           && config.searchConfig?.absoluteEpisodeFallback !== false
         ) {
-          const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
+          // Same three-tier source chain as the primary-title block above. The
+          // values are imdbId-scoped on titleResolve so alt-title iterations
+          // share the same number — no extra TVDB call here.
+          let absoluteEp: number;
+          if (typeof absoluteEpisodeNumber === 'number') {
+            absoluteEp = absoluteEpisodeNumber;
+          } else if (typeof tvdbPriorSeasonsCount === 'number') {
+            absoluteEp = tvdbPriorSeasonsCount + episode;
+          } else if (priorSeasonsEpisodeCount !== undefined) {
+            absoluteEp = priorSeasonsEpisodeCount + episode;
+          } else {
+            absoluteEp = episode;
+          }
           const absoluteAltIndexers = altIndexers.filter(i => !timedOutIndexers.has(i.name));
           if (absoluteAltIndexers.length > 0) {
             console.log(`🔢 Absolute episode fallback (alt title "${altTitle}"): retrying ${absoluteAltIndexers.length} indexer(s) with E${absoluteEp}`);
@@ -551,7 +579,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     return [];
   }
 
-  const { type, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, additionalTitles, titleYear } = ctx;
+  const { type, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, titleYear } = ctx;
   const easynewsStartTime = Date.now();
   const easynewsTimeoutEnabled = config.searchTimeoutOverride !== undefined ? true : config.easynewsTimeoutEnabled;
   const easynewsTimeoutSeconds = config.searchTimeoutOverride ?? config.easynewsTimeout;
@@ -567,7 +595,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     if (type === 'movie') {
       results = await searcher.searchMovie(title, year, country, additionalTitles, titleYear);
     } else if (type === 'series' && season !== undefined && episode !== undefined) {
-      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount);
+      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
     } else {
       results = [];
     }

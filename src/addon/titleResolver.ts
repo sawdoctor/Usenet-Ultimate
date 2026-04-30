@@ -27,6 +27,10 @@ export interface ResolvedTitleInfo {
   episodesInSeason?: number;
   /** Cumulative episode count across seasons before the requested one (excludes specials/season 0). Used by the absolute-numbering fallback. */
   priorSeasonsEpisodeCount?: number;
+  /** Canonical absolute episode number from TVDB (when set for this episode). Tier-1 source for the absolute-numbering fallback. */
+  absoluteEpisodeNumber?: number;
+  /** Cumulative episode count across prior aired seasons from TVDB (excludes S0 specials). Tier-2 source when canonical isn't set. */
+  tvdbPriorSeasonsCount?: number;
   /** Additional title variants for text search (e.g. Cinemeta title when different from resolved) */
   additionalTitles?: string[];
   /** Whether this content is detected as anime (Animation + Japan) */
@@ -106,6 +110,8 @@ export async function resolveTitle(
   let episodesInSeason = resolved.episodesInSeason;
   let runtime = resolved.runtime;
   let episodeName: string | undefined;
+  let absoluteEpisodeNumber: number | undefined;
+  let tvdbPriorSeasonsCount: number | undefined;
   if (type === 'series' && season !== undefined) {
     const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
     if (tvdbResult) {
@@ -115,6 +121,8 @@ export async function resolveTitle(
       episodesInSeason = tvdbResult.count;
       if (tvdbResult.runtime) runtime = tvdbResult.runtime;
       if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
+      if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
+      if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
     }
   }
   console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
@@ -213,6 +221,8 @@ export async function resolveTitle(
     genres,
     episodesInSeason,
     priorSeasonsEpisodeCount: resolved.priorSeasonsEpisodeCount,
+    absoluteEpisodeNumber,
+    tvdbPriorSeasonsCount,
     additionalTitles,
     isAnime,
     runtime,

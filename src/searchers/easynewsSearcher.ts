@@ -136,6 +136,8 @@ export class EasynewsSearcher {
     additionalTitles?: string[],
     titleYear?: string,
     priorSeasonsEpisodeCount?: number,
+    absoluteEpisodeNumber?: number,
+    tvdbPriorSeasonsCount?: number,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
@@ -200,10 +202,18 @@ export class EasynewsSearcher {
       // Absolute-episode fallback in parallel mode: run all titles concurrently
       // (vs the sequential break-on-first-hit used by the non-parallel path).
       if (filtered.length === 0 && !this.timedOut && config.searchConfig?.absoluteEpisodeFallback !== false) {
-        if (priorSeasonsEpisodeCount === undefined) {
-          console.warn(`⚠️  EasyNews absolute fallback: priorSeasonsEpisodeCount unavailable, using per-season E${episode}`);
+        // Three-tier chain: TVDB canonical → TVDB cumulative → Cinemeta cumulative → per-season.
+        let absoluteEp: number;
+        if (typeof absoluteEpisodeNumber === 'number') {
+          absoluteEp = absoluteEpisodeNumber;
+        } else if (typeof tvdbPriorSeasonsCount === 'number') {
+          absoluteEp = tvdbPriorSeasonsCount + episode;
+        } else if (priorSeasonsEpisodeCount !== undefined) {
+          absoluteEp = priorSeasonsEpisodeCount + episode;
+        } else {
+          console.warn(`⚠️  EasyNews absolute fallback: no prior-season count available, using per-season E${episode}`);
+          absoluteEp = episode;
         }
-        const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
         const stripAbsEp = (str: string) => str.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ');
         console.log(`🔢 EasyNews absolute fallback (parallel): querying ${titles.length} title(s) with E${absoluteEp}`);
         const absPerTitle = await Promise.all(titles.map(async (t) => {
@@ -324,9 +334,17 @@ export class EasynewsSearcher {
     // returned 0, retry primary then each alt title with E{absolute} for
     // indexers that file releases under continuous numbering. Toggle-gated.
     if (filtered.length === 0 && !this.timedOut && config.searchConfig?.absoluteEpisodeFallback !== false) {
-      const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
-      if (priorSeasonsEpisodeCount === undefined) {
-        console.warn(`⚠️  EasyNews absolute fallback: priorSeasonsEpisodeCount unavailable, using per-season E${episode}`);
+      // Three-tier chain: TVDB canonical → TVDB cumulative → Cinemeta cumulative → per-season.
+      let absoluteEp: number;
+      if (typeof absoluteEpisodeNumber === 'number') {
+        absoluteEp = absoluteEpisodeNumber;
+      } else if (typeof tvdbPriorSeasonsCount === 'number') {
+        absoluteEp = tvdbPriorSeasonsCount + episode;
+      } else if (priorSeasonsEpisodeCount !== undefined) {
+        absoluteEp = priorSeasonsEpisodeCount + episode;
+      } else {
+        console.warn(`⚠️  EasyNews absolute fallback: no prior-season count available, using per-season E${episode}`);
+        absoluteEp = episode;
       }
       const candidates = [title, ...(additionalTitles ?? [])];
       for (const candTitle of candidates) {
