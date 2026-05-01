@@ -72,6 +72,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [testResults, setTestResults] = useState<Record<string, { loading: boolean; success?: boolean; message?: string; results?: number; titles?: string[] }>>({});
   const [testQuery, setTestQuery] = useState<Record<string, string>>({});
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
+  const [directModeWarning, setDirectModeWarning] = useState<{ show: boolean }>({ show: false });
   const [activeOverlay, setActiveOverlay] = useState<OverlayType>(null);
   const [failedLogos, setFailedLogos] = useState<Set<string>>(new Set());
   const [showApiKey, setShowApiKey] = useState<{ new: boolean; edit: boolean }>({ new: false, edit: false });
@@ -1195,6 +1196,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     testResults, setTestResults,
     testQuery, setTestQuery,
     deleteConfirmation, setDeleteConfirmation,
+    directModeWarning, setDirectModeWarning,
     activeOverlay, setActiveOverlay,
     failedLogos, setFailedLogos,
     showApiKey, setShowApiKey,

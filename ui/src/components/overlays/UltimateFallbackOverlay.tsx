@@ -37,6 +37,7 @@ interface UltimateFallbackOverlayProps {
   setHealthChecks: React.Dispatch<React.SetStateAction<HealthChecksState>>;
   nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
   setNzbdavStreamingMethod: React.Dispatch<React.SetStateAction<'pipe' | 'proxy' | 'direct'>>;
+  setDirectModeWarning: React.Dispatch<React.SetStateAction<{ show: boolean }>>;
   nzbdavStreamBufferMB: number;
   setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavPipeBufferMB: number;
@@ -52,6 +53,7 @@ export function UltimateFallbackOverlay({
   setHealthChecks,
   nzbdavStreamingMethod,
   setNzbdavStreamingMethod,
+  setDirectModeWarning,
   nzbdavStreamBufferMB,
   setNzbdavStreamBufferMB,
   nzbdavPipeBufferMB,
@@ -249,7 +251,13 @@ export function UltimateFallbackOverlay({
                   key={method}
                   role="radio"
                   aria-checked={nzbdavStreamingMethod === method}
-                  onClick={() => setNzbdavStreamingMethod(method)}
+                  onClick={() => {
+                    if (method === 'direct' && nzbdavStreamingMethod !== 'direct') {
+                      setDirectModeWarning({ show: true });
+                      return;
+                    }
+                    setNzbdavStreamingMethod(method);
+                  }}
                   className={clsx(
                     "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
                     nzbdavStreamingMethod === method
@@ -266,7 +274,7 @@ export function UltimateFallbackOverlay({
                 ? 'Streams through a local pipe with buffering and automatic reconnection. Lowest memory overhead, no request modifications.'
                 : nzbdavStreamingMethod === 'proxy'
                 ? 'Dual-stage buffered proxy with manual flow control and automatic reconnection. Recommended default for most setups.'
-                : 'Player is redirected directly to the WebDAV URL. Only supported on select Stremio applications.'}
+                : 'Player is redirected directly to the WebDAV URL with credentials embedded. Only supported on select Stremio applications.'}
             </p>
           </div>
 

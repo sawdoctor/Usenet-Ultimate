@@ -37,6 +37,7 @@ import { LogsOverlay } from './components/overlays/LogsOverlay';
 
 // Modals
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
+import { DirectModeWarningModal } from './components/modals/DirectModeWarningModal';
 import { AddIndexerModal } from './components/modals/AddIndexerModal';
 import { EditIndexerModal } from './components/modals/EditIndexerModal';
 
@@ -87,6 +88,7 @@ function App() {
   // extra history entries that broke multi-level back navigation).
   const pwaStateRef = useRef({
     deleteConfirmation: ac.deleteConfirmation,
+    directModeWarning: ac.directModeWarning,
     zyclopsConfirmDialog: ac.zyclopsConfirmDialog,
     singleIpConfirmDialog: ac.singleIpConfirmDialog,
     showAddIndexer: ac.showAddIndexer,
@@ -97,6 +99,7 @@ function App() {
   });
   pwaStateRef.current = {
     deleteConfirmation: ac.deleteConfirmation,
+    directModeWarning: ac.directModeWarning,
     zyclopsConfirmDialog: ac.zyclopsConfirmDialog,
     singleIpConfirmDialog: ac.singleIpConfirmDialog,
     showAddIndexer: ac.showAddIndexer,
@@ -115,7 +118,9 @@ function App() {
 
     const handlePopState = () => {
       const s = pwaStateRef.current;
-      if (s.deleteConfirmation.show) {
+      if (s.directModeWarning.show) {
+        ac.setDirectModeWarning({ show: false });
+      } else if (s.deleteConfirmation.show) {
         ac.setDeleteConfirmation({ show: false, indexerName: '' });
       } else if (s.zyclopsConfirmDialog.show) {
         ac.setZyclopsConfirmDialog({ show: false, indexerName: '' });
@@ -493,6 +498,18 @@ function App() {
         />
       )}
 
+      {/* Direct Mode Warning Modal */}
+      {ac.directModeWarning.show && (
+        <DirectModeWarningModal
+          directModeWarning={ac.directModeWarning}
+          setDirectModeWarning={ac.setDirectModeWarning}
+          handleEnableDirectMode={() => {
+            ac.setNzbdavStreamingMethod('direct');
+            ac.setDirectModeWarning({ show: false });
+          }}
+        />
+      )}
+
       {/* Add Indexer Modal */}
       {ac.showAddIndexer && (
         <AddIndexerModal
@@ -814,13 +831,17 @@ function App() {
       {/* Ultimate-Fallback Overlay */}
       {ac.activeOverlay === 'ultimateFallback' && (
         <UltimateFallbackOverlay
-          onClose={() => ac.setActiveOverlay(null)}
+          onClose={() => {
+            ac.setDirectModeWarning({ show: false });
+            ac.setActiveOverlay(null);
+          }}
           ultimateFallback={ac.ultimateFallback}
           setUltimateFallback={ac.setUltimateFallback}
           healthChecks={ac.healthChecks}
           setHealthChecks={ac.setHealthChecks}
           nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
           setNzbdavStreamingMethod={ac.setNzbdavStreamingMethod}
+          setDirectModeWarning={ac.setDirectModeWarning}
           nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
           setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
           nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
