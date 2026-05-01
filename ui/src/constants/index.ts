@@ -202,7 +202,7 @@ export const DEFAULT_ULTIMATE_FALLBACK = {
 
 // Preset profiles for the UF overlay's Presets card. Spread over current state
 // so `enabled` and `healthCheckIndexers` are preserved across preset clicks.
-export const UF_PRESET_LEGACY_NZB_FALLBACK = {
+export const UF_PRESET_CLASSIC = {
   healthCheckEnabled: false,
   whenToResolve: 'on-tile-selection' as 'on-results' | 'on-tile-selection',
   userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
@@ -221,7 +221,7 @@ export const UF_PRESET_LEGACY_NZB_FALLBACK = {
   speedSeasonPackTimeoutSeconds: 20,
 };
 
-export const UF_PRESET_RECOMMENDED = {
+export const UF_PRESET_ENHANCED = {
   healthCheckEnabled: true,
   whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
   userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
