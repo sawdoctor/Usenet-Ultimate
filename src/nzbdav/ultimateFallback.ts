@@ -742,6 +742,9 @@ export async function ultimateFallbackFromCandidates(
         if (cs === activeNzbdavCs && cs.nzbdavStatus === 'submitted') {
           console.log(`${tag} 🗑️ Health check failed for active nzbdav candidate #${cs.poolIndex + 1} — cancelling job`);
           cs.cancelled = true;
+          // Flip status synchronously so hasEarlierInFlight in the same tick (via pullReplacement
+          // below) doesn't see this candidate as still in-flight and re-defer parked library hits.
+          cs.nzbdavStatus = 'failed';
           if (cs.nzoId) cancelJob(cs.nzoId, nzbdavConfig, 'health check failed').catch(() => {});
           nzbdavPromise?.catch(() => {});
           activeNzbdavCs = null;
