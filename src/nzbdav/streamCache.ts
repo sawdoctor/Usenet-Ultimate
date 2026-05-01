@@ -37,6 +37,40 @@ function normalizeProwlarrUrl(url: string): string {
 /** Pending preparations — in-flight promises that resolve into readyCache or deadNzbCache */
 const pendingCache = new Map<string, CacheEntry>();
 
+// ============================================================================
+// Broken Video Path Tracking
+// ============================================================================
+// Video paths whose WebDAV byte fetch returned 4xx/5xx during streaming.
+// Prevents the library check from re-serving a path whose content has been
+// evicted but whose directory entry still exists (NZBDav's PROPFIND can lie
+// after content eviction). 60s TTL covers a single user retry session;
+// fresh-submission probe success calls clearVideoPathBroken so legitimately
+// re-grabbed paths aren't blocked by TTL.
+
+const BROKEN_VIDEO_PATH_TTL_MS = 60_000;
+const brokenVideoPaths = new Map<string, number>(); // videoPath → expiresAt
+
+/** Mark a video path as broken (WebDAV 4xx/5xx during streaming or probe). */
+export function markVideoPathBroken(videoPath: string): void {
+  brokenVideoPaths.set(videoPath, Date.now() + BROKEN_VIDEO_PATH_TTL_MS);
+}
+
+/** Check if a video path is currently marked as broken. Auto-evicts expired entries on read. */
+export function isVideoPathBroken(videoPath: string): boolean {
+  const expiresAt = brokenVideoPaths.get(videoPath);
+  if (expiresAt === undefined) return false;
+  if (Date.now() >= expiresAt) {
+    brokenVideoPaths.delete(videoPath);
+    return false;
+  }
+  return true;
+}
+
+/** Drop the broken marker for a path — called after a fresh-submission probe succeeds. */
+export function clearVideoPathBroken(videoPath: string): void {
+  brokenVideoPaths.delete(videoPath);
+}
+
 /** Dynamic TTL helpers — when mode is 'storage', entries never expire by time */
 export function getReadyTTLMs(): number {
   if (globalConfig.healthyNzbDbMode === 'storage') return Infinity;
@@ -226,6 +260,9 @@ export function cleanupExpiredCache(): void {
   }
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt < now) { deadNzbCache.delete(key); removed = true; }
+  }
+  for (const [path, expiresAt] of brokenVideoPaths) {
+    if (now >= expiresAt) brokenVideoPaths.delete(path);
   }
   if (removed) saveCacheToDisk();
 }

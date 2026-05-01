@@ -80,6 +80,7 @@ export interface UfBackupStream {
   videoPath: string;
   title: string;
   indexerName: string;
+  candidateIndex?: number; // 1-based position from the original ranking — surfaces in midstream-fallback log
 }
 
 // Session promises — lobby awaits these to get the resolved stream
@@ -441,7 +442,7 @@ export async function ultimateFallbackFromCandidates(
       libraryResolvedUrls.add(cs.candidate.nzbUrl);
       resolvedTitles.add(hit.candidate.title);
       deferred.backupUrls!.add(cs.candidate.nzbUrl);
-      deferred.backupStreams!.push({ nzbUrl: cs.candidate.nzbUrl, videoPath: hit.data.videoPath, title: cs.candidate.title, indexerName: cs.candidate.indexerName });
+      deferred.backupStreams!.push({ nzbUrl: cs.candidate.nzbUrl, videoPath: hit.data.videoPath, title: cs.candidate.title, indexerName: cs.candidate.indexerName, candidateIndex: cs.poolIndex + 1 });
       const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
       setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);
       cs.nzbdavStatus = 'skipped';
@@ -795,7 +796,7 @@ export async function ultimateFallbackFromCandidates(
             videoPathOwner.set(videoPath, activeNzbdavCs.poolIndex);
             resolvedTitles.add(activeNzbdavCs.candidate.title);
             deferred.backupUrls!.add(activeNzbdavCs.candidate.nzbUrl);
-            deferred.backupStreams!.push({ nzbUrl: activeNzbdavCs.candidate.nzbUrl, videoPath, title: activeNzbdavCs.candidate.title, indexerName: activeNzbdavCs.candidate.indexerName });
+            deferred.backupStreams!.push({ nzbUrl: activeNzbdavCs.candidate.nzbUrl, videoPath, title: activeNzbdavCs.candidate.title, indexerName: activeNzbdavCs.candidate.indexerName, candidateIndex: activeNzbdavCs.poolIndex + 1 });
             backupCount++;
             if (!activeNzbdavCs.containerType) activeNzbdavCs.containerType = resolvedExt || undefined;
             activeNzbdavCs.videoSize = resolvedStreamData.videoSize;
@@ -898,7 +899,7 @@ export async function ultimateFallbackFromCandidates(
         libraryResolvedUrls.add(hit.candidate.nzbUrl);
         resolvedTitles.add(hit.candidate.title);
         deferred.backupUrls!.add(hit.candidate.nzbUrl);
-        deferred.backupStreams!.push({ nzbUrl: hit.candidate.nzbUrl, videoPath: hit.data.videoPath, title: hit.candidate.title, indexerName: hit.candidate.indexerName });
+        deferred.backupStreams!.push({ nzbUrl: hit.candidate.nzbUrl, videoPath: hit.data.videoPath, title: hit.candidate.title, indexerName: hit.candidate.indexerName, candidateIndex: hit.index + 1 });
         deferred.lastVettedUrl = hit.candidate.nzbUrl;
         const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
         setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);

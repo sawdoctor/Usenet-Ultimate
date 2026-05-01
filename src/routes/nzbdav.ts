@@ -17,7 +17,7 @@ import { PassThrough } from 'stream';
 import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
 import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
-import { evictReadyByVideoPath } from '../nzbdav/streamCache.js';
+import { evictReadyByVideoPath, markVideoPathBroken } from '../nzbdav/streamCache.js';
 
 interface NzbdavDeps {
   config: Config;
@@ -746,7 +746,11 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
           if (newUpstream.statusCode === 404 || newUpstream.statusCode === 410) {
             const evicted = evictReadyByVideoPath(videoPath);
             if (evicted) console.warn(`  🗑️ Evicted stale stream (reconnect ${newUpstream.statusCode}): ${evicted}`);
+            markVideoPathBroken(videoPath);
             if (evicted) console.log(`  🔄 Player retry will use fallback candidate`);
+          } else if (newUpstream.statusCode >= 500) {
+            // 5xx: mark broken so library check skips this path on retry
+            markVideoPathBroken(videoPath);
           }
           console.warn(`  \u26A0\uFE0F Reconnect returned ${newUpstream.statusCode}. Ending stream.`);
           newUpstream.destroy();
@@ -815,15 +819,18 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       await proxyVideoStream(req, res, videoPath);
     } catch (err) {
       if (!res.headersSent) {
-        // Evict ready cache so fallback advances to the next candidate. The
-        // library check at /stream is now the single source of truth — it'll
-        // see the file is missing on the next request, no marker needed.
+        // Evict ready cache so fallback advances to the next candidate, and
+        // mark the videoPath broken so library/lobby checks skip it on retry
+        // (NZBDav's PROPFIND can lie after content eviction — the marker
+        // bridges that gap with a short TTL; see streamCache.ts).
         if (err instanceof WebDav404Error) {
           const evicted = evictReadyByVideoPath(videoPath);
           if (evicted) console.warn(`🗑️ Evicted stale stream (upstream ${err.statusCode}): ${evicted}`);
+          markVideoPathBroken(videoPath);
         } else {
           const evicted = evictReadyByVideoPath(videoPath, false);
           if (evicted) console.warn(`🗑️ Evicted stream for retry (upstream error): ${evicted}`);
+          markVideoPathBroken(videoPath);
         }
 
         // Redirect to fallback for ANY upstream error when _fb available.
