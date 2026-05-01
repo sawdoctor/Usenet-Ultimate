@@ -83,9 +83,11 @@ function App() {
   }, [auth.authStatus]);
 
   // ── PWA back button handling — prevent back from exiting the app ───────
-  // Use a ref so the popstate handler always reads the latest state without
-  // needing to tear down / re-register (which caused stale-closure bugs and
-  // extra history entries that broke multi-level back navigation).
+  // Each opened layer pushes its own history sentinel at open-time (via
+  // useAppConfig's wrapped setters). Popstate cascade-closes one layer per
+  // back press without pushing in-handler — pushes happen on the open
+  // transition so they aren't subject to the in-handler pushState race that
+  // affected mobile WebViews under rapid back presses.
   const pwaStateRef = useRef({
     deleteConfirmation: ac.deleteConfirmation,
     directModeWarning: ac.directModeWarning,
@@ -137,7 +139,6 @@ function App() {
       } else if (s.activeTab !== 'dashboard') {
         ac.setActiveTab('dashboard');
       }
-      window.history.pushState({ pwa: true }, '');
     };
 
     window.addEventListener('popstate', handlePopState);

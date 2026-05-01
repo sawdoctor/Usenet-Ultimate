@@ -40,6 +40,38 @@ import type { ApiFetch } from '../types';
 
 const DEFAULT_CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+// Push a history sentinel on each closed→open transition of a PWA layer.
+// The popstate handler in App.tsx consumes one sentinel per back press,
+// cascade-closing one layer at a time. No-op outside standalone PWA mode.
+function pushPwaSentinel(): void {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || (navigator as any).standalone === true;
+  if (isStandalone) window.history.pushState({ pwa: true }, '');
+}
+
+// Wrap a useState setter so it fires pushPwaSentinel() exactly when the next
+// value transitions from "closed" to "open" per the supplied predicate.
+// Stable identity; consumers don't churn re-renders.
+function useSentinelSetter<T>(
+  state: T,
+  rawSet: React.Dispatch<React.SetStateAction<T>>,
+  isOpen: (v: T) => boolean,
+): React.Dispatch<React.SetStateAction<T>> {
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+  return useCallback((value) => {
+    const next = typeof value === 'function'
+      ? (value as (prev: T) => T)(stateRef.current)
+      : value;
+    if (isOpenRef.current(next) && !isOpenRef.current(stateRef.current)) {
+      pushPwaSentinel();
+    }
+    rawSet(next);
+  }, [rawSet]);
+}
+
 const DEFAULT_NEW_INDEXER: NewIndexerForm = {
   name: '', url: '', apiKey: '', website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
@@ -1173,6 +1205,23 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   }, [rankedIndexers]);
 
   // ═══════════════════════════════════════════════════════════════════
+  // PWA back-button sentinel-pushing setters
+  // ═══════════════════════════════════════════════════════════════════
+  // Each opened layer pushes one history sentinel at open-time so popstate
+  // can cascade-close one layer per back press without an in-handler push
+  // (which raced on mobile WebViews under rapid back presses).
+
+  const setActiveOverlayWithSentinel = useSentinelSetter(activeOverlay, setActiveOverlay, v => v !== null);
+  const setShowAddIndexerWithSentinel = useSentinelSetter(showAddIndexer, setShowAddIndexer, v => v === true);
+  const setExpandedIndexerWithSentinel = useSentinelSetter(expandedIndexer, setExpandedIndexer, v => v !== null);
+  const setSelectedSyncedIndexerWithSentinel = useSentinelSetter(selectedSyncedIndexer, setSelectedSyncedIndexer, v => v !== null);
+  const setDeleteConfirmationWithSentinel = useSentinelSetter(deleteConfirmation, setDeleteConfirmation, v => v.show);
+  const setZyclopsConfirmDialogWithSentinel = useSentinelSetter(zyclopsConfirmDialog, setZyclopsConfirmDialog, v => v.show);
+  const setSingleIpConfirmDialogWithSentinel = useSentinelSetter(singleIpConfirmDialog, setSingleIpConfirmDialog, v => v.show);
+  const setDirectModeWarningWithSentinel = useSentinelSetter(directModeWarning, setDirectModeWarning, v => v.show);
+  const setActiveTabWithSentinel = useSentinelSetter(activeTab, setActiveTab, v => v !== 'dashboard');
+
+  // ═══════════════════════════════════════════════════════════════════
   // Return everything the UI needs
   // ═══════════════════════════════════════════════════════════════════
 
@@ -1181,23 +1230,23 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     config, setConfig,
     loading, setLoading,
     addonEnabled, setAddonEnabled,
-    activeTab, setActiveTab,
+    activeTab, setActiveTab: setActiveTabWithSentinel,
 
     // Indexer management
-    showAddIndexer, setShowAddIndexer,
+    showAddIndexer, setShowAddIndexer: setShowAddIndexerWithSentinel,
     newIndexer, setNewIndexer,
     selectedPreset, setSelectedPreset,
     editForm, setEditForm,
     capsLoading, setCapsLoading,
-    expandedIndexer, setExpandedIndexer,
+    expandedIndexer, setExpandedIndexer: setExpandedIndexerWithSentinel,
     draggedIndexer, setDraggedIndexer,
     dragOverIndexer, setDragOverIndexer,
     pendingSave, setPendingSave,
     testResults, setTestResults,
     testQuery, setTestQuery,
-    deleteConfirmation, setDeleteConfirmation,
-    directModeWarning, setDirectModeWarning,
-    activeOverlay, setActiveOverlay,
+    deleteConfirmation, setDeleteConfirmation: setDeleteConfirmationWithSentinel,
+    directModeWarning, setDirectModeWarning: setDirectModeWarningWithSentinel,
+    activeOverlay, setActiveOverlay: setActiveOverlayWithSentinel,
     failedLogos, setFailedLogos,
     showApiKey, setShowApiKey,
 
@@ -1293,8 +1342,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     zyclopsEndpoint, setZyclopsEndpoint,
     zyclopsTestStatus, setZyclopsTestStatus,
     zyclopsTestMessage, setZyclopsTestMessage,
-    zyclopsConfirmDialog, setZyclopsConfirmDialog,
-    singleIpConfirmDialog, setSingleIpConfirmDialog,
+    zyclopsConfirmDialog, setZyclopsConfirmDialog: setZyclopsConfirmDialogWithSentinel,
+    singleIpConfirmDialog, setSingleIpConfirmDialog: setSingleIpConfirmDialogWithSentinel,
     zyclopsInflightToggle, setZyclopsInflightToggle,
 
     // User agents
@@ -1321,7 +1370,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     syncedIndexers, setSyncedIndexers,
     syncStatus, setSyncStatus,
     syncMessage, setSyncMessage,
-    selectedSyncedIndexer, setSelectedSyncedIndexer,
+    selectedSyncedIndexer, setSelectedSyncedIndexer: setSelectedSyncedIndexerWithSentinel,
 
     // Auto play
     autoPlay, setAutoPlay,
