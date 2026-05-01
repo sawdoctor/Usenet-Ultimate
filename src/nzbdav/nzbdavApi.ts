@@ -312,7 +312,6 @@ export async function waitForJobCompletion(
           if (status === 'failed') {
             const failMessage = job.fail_message || job.failMessage || 'Unknown error';
             console.log(`${logPrefix}  \u274C Job failed: ${failMessage}`);
-            cancelJob(nzoId, config, 'job failed').catch(() => {});
             throw nzbdavError(`NZBDav download failed: ${failMessage}`);
           }
         }
@@ -361,6 +360,5 @@ export async function waitForJobCompletion(
     await new Promise(r => setTimeout(r, pollIntervalMs));
   }
 
-  cancelJob(nzoId, config, 'budget exceeded').catch(() => {});
   throw nzbdavError(`Timeout waiting for NZBDav job after ${timeoutMs / 1000}s`, true);
 }
