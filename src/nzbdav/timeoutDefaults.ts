@@ -27,3 +27,8 @@ export function selectTimeoutMs(
     : set.movies;
   return seconds * 1000;
 }
+
+/** Format a timeout-seconds value for log/UI display. 0 renders as ∞. */
+export function formatTimeoutSeconds(seconds: number): string {
+  return seconds === 0 ? '∞' : `${seconds}s`;
+}

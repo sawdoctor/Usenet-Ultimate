@@ -323,7 +323,7 @@ export interface UltimateFallbackConfig {
   maxAttempts: number;                 // Cap on total primary search attempts before giving up (0 = unlimited, 1-20 = cap, default 0). Library hits don't count.
   desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count, default 0)
   backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all, 1-20 = limit, default 3)
-  // Per-mode nzbdav job-completion wait times (1-90s). Active set picked by preferenceMode at runtime.
+  // Per-mode nzbdav job-completion wait times (0-90s, 0 = wait forever). Active set picked by preferenceMode at runtime.
   priorityMoviesTimeoutSeconds: number;
   priorityTvTimeoutSeconds: number;
   prioritySeasonPackTimeoutSeconds: number;

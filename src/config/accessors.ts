@@ -429,12 +429,12 @@ export const config: Config = {
     const maxAttempts = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_MAX_ATTEMPTS') ?? ur?.maxAttempts ?? 0));
     const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_FALLBACK_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 0));
     const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 3));
-    const priorityMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.movies));
-    const priorityTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_TV_TIMEOUT') ?? ur?.priorityTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.tv));
-    const prioritySeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_SEASON_PACK_TIMEOUT') ?? ur?.prioritySeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.seasonPack));
-    const speedMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_MOVIES_TIMEOUT') ?? ur?.speedMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.movies));
-    const speedTvTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_TV_TIMEOUT') ?? ur?.speedTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.tv));
-    const speedSeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.seasonPack));
+    const priorityMoviesTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.movies));
+    const priorityTvTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_TV_TIMEOUT') ?? ur?.priorityTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.tv));
+    const prioritySeasonPackTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_SEASON_PACK_TIMEOUT') ?? ur?.prioritySeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.seasonPack));
+    const speedMoviesTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_MOVIES_TIMEOUT') ?? ur?.speedMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.movies));
+    const speedTvTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_TV_TIMEOUT') ?? ur?.speedTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.tv));
+    const speedSeasonPackTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.seasonPack));
     return {
       enabled,
       healthCheckEnabled,

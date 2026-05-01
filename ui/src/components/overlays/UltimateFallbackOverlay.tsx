@@ -94,7 +94,7 @@ export function UltimateFallbackOverlay({
   // is always the one being mutated — no stale closure across mode toggles.
   const moviesDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds';
-    return { ...prev, [key]: Math.max(1, prev[key] - 1) };
+    return { ...prev, [key]: Math.max(0, prev[key] - 1) };
   }), [setUltimateFallback]));
   const moviesInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds';
@@ -102,7 +102,7 @@ export function UltimateFallbackOverlay({
   }), [setUltimateFallback]));
   const tvDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds';
-    return { ...prev, [key]: Math.max(1, prev[key] - 1) };
+    return { ...prev, [key]: Math.max(0, prev[key] - 1) };
   }), [setUltimateFallback]));
   const tvInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds';
@@ -110,7 +110,7 @@ export function UltimateFallbackOverlay({
   }), [setUltimateFallback]));
   const seasonPackDec = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds';
-    return { ...prev, [key]: Math.max(1, prev[key] - 1) };
+    return { ...prev, [key]: Math.max(0, prev[key] - 1) };
   }), [setUltimateFallback]));
   const seasonPackInc = useHoldRepeat(useCallback(() => setUltimateFallback(prev => {
     const key = prev.preferenceMode === 'priority' ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds';
@@ -130,9 +130,9 @@ export function UltimateFallbackOverlay({
   const moviesValue = isPriority ? ultimateFallback.priorityMoviesTimeoutSeconds : ultimateFallback.speedMoviesTimeoutSeconds;
   const tvValue = isPriority ? ultimateFallback.priorityTvTimeoutSeconds : ultimateFallback.speedTvTimeoutSeconds;
   const seasonPackValue = isPriority ? ultimateFallback.prioritySeasonPackTimeoutSeconds : ultimateFallback.speedSeasonPackTimeoutSeconds;
-  const setMoviesValue = (v: number) => update(isPriority ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds', Math.min(90, Math.max(1, v)));
-  const setTvValue = (v: number) => update(isPriority ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds', Math.min(90, Math.max(1, v)));
-  const setSeasonPackValue = (v: number) => update(isPriority ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds', Math.min(90, Math.max(1, v)));
+  const setMoviesValue = (v: number) => update(isPriority ? 'priorityMoviesTimeoutSeconds' : 'speedMoviesTimeoutSeconds', Math.min(90, Math.max(0, v)));
+  const setTvValue = (v: number) => update(isPriority ? 'priorityTvTimeoutSeconds' : 'speedTvTimeoutSeconds', Math.min(90, Math.max(0, v)));
+  const setSeasonPackValue = (v: number) => update(isPriority ? 'prioritySeasonPackTimeoutSeconds' : 'speedSeasonPackTimeoutSeconds', Math.min(90, Math.max(0, v)));
   const resetActiveModeWaitTimes = () => {
     if (isPriority) {
       setUltimateFallback(prev => ({ ...prev, priorityMoviesTimeoutSeconds: 30, priorityTvTimeoutSeconds: 15, prioritySeasonPackTimeoutSeconds: 30 }));
@@ -448,7 +448,12 @@ export function UltimateFallbackOverlay({
                       className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                     >−</button>
                     <div className="flex flex-col items-center">
-                      {moviesValue >= 60 ? (
+                      {moviesValue === 0 ? (
+                        <>
+                          <div aria-label="Infinite (no timeout)" className="w-14 text-center text-2xl font-bold text-amber-400/90 leading-none">∞</div>
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">infinite</span>
+                        </>
+                      ) : moviesValue >= 60 ? (
                         <>
                           <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
                             {Math.floor(moviesValue / 60)}
@@ -461,7 +466,7 @@ export function UltimateFallbackOverlay({
                         <>
                           <input
                             type="number"
-                            min={1}
+                            min={0}
                             max={90}
                             step={1}
                             value={moviesValue}
@@ -493,7 +498,12 @@ export function UltimateFallbackOverlay({
                       className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                     >−</button>
                     <div className="flex flex-col items-center">
-                      {tvValue >= 60 ? (
+                      {tvValue === 0 ? (
+                        <>
+                          <div aria-label="Infinite (no timeout)" className="w-14 text-center text-2xl font-bold text-amber-400/90 leading-none">∞</div>
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">infinite</span>
+                        </>
+                      ) : tvValue >= 60 ? (
                         <>
                           <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
                             {Math.floor(tvValue / 60)}
@@ -506,7 +516,7 @@ export function UltimateFallbackOverlay({
                         <>
                           <input
                             type="number"
-                            min={1}
+                            min={0}
                             max={90}
                             step={1}
                             value={tvValue}
@@ -540,7 +550,12 @@ export function UltimateFallbackOverlay({
                       className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                     >−</button>
                     <div className="flex flex-col items-center">
-                      {seasonPackValue >= 60 ? (
+                      {seasonPackValue === 0 ? (
+                        <>
+                          <div aria-label="Infinite (no timeout)" className="w-14 text-center text-2xl font-bold text-amber-400/90 leading-none">∞</div>
+                          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">infinite</span>
+                        </>
+                      ) : seasonPackValue >= 60 ? (
                         <>
                           <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
                             {Math.floor(seasonPackValue / 60)}
@@ -553,7 +568,7 @@ export function UltimateFallbackOverlay({
                         <>
                           <input
                             type="number"
-                            min={1}
+                            min={0}
                             max={90}
                             step={1}
                             value={seasonPackValue}
@@ -578,7 +593,7 @@ export function UltimateFallbackOverlay({
             <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
               <li>The time Ultimate Fallback will wait for a health-verified NZB to finish processing in NZBDav before moving on to the next candidate.</li>
               <li>Priority and Speed modes use a separate set of wait times, switch the Preference Mode above to edit each one.</li>
-              <li>Hold the +/- buttons to accelerate. Min 1s, max 1 min 30s.</li>
+              <li>Set to 0 (∞) to disbale the timer and let nzbdav take as long as it needs to finish. Max 1 min 30s. Hold the +/- buttons to accelerate.</li>
             </ul>
           </div>
 
