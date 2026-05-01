@@ -230,6 +230,7 @@ export function UltimateFallbackOverlay({
                 Enhanced
               </button>
             </div>
+            <div className="text-xs text-amber-400/70 text-center">See Grab Estimate below for resource impact.</div>
           </div>
 
           {/* Streaming Method */}
@@ -681,11 +682,27 @@ export function UltimateFallbackOverlay({
                 </div>
                 <div className="text-xs text-slate-500">A limit on extra NZB grabs after the primary resolves, in search of more backups. NZBs grabbed earlier (while still searching for the primary) flow through as free backups and don't count. Library hits don't count against the limit as well.</div>
                 <div className="text-xs text-amber-400/50">Values: All, 1–20</div>
-                <div className="text-xs text-amber-400/50">
-                  At least <span className="text-sm font-semibold tabular-nums">{ultimateFallback.candidateCount}</span> NZB{ultimateFallback.candidateCount !== 1 ? 's' : ''} grabbed during primary search (more if early candidates fail), then {ultimateFallback.backupProcessingLimit === 0 ? <span className="text-sm font-semibold">unlimited</span> : <>up to <span className="text-sm font-semibold tabular-nums">{ultimateFallback.backupProcessingLimit}</span> more</>} additional grab{ultimateFallback.backupProcessingLimit !== 1 ? 's' : ''} for backups.
-                </div>
               </div>
             )}
+          </div>
+
+          {/* Grab Estimate — always visible, dynamic by desiredBackups + maxAttempts */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
+            <div className="text-sm font-medium text-slate-300">Grab Estimate</div>
+            <div className="text-xs text-amber-400/50">
+              {ultimateFallback.maxAttempts > 0 ? (
+                <>At least <span className="text-sm font-semibold tabular-nums">{ultimateFallback.candidateCount}</span> NZB{ultimateFallback.candidateCount !== 1 ? 's' : ''} grabbed during primary search (capped at <span className="text-sm font-semibold tabular-nums">{ultimateFallback.maxAttempts}</span> total)</>
+              ) : (
+                <>At least <span className="text-sm font-semibold tabular-nums">{ultimateFallback.candidateCount}</span> NZB{ultimateFallback.candidateCount !== 1 ? 's' : ''} grabbed during primary search (more if early candidates fail)</>
+              )}
+              {ultimateFallback.desiredBackups === 0 ? (
+                <>. No additional NZB grabs after primary. Library hits will still be cached as backups.</>
+              ) : ultimateFallback.backupProcessingLimit === 0 ? (
+                <>, then <span className="text-sm font-semibold">unlimited</span> additional grabs for backups.</>
+              ) : (
+                <>, then up to <span className="text-sm font-semibold tabular-nums">{ultimateFallback.backupProcessingLimit}</span> more additional grab{ultimateFallback.backupProcessingLimit !== 1 ? 's' : ''} for backups.</>
+              )}
+            </div>
           </div>
 
           {/* Health Checking — toggle, provider config, sample count, archive inspection */}
