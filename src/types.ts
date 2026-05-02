@@ -111,6 +111,10 @@ export interface RawResult {
   releaseGroup?: string;
   language?: string;
   isSeasonPack?: boolean;
+  /** Set only when origin === 'library' AND the inner file is a per-episode file inside a pack folder.
+   *  Pack-total size filters skip these entries since `size` is the per-episode size, not the pack total.
+   *  Per-episode-in-pack filters still apply via the existing isSeasonPack branch. */
+  extractedFromPack?: boolean;
   duration?: string;
   easynewsMeta?: any;
   /** Set only when origin === 'library' — direct WebDAV path; handleStream uses this for the fast-path serve. */

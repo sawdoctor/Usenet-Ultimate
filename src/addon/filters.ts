@@ -109,15 +109,17 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
     results = results.filter(r => r.isSeasonPack || r.size <= (filterConfig.maxFileSize ?? Infinity));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max file size (${results.length} remaining)`);
   }
-  // Season pack size filters — total pack size
+  // Season pack size filters — total pack size. Skip extracted-pack-episodes
+  // (Ultimate Library results where the inner file is per-episode); their `size`
+  // is the per-episode file size, not the pack total.
   if (filterConfig.minSeasonPackSize != null) {
     const before = results.length;
-    results = results.filter(r => !r.isSeasonPack || r.size >= (filterConfig.minSeasonPackSize ?? 0));
+    results = results.filter(r => !r.isSeasonPack || r.extractedFromPack || r.size >= (filterConfig.minSeasonPackSize ?? 0));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min season pack size (${results.length} remaining)`);
   }
   if (filterConfig.maxSeasonPackSize != null) {
     const before = results.length;
-    results = results.filter(r => !r.isSeasonPack || r.size <= (filterConfig.maxSeasonPackSize ?? Infinity));
+    results = results.filter(r => !r.isSeasonPack || r.extractedFromPack || r.size <= (filterConfig.maxSeasonPackSize ?? Infinity));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max season pack size (${results.length} remaining)`);
   }
   // Season pack per-episode size filters — estimated per-episode size

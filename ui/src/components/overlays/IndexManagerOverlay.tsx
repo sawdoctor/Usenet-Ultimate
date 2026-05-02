@@ -624,7 +624,7 @@ export function IndexManagerOverlay({
                   </div>
                   <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
                     <p>Scan your WebDAV library before any indexer is queried.</p>
-                    <p>When Ultimate Library returns at least the configured number of results, indexer searches are skipped entirely.</p>
+                    <p>When Ultimate Library returns at least the configured number of results after filtering, indexer searches are skipped entirely.</p>
                     <p>Supports <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Fallback</span> and is powered by <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Text Search</span>.</p>
                   </div>
                   <p className="text-xs text-amber-400/60 italic">Pairs best with Season Packs enabled.</p>
@@ -647,7 +647,7 @@ export function IndexManagerOverlay({
                           >+</button>
                         </div>
                       </div>
-                      <p className="text-xs text-amber-400/60 italic">Skip indexer queries when the library returns at least this many results · NZBDav streaming mode only</p>
+                      <p className="text-xs text-amber-400/60 italic">Skip indexer queries when the library returns as least this many results after filtering · NZBDav streaming mode only</p>
                     </div>
                   )}
                 </div>

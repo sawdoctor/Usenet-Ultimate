@@ -195,13 +195,21 @@ function folderCouldContainSeason(basename: string, season: number): boolean {
 }
 
 function buildLibraryResult(file: { path: string; size: number }, releaseTitle: string): RawResult {
-  // Mirror the indexer/easynews searchers: tag season packs so the remake
-  // filter's pack branch deprioritizes them instead of running them through
-  // the regular-episode branch (which rejects yearless packs lacking an
-  // episode-name match). parseTorrentTitle is the same library that powers
-  // metadataParsers and parse-torrent-title across the codebase.
-  const parsed = parseTorrentTitle(releaseTitle);
-  const isSeasonPack = (parsed.seasons?.length ?? 0) > 0 && (parsed.episodes?.length ?? 0) === 0;
+  // Pack-detection signal: parse the folder release title and the inner file basename.
+  //  - Folder=pack + file has episode marker → extracted pack episode
+  //    (isSeasonPack=true so per-episode-in-pack filters still apply,
+  //     extractedFromPack=true so pack-total size filters skip the entry
+  //     because `size` is the per-episode file size, not the pack total)
+  //  - Folder=pack + file has no episode marker → true single-file pack release
+  //    (isSeasonPack=true, extractedFromPack=false; pack-total filter applies normally)
+  //  - Folder=episode-or-other → not a pack (both flags false)
+  const folderParsed = parseTorrentTitle(releaseTitle);
+  const fileBasename = file.path.split('/').pop() ?? '';
+  const fileParsed = parseTorrentTitle(fileBasename);
+  const folderIsPack = (folderParsed.seasons?.length ?? 0) > 0 && (folderParsed.episodes?.length ?? 0) === 0;
+  const fileHasEpisode = (fileParsed.episodes?.length ?? 0) > 0;
+  const isSeasonPack = folderIsPack;
+  const extractedFromPack = folderIsPack && fileHasEpisode;
   return {
     origin: 'library',
     title: releaseTitle,
@@ -211,6 +219,7 @@ function buildLibraryResult(file: { path: string; size: number }, releaseTitle: 
     size: file.size ?? 0,
     indexerName: 'WebDAV Library',
     isSeasonPack,
+    extractedFromPack,
     quality: parseQuality(releaseTitle),
     codec: parseCodec(releaseTitle),
     source: parseSource(releaseTitle),

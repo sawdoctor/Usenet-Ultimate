@@ -340,18 +340,39 @@ builder.defineStreamHandler(async ({ type, id }) => {
       animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
     };
 
-    // Optional pre-search: scan the WebDAV library first. If it returns
-    // ≥ threshold matches, short-circuit indexer/EasyNews queries entirely.
-    // If below threshold, library results are discarded (not merged).
-    // Threshold of 0 disables the feature (default).
+    // Optional pre-search: scan the WebDAV library first. Run the same dedup +
+    // user-filter pipeline that the main flow runs on the library-only set so the
+    // threshold check fires on POST-FILTER survivor count. When filters drop
+    // library hits below the threshold, the library results are discarded and the
+    // normal indexer flow runs — the user never sees a blank result list because
+    // their filters wiped out the library candidates. Threshold of 0 disables.
     let libraryResults: any[] = [];
     let shortCircuited = false;
     const libraryThreshold = config.searchConfig?.librarySearchThreshold ?? 0;
     if (libraryThreshold > 0 && config.streamingMode === 'nzbdav' && config.nzbdavUrl) {
       libraryResults = await searchLibrary(searchCtx, buildNzbdavConfig());
-      if (libraryResults.length >= libraryThreshold) {
-        shortCircuited = true;
-        console.log(`📚 Ultimate Library short-circuit fired (${libraryResults.length} ≥ ${libraryThreshold}) — skipping indexer queries`);
+      if (libraryResults.length > 0) {
+        // Pre-check: dedup + user-filters on library-only set. No fallback group,
+        // no stream build, no health checks — pure JS array operations on a small
+        // set. applyUserFilters returns the COMBINED list (main + surviving deprio
+        // packs), so .length is the true post-filter survivor count.
+        //
+        // On short-circuit, the same chain runs again in the main flow (idempotent,
+        // deterministic), so inner filter sub-logs ('🎯 Filtered N by ...',
+        // '📊 Ranked rules: top X', '📊 Returning N streams after filtering') will
+        // fire twice with identical output. Library results are typically a small
+        // set so the duplication is brief; accepted trade for not threading a quiet
+        // flag through the entire filter pipeline.
+        const { results: libDeduped, deprioritizedPacks: libDepri } = deduplicateAndPreFilter(
+          libraryResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear
+        );
+        const libFiltered = applyUserFilters(libDeduped, type, Date.now(), titleInfo.runtime, libDepri);
+        if (libFiltered.length >= libraryThreshold) {
+          shortCircuited = true;
+          console.log(`📚 Ultimate Library short-circuit fired (${libFiltered.length} ≥ ${libraryThreshold} after filters) — skipping indexer queries`);
+        } else {
+          console.log(`📚 Ultimate Library: scan returned ${libraryResults.length} match(es), ${libFiltered.length} after filters — below threshold (${libraryThreshold}), discarding`);
+        }
       }
     }
 
@@ -371,9 +392,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
         ...indexManagerResults.map(r => tagOrigin(r, 'indexer')),
         ...easynewsResults.map(r => tagOrigin(r, 'easynews')),
       ];
-      if (libraryResults.length > 0) {
-        console.log(`📚 Ultimate Library: scan returned ${libraryResults.length} match(es) — below threshold (${libraryThreshold}), discarding`);
-      }
       console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
     }
 
