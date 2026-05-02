@@ -346,6 +346,20 @@ async function sendFailureVideo(req: Request, res: ExpressResponse): Promise<voi
 // Express Handler
 // ============================================================================
 
+// Per-path log dedupe for Ultimate Library streams. The player (libmpv etc.)
+// fires multiple range requests against /stream during a single playback;
+// each hits the library-origin fast path and would otherwise emit the same
+// log line repeatedly. Track recently-logged paths and suppress duplicates
+// within a 30s window. Entries auto-prune via setTimeout (unref'd so timers
+// don't block process exit).
+const recentLoggedUltimateLibraryStreams = new Set<string>();
+function logUltimateLibraryStream(decoded: string): void {
+  if (recentLoggedUltimateLibraryStreams.has(decoded)) return;
+  console.log(`📚 Ultimate Library stream: ${decoded}`);
+  recentLoggedUltimateLibraryStreams.add(decoded);
+  setTimeout(() => recentLoggedUltimateLibraryStreams.delete(decoded), 30_000).unref?.();
+}
+
 /**
  * Express handler for /nzbdav/stream endpoint
  * Supports automatic fallback: if the chosen NZB fails, tries the next candidates
@@ -358,6 +372,38 @@ export async function handleStream(
   trackGrabFn?: (indexerName: string, title: string) => void,
   proxyFn?: (req: Request, res: ExpressResponse, videoPath: string, usePipe: boolean) => Promise<void>
 ): Promise<void> {
+  // Library-origin fast path: search-time library scan emitted a tile pointing
+  // at a pre-extracted file on WebDAV. Skip the whole NZB grab cycle (submit,
+  // wait, find video) and dispatch directly via the existing /v proxy/direct/pipe
+  // logic. Path is validated post-decode to block traversal attempts.
+  const originParam = req.query.origin as string | undefined;
+  const libraryVideoPathParam = req.query.libraryVideoPath as string | undefined;
+  if (originParam === 'library' && libraryVideoPathParam) {
+    const decoded = decodeURIComponent(libraryVideoPathParam);
+    if (!decoded.startsWith('/content/')) {
+      console.warn(`⚠️ Rejected library stream — path not under /content/: ${libraryVideoPathParam}`);
+      res.status(400).end();
+      return;
+    }
+    logUltimateLibraryStream(decoded);
+    const lobbyFallbackOn = globalConfig.ultimateFallback?.enabled === true;
+    let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
+    if (!lobbyFallbackOn) mode = 'proxy';
+    if (mode === 'direct') {
+      const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
+      const directUrl = new URL(`${webdavBase}${encodeWebdavPath(decoded)}`);
+      if (config.webdavUser) { directUrl.username = config.webdavUser; directUrl.password = config.webdavPassword || ''; }
+      res.redirect(302, directUrl.href);
+    } else if (proxyFn && !lobbyFallbackOn) {
+      await proxyFn(req, res, decoded, mode !== 'proxy');
+    } else {
+      const proxyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/v`);
+      proxyUrl.searchParams.set('path', decoded);
+      res.redirect(302, proxyUrl.href);
+    }
+    return;
+  }
+
   // Tile URL comes in one of two shapes:
   //   (a) packed single-param: ?t=<fbg>.<idx>.<encodedSessionKey>.<season>.<episode>.<sp>.<epcount>
   //       Presence of `t` implies user_pick=1. Used for external-player

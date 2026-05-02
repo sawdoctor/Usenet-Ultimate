@@ -598,6 +598,8 @@ function App() {
           setSeasonPackAdditionalPages={ac.setSeasonPackAdditionalPages}
           urlDedup={ac.urlDedup}
           setUrlDedup={ac.setUrlDedup}
+          librarySearchThreshold={ac.librarySearchThreshold}
+          setLibrarySearchThreshold={ac.setLibrarySearchThreshold}
           displayLibraryInResults={ac.displayLibraryInResults}
           setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
           absoluteEpisodeFallback={ac.absoluteEpisodeFallback}

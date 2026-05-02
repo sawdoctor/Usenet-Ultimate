@@ -93,6 +93,10 @@ Anime titles are detected automatically. When found, the addon can optionally fa
 
 IMDB IDs are resolved to TMDB, TVDB, and TVMaze IDs with a 24-hour cache. Alternate and international titles are fetched and used as additional search queries to maximize coverage across indexers that may catalog content under different names.
 
+**Ultimate Library**
+
+Optional pre-search WebDAV scan that runs before any indexer query. When the library returns at least the configured number of matches for a query, indexer searches are skipped entirely and the results list is built from library hits alone — saving indexer rate-limit budget for content already on disk. All-or-nothing semantic: if the scan returns fewer than the threshold, library results are discarded (not merged with indexer results) so the indexer flow stays clean. Folder-name season pre-filter avoids scanning wrong-season packs. Title matching reuses the same Ultimate Text Search engine (token-set match, year disambiguation, alt-title support, stylized digit-letter detection). NZBDav streaming mode only; pairs best with Season Packs enabled.
+
 ---
 
 ### Streaming
@@ -483,6 +487,7 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `ENABLE_REMAKE_DETECTION` | `true` | Filter out results from the wrong version of remade/rebooted shows |
 | `ALLOW_MULTI_EPISODE_FILES` | `true` | Allow streaming from combined multi-episode files (e.g. S01E01E02) |
 | `URL_DEDUP` | `true` | Remove duplicate results with identical download URLs |
+| `LIBRARY_SEARCH_THRESHOLD` | `0` | Ultimate Library: scan WebDAV before indexer queries; if ≥ N matches found, skip indexers entirely. Sub-threshold scans are discarded. NZBDav streaming mode only. 0 = disabled, 1-10 = active |
 
 #### HTTP Proxy
 

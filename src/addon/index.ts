@@ -27,6 +27,7 @@ import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
 import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
+import { searchLibrary } from '../nzbdav/librarySearch.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
@@ -339,12 +340,42 @@ builder.defineStreamHandler(async ({ type, id }) => {
       animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
     };
 
-    const [indexManagerResults, easynewsResults] = await Promise.all([
-      indexManagerSearch(searchCtx),
-      easynewsSearch(searchCtx),
-    ]);
-    const allRawResults = [...indexManagerResults, ...easynewsResults];
-    console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
+    // Optional pre-search: scan the WebDAV library first. If it returns
+    // ≥ threshold matches, short-circuit indexer/EasyNews queries entirely.
+    // If below threshold, library results are discarded (not merged).
+    // Threshold of 0 disables the feature (default).
+    let libraryResults: any[] = [];
+    let shortCircuited = false;
+    const libraryThreshold = config.searchConfig?.librarySearchThreshold ?? 0;
+    if (libraryThreshold > 0 && config.streamingMode === 'nzbdav' && config.nzbdavUrl) {
+      libraryResults = await searchLibrary(searchCtx, buildNzbdavConfig());
+      if (libraryResults.length >= libraryThreshold) {
+        shortCircuited = true;
+        console.log(`📚 Ultimate Library short-circuit fired (${libraryResults.length} ≥ ${libraryThreshold}) — skipping indexer queries`);
+      }
+    }
+
+    let allRawResults: any[];
+    if (shortCircuited) {
+      allRawResults = libraryResults;
+    } else {
+      const [indexManagerResults, easynewsResults] = await Promise.all([
+        indexManagerSearch(searchCtx),
+        easynewsSearch(searchCtx),
+      ]);
+      // Tag indexer/easynews results with origin so downstream code can route correctly.
+      // (Searchers don't currently emit origin natively; we tag at orchestrator level.)
+      const tagOrigin = (r: any, origin: 'indexer' | 'easynews'): any =>
+        r.origin ? r : { ...r, origin };
+      allRawResults = [
+        ...indexManagerResults.map(r => tagOrigin(r, 'indexer')),
+        ...easynewsResults.map(r => tagOrigin(r, 'easynews')),
+      ];
+      if (libraryResults.length > 0) {
+        console.log(`📚 Ultimate Library: scan returned ${libraryResults.length} match(es) — below threshold (${libraryThreshold}), discarding`);
+      }
+      console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
+    }
 
     // === STEP 3: DEDUP + CONTENT-DEPENDENT PRE-FILTERING (cacheable) ===
     const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
@@ -357,9 +388,11 @@ builder.defineStreamHandler(async ({ type, id }) => {
       { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, now, runtime: titleInfo.runtime }
     );
 
-    // Cache raw results + deprioritized packs + health map (filters/sorts reapply on cache hits)
+    // Cache raw results + deprioritized packs + health map (filters/sorts reapply on cache hits).
+    // Short-circuited library-only results bypass the cache: library state can change between
+    // searches, and the user explicitly chose live-scan-per-search behavior.
     const skipEmptyCache = config.searchConfig?.cacheEmptyResults === false && rawResults.length === 0;
-    if (config.cacheEnabled && config.cacheTTL > 0 && !skipEmptyCache) {
+    if (config.cacheEnabled && config.cacheTTL > 0 && !skipEmptyCache && !shortCircuited) {
       cache.set(cacheKey, {
         rawResults,
         deprioritizedPacks,

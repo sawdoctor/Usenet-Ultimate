@@ -282,6 +282,14 @@ export function updateSettings(settings: {
       console.log('🔗 TVDB API key changed, clearing cached token');
       import('../idResolver.js').then(m => m.clearTvdbToken?.()).catch(() => {});
     }
+    // Clamp librarySearchThreshold on write so a bad frontend payload or manual edit
+    // can't round-trip out-of-range values to disk. Accessor also clamps on read.
+    if (settings.searchConfig.librarySearchThreshold !== undefined) {
+      settings.searchConfig.librarySearchThreshold = Math.max(
+        0,
+        Math.min(10, settings.searchConfig.librarySearchThreshold)
+      );
+    }
     configData.searchConfig = settings.searchConfig;
     configData.includeSeasonPacks = settings.searchConfig.includeSeasonPacks;
   }

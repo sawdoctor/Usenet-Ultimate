@@ -87,6 +87,36 @@ export const ZYCLOPS_BACKBONES = [
   'usenetexpress', 'uzo-reto'
 ] as const;
 
+// Raw result origin discriminator. Library results bypass NZB-specific code paths
+// (submitNzb, getCacheKey, dead-NZB checks, health checks) — handlers gate on this.
+export type ResultOrigin = 'indexer' | 'easynews' | 'library';
+
+// Shape used by dedup, sort, score, and stream-builder. Indexer/EasyNews searchers
+// return loosely-typed objects today; this interface documents the contract and is
+// enforced for library-origin results emitted by searchLibrary().
+export interface RawResult {
+  origin: ResultOrigin;
+  title: string;
+  link: string;          // dedup key — see src/addon/dedup.ts
+  nzbUrl: string;        // for indexer/easynews: same as link; for library: 'library:<videoPath>'
+  size: number;
+  indexerName: string;
+  pubDate?: string;
+  quality?: string;
+  codec?: string;
+  source?: string;
+  audioTag?: string;
+  visualTag?: string;
+  edition?: string;
+  releaseGroup?: string;
+  language?: string;
+  isSeasonPack?: boolean;
+  duration?: string;
+  easynewsMeta?: any;
+  /** Set only when origin === 'library' — direct WebDAV path; handleStream uses this for the fast-path serve. */
+  libraryVideoPath?: string;
+}
+
 // Search configuration - global API keys and settings shared across all indexers
 export interface SearchConfig {
   tmdbApiKey?: string;          // Required when any indexer uses TMDB search
@@ -103,6 +133,7 @@ export interface SearchConfig {
   cacheEmptyResults?: boolean;  // Cache search responses that returned zero results (default true)
   absoluteEpisodeFallback?: boolean;  // Series text-search: retry with absolute episode numbering (Title E31) when the SxxExx query returns zero results. UTS only. (default true)
   parallelAlternateTitleSearch?: boolean;  // Run primary + alt-title searches in parallel from the start instead of using alts only as a zero-result fallback. UTS only. (default false)
+  librarySearchThreshold?: number;  // 0 = disabled, 1-10 = WebDAV library short-circuit: when scan returns ≥ threshold matches, skip indexer queries entirely
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';

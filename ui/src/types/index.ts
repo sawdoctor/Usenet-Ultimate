@@ -83,6 +83,7 @@ export interface SearchConfig {
   indexerPriorityDedup?: boolean;
   urlDedup?: boolean;
   junkFilter?: boolean;
+  librarySearchThreshold?: number;
   displayLibraryInResults?: boolean;
   absoluteEpisodeFallback?: boolean;
   parallelAlternateTitleSearch?: boolean;

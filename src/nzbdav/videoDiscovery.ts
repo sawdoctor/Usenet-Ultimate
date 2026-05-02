@@ -34,7 +34,8 @@ export async function findVideoFile(
   dirPath: string,
   depth = 0,
   episodePattern?: string,
-  episodesInSeason?: number
+  episodesInSeason?: number,
+  strictEpisodeMatch = false
 ): Promise<{ path: string; size: number } | null> {
   if (depth > 6) return null;
 
@@ -132,6 +133,15 @@ export async function findVideoFile(
           if (videos.length > 1) {
             return null;
           }
+
+          // Library-scan strictness: title-matched dir doesn't imply the right episode is inside.
+          // Without this, a folder for S01E04 containing one mkv would be returned for an S01E06
+          // request via the "return largest video" fallback below. Other callers
+          // (waitForVideoFile, checkNzbLibrary) operate on confirmed NZB titles where the largest
+          // is the right file, so they leave this flag off.
+          if (strictEpisodeMatch) {
+            return null;
+          }
         }
       }
 
@@ -145,7 +155,7 @@ export async function findVideoFile(
       if (item.type === 'directory') {
         const dirLower = item.filename.toLowerCase();
         if (!dirLower.includes('/sample') && !dirLower.includes('/subs')) {
-          const found = await findVideoFile(client, item.filename, depth + 1, episodePattern, episodesInSeason);
+          const found = await findVideoFile(client, item.filename, depth + 1, episodePattern, episodesInSeason, strictEpisodeMatch);
           if (found) return found;
         }
       }

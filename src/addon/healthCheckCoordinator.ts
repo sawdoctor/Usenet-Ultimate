@@ -76,6 +76,12 @@ export async function coordinateHealthChecks(
   ctx: HealthCheckContext
 ): Promise<{ healthResults: Map<string, HealthCheckResult>; filteredResults: any[] }> {
   let { allResults } = ctx;
+  // Library-origin results are pre-extracted files on disk; skip NNTP/Zyclops/dead-NZB
+  // checks (they'd crash on `library:`-prefixed URLs and are semantically meaningless
+  // for already-resolved files). Library results pass through with no health status,
+  // treated as inherently healthy by downstream stages.
+  const libraryResults = allResults.filter(r => r?.origin === 'library');
+  allResults = allResults.filter(r => r?.origin !== 'library');
   const healthResults = new Map<string, HealthCheckResult>();
   // Pre-populate with existing health data (from cached results) so smart mode
   // sees already-checked results and doesn't re-check them
@@ -87,7 +93,7 @@ export async function coordinateHealthChecks(
   if (!config.healthChecks?.enabled || enabledProviders.length === 0) {
     // No NNTP health checks — still auto-mark EasyNews/Zyclops
     autoMarkRemainingResults(allResults, healthResults);
-    return { healthResults, filteredResults: allResults };
+    return { healthResults, filteredResults: [...libraryResults, ...allResults] };
   }
 
   // Build health-check-enabled set based on index manager mode
@@ -437,7 +443,8 @@ export async function coordinateHealthChecks(
     }
   }
 
-  return { healthResults, filteredResults: allResults };
+  // Re-merge library-origin results so they reach the downstream sort/stream-builder.
+  return { healthResults, filteredResults: [...libraryResults, ...allResults] };
 }
 
 /**

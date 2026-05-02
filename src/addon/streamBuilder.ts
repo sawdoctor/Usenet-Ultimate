@@ -223,7 +223,20 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     // For EasyNews results: DDL mode uses direct download resolve, NZB mode uses download client pipeline
     // For NZBDav mode, create a proxy URL that will send to NZBDav when user clicks play
     // For native mode, use direct NZB download link
-    if (result.easynewsMeta && config.easynewsMode === 'nzb') {
+    // Library-origin results (from search-time WebDAV scan) emit a tile URL that
+    // carries the videoPath directly. handleStream's early-exit recognizes the
+    // origin=library param and serves directly without the NZB grab cycle.
+    if (result.origin === 'library' && result.libraryVideoPath && config.streamingMode === 'nzbdav') {
+      const streamManifestKey = requestContext.getStore()?.manifestKey || '';
+      const base = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}`;
+      const tileUrl = `${base}?origin=library&libraryVideoPath=${encodeURIComponent(result.libraryVideoPath)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}`;
+      streams.push({
+        name: streamName,
+        title: streamTitle,
+        url: tileUrl,
+        behaviorHints: { notWebReady: false, bingeGroup },
+      });
+    } else if (result.easynewsMeta && config.easynewsMode === 'nzb') {
       // EasyNews NZB mode — route through download client like regular NZB results
       const meta = result.easynewsMeta;
       const nzbParams = new URLSearchParams({
