@@ -221,6 +221,25 @@ export const UF_PRESET_CLASSIC = {
   speedSeasonPackTimeoutSeconds: 20,
 };
 
+export const UF_PRESET_LITE = {
+  healthCheckEnabled: true,
+  whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 2,
+  preferenceMode: 'priority' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 1,
+  backupProcessingLimit: 1,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
+};
+
 export const UF_PRESET_ENHANCED = {
   healthCheckEnabled: true,
   whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',

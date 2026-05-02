@@ -7,7 +7,7 @@ import { Crown, X, Film, Tv, Layers } from 'lucide-react';
 import clsx from 'clsx';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import type { HealthChecksState, UsenetProvider } from '../../types';
-import { DEFAULT_ULTIMATE_FALLBACK, UF_PRESET_CLASSIC, UF_PRESET_ENHANCED } from '../../constants';
+import { DEFAULT_ULTIMATE_FALLBACK, UF_PRESET_CLASSIC, UF_PRESET_LITE, UF_PRESET_ENHANCED } from '../../constants';
 import { ProviderManager } from '../shared/ProviderManager';
 
 interface UltimateFallbackOverlayProps {
@@ -202,7 +202,7 @@ export function UltimateFallbackOverlay({
           {/* Presets */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 px-3 py-2 space-y-1.5 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="text-xs font-medium text-slate-400">Presets</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
                 disabled={!ultimateFallback.enabled}
@@ -215,6 +215,19 @@ export function UltimateFallbackOverlay({
                 )}
               >
                 Classic (Default)
+              </button>
+              <button
+                type="button"
+                disabled={!ultimateFallback.enabled}
+                onClick={() => applyPreset('Lite', UF_PRESET_LITE)}
+                className={clsx(
+                  "w-full px-2.5 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                  presetApplied === 'Lite'
+                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                )}
+              >
+                Lite
               </button>
               <button
                 type="button"
