@@ -25,6 +25,7 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
   const languagePriority = filterConfig?.languagePriority || ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'];
   const editionPriority = filterConfig?.editionPriority || ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'];
   const preferNonStandardEdition = filterConfig?.preferNonStandardEdition || false;
+  const preferSeasonPacks = filterConfig?.preferSeasonPacks === true;
 
   // Pre-compute age/bitrate values for efficient sorting (avoids Date.parse per comparison)
   const sortNow = now ?? Date.now();
@@ -33,6 +34,11 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
 
   const sorted = [...allResults];
   sorted.sort((a, b) => {
+    // Tier-zero pack preference: place packs above non-packs, then fall through
+    // to the user's configured sortOrder for secondary ordering within each group.
+    if (preferSeasonPacks && a.isSeasonPack !== b.isSeasonPack) {
+      return a.isSeasonPack ? -1 : 1;
+    }
     // Apply sort methods in order of priority (skip disabled methods)
     for (const method of sortOrder) {
       // Skip if this sort method is disabled

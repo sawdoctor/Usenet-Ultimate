@@ -457,6 +457,36 @@ export default function FiltersOverlay({
             disabled={isReadOnly}
           />
 
+          {/* Prefer Season Packs (hidden on Movies tab) */}
+          {filterTab !== 'movie' && (() => {
+            const preferPacks = activeFilters.preferSeasonPacks ?? false;
+            return (
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                  <div>
+                    <div className="text-sm font-medium text-slate-300">Prefer Season Packs</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Sort season packs to the top of the results list in priority order.</div>
+                    <div className="text-xs text-slate-500 italic mt-1">Note: season packs deprioritized by Remake Detection remain at the end of the results list.</div>
+                  </div>
+                  <button
+                    aria-label="Prefer Season Packs"
+                    aria-pressed={preferPacks}
+                    onClick={() => updateActiveFilters(prev => ({ ...prev, preferSeasonPacks: !(prev.preferSeasonPacks ?? false) }))}
+                    className={clsx(
+                      "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                      preferPacks ? "bg-purple-500" : "bg-slate-600"
+                    )}
+                  >
+                    <div className={clsx(
+                      "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                      preferPacks ? "left-5" : "left-1"
+                    )} />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Sort Order Priority */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">

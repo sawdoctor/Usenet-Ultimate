@@ -280,6 +280,7 @@ export interface FilterConfig {
   languagePriority?: string[];               // Language priority order for sorting
   editionPriority?: string[];                // Edition priority order for sorting (Extended, DC, etc)
   preferNonStandardEdition?: boolean;        // Prioritize all enabled non-standard editions equally over Standard
+  preferSeasonPacks?: boolean;               // TV-only. Sort season packs above non-packs; secondary sort still applies within each group.
   enableRemakeFiltering?: boolean;           // TV-only. Cross-reference TVDB to filter wrong-version results for shows with remakes. Default true. Env: ENABLE_REMAKE_DETECTION.
   allowMultiEpisodeFiles?: boolean;          // TV-only. Allow multi-episode files (e.g. S01E01E02.mkv). Default true. Env: ALLOW_MULTI_EPISODE_FILES.
   rules?: {

@@ -243,6 +243,7 @@ export interface FiltersState {
   languagePriority: string[];
   editionPriority: string[];
   preferNonStandardEdition?: boolean;
+  preferSeasonPacks?: boolean;
   enableRemakeFiltering?: boolean;
   allowMultiEpisodeFiles?: boolean;
   rules?: RulesBlock;
