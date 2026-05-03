@@ -282,6 +282,15 @@ export function updateSettings(settings: {
       console.log('🔗 TVDB API key changed, clearing cached token');
       import('../idResolver.js').then(m => m.clearTvdbToken?.()).catch(() => {});
     }
+    // Flush TVDB-derived title + translation caches when the English-title
+    // preference flips so the next search picks up the new setting instead
+    // of returning the previously-cached resolution.
+    const prevPreferEnglish = configData.searchConfig?.tvdbPreferEnglishTitle ?? true;
+    const nextPreferEnglish = settings.searchConfig.tvdbPreferEnglishTitle ?? true;
+    if (prevPreferEnglish !== nextPreferEnglish) {
+      console.log('🔗 TVDB English-title preference changed, clearing cached titles');
+      import('../idResolver.js').then(m => m.clearTvdbTitleCache?.()).catch(() => {});
+    }
     // Clamp librarySearchThreshold on write so a bad frontend payload or manual edit
     // can't round-trip out-of-range values to disk. Accessor also clamps on read.
     if (settings.searchConfig.librarySearchThreshold !== undefined) {

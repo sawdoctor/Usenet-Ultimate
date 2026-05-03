@@ -80,6 +80,8 @@ interface IndexManagerOverlayProps {
   setAbsoluteEpisodeFallback: React.Dispatch<React.SetStateAction<boolean>>;
   parallelAlternateTitleSearch: boolean;
   setParallelAlternateTitleSearch: React.Dispatch<React.SetStateAction<boolean>>;
+  tvdbPreferEnglishTitle: boolean;
+  setTvdbPreferEnglishTitle: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Indexer priority dedup
   indexerPriorityDedup: boolean;
@@ -223,6 +225,8 @@ export function IndexManagerOverlay({
   setAbsoluteEpisodeFallback,
   parallelAlternateTitleSearch,
   setParallelAlternateTitleSearch,
+  tvdbPreferEnglishTitle,
+  setTvdbPreferEnglishTitle,
   indexerPriorityDedup,
   setIndexerPriorityDedup,
   indexerPriority,
@@ -471,6 +475,24 @@ export function IndexManagerOverlay({
                     </label>
                   </div>
                   <div className="text-xs text-slate-500">When a series text-search returns zero results for a SxxExx query, retry with absolute episode numbering (Title E31 instead of S03E07). Applies to Ultimate Text Search only.</div>
+                </div>
+
+                {/* TVDB English title preference (substitute non-English canonical names with the English translation) */}
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-slate-300">Always Resolve TVDB Title in English</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="tvdb-prefer-english-title"
+                        checked={tvdbPreferEnglishTitle}
+                        onChange={(e) => setTvdbPreferEnglishTitle(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500">When TVDB's canonical title is in a non-English language, substitute the English translation when one exists. Improves indexer match rates for English release groups. Toggling clears the TVDB title cache so the change applies on your next search. Applies to Ultimate Text Search only.</div>
                 </div>
 
                 {/* Parallel alternate-title search (Ultimate Text Search dual-title concurrency) */}

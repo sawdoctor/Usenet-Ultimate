@@ -88,6 +88,7 @@ export interface SearchConfig {
   displayLibraryInResults?: boolean;
   absoluteEpisodeFallback?: boolean;
   parallelAlternateTitleSearch?: boolean;
+  tvdbPreferEnglishTitle?: boolean;
   cacheEmptyResults?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;

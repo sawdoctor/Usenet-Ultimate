@@ -151,6 +151,7 @@ export const config: Config = {
     const cacheEmptyResultsEnv = envBool('CACHE_EMPTY_RESULTS');
     const libraryThresholdEnv = envInt('LIBRARY_SEARCH_THRESHOLD');
     const scanUncategorizedEnv = envBool('LIBRARY_SEARCH_SCAN_UNCATEGORIZED');
+    const tvdbEnglishEnv = envBool('TVDB_PREFER_ENGLISH_TITLE');
     return {
       ...sc,
       // Always present in the response (default true). Other 3 fields below
@@ -158,6 +159,7 @@ export const config: Config = {
       displayLibraryInResults: displayLibraryEnv ?? sc.displayLibraryInResults ?? true,
       absoluteEpisodeFallback: absoluteEpFallbackEnv ?? sc.absoluteEpisodeFallback ?? true,
       parallelAlternateTitleSearch: parallelAltTitleEnv ?? sc.parallelAlternateTitleSearch ?? false,
+      tvdbPreferEnglishTitle: tvdbEnglishEnv ?? sc.tvdbPreferEnglishTitle ?? true,
       // Library short-circuit threshold (0 = disabled, 1-10 = active). Clamped on read so a
       // bad config.json or env var can't push it out of range; settings updater also clamps on writes.
       librarySearchThreshold: Math.max(0, Math.min(10, libraryThresholdEnv ?? sc.librarySearchThreshold ?? 0)),

@@ -283,8 +283,26 @@ async function findOnTvdb(
         const record = result[tvdbType];
         if (record?.id) {
           const year = record.year ? String(record.year) : record.firstAired?.match(/^\d{4}/)?.[0];
-          console.log(`🔗 TVDB remoteid result: ${tvdbType} id=${record.id} name="${record.name || 'unknown'}"${year ? ` (${year})` : ''}`);
-          return { id: record.id, title: record.name || '', year };
+          let title: string = record.name || '';
+          const originalLang: string | undefined = record.originalLanguage;
+          const nameTranslations: string[] = Array.isArray(record.nameTranslations) ? record.nameTranslations : [];
+          // Substitute the English translation when TVDB's canonical title is in
+          // a non-English language and an English translation exists. Release
+          // groups publish in English regardless of the show's original locale,
+          // so feeding the foreign-language canonical name into Newznab text
+          // search produces zero hits. Gated by searchConfig.tvdbPreferEnglishTitle.
+          // Translation 401 silently degrades to the original name; the next
+          // search refreshes the token via the existing retry path.
+          const preferEnglish = config.searchConfig?.tvdbPreferEnglishTitle ?? true;
+          if (preferEnglish && title && originalLang && originalLang !== 'eng' && nameTranslations.includes('eng')) {
+            const englishTitle = await fetchTvdbTranslation(record.id, tvdbType, 'eng', token);
+            if (englishTitle) {
+              console.log(`\u{1F310} TVDB translation: ${tvdbType} id=${record.id} "${title}" [${originalLang}] → "${englishTitle}" [eng]`);
+              title = englishTitle;
+            }
+          }
+          console.log(`🔗 TVDB remoteid result: ${tvdbType} id=${record.id} name="${title || 'unknown'}"${year ? ` (${year})` : ''}`);
+          return { id: record.id, title, year };
         }
       }
     }
@@ -319,6 +337,42 @@ async function findOnTvdb(
   }
 
   console.warn(`⚠️  No TVDB ${type} result found for ${imdbId}`);
+  return null;
+}
+
+/**
+ * Fetch a localized title for a TVDB record from `/translations/{lang}`.
+ * Caches both successful lookups and known-empty translations (negative cache
+ * via empty-string sentinel) so repeated searches don't repeatedly hit a 404
+ * for shows whose `nameTranslations` claims a translation exists but the
+ * detail endpoint returns nothing.
+ */
+async function fetchTvdbTranslation(
+  id: number,
+  type: 'movie' | 'series',
+  lang: string,
+  token: string,
+): Promise<string | null> {
+  const cacheKey = `tvdb:translation:${type}:${id}:${lang}`;
+  const cached = idCache.get<string>(cacheKey);
+  if (cached !== undefined) return cached || null;
+
+  try {
+    const response = await axios.get(
+      `https://api4.thetvdb.com/v4/${type === 'movie' ? 'movies' : 'series'}/${id}/translations/${lang}`,
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 },
+    );
+    const name = response.data?.data?.name;
+    if (typeof name === 'string' && name.length > 0) {
+      idCache.set(cacheKey, name);
+      return name;
+    }
+  } catch (error: any) {
+    if (error.response?.status !== 404) {
+      console.warn(`⚠️  TVDB translation lookup failed for ${type} ${id}/${lang}: ${error.response?.status || error.message}`);
+    }
+  }
+  idCache.set(cacheKey, '');
   return null;
 }
 
@@ -398,6 +452,25 @@ export async function resolveTitleFromTvdb(
  */
 export function clearTvdbToken(): void {
   idCache.del('tvdb:token');
+}
+
+/**
+ * Clear cached TVDB-derived titles and translation lookups. Called when the
+ * `tvdbPreferEnglishTitle` toggle flips so the next search re-resolves the
+ * canonical title under the new preference instead of returning a stale
+ * cache entry from the previous setting. Leaves TMDB title caches alone
+ * (different namespace) and the bearer token alone.
+ */
+export function clearTvdbTitleCache(): void {
+  const keys = idCache.keys();
+  let count = 0;
+  for (const k of keys) {
+    if ((k.startsWith('title:') && !k.startsWith('title:tmdb:')) || k.startsWith('tvdb:translation:')) {
+      idCache.del(k);
+      count++;
+    }
+  }
+  console.log(`🔗 TVDB title cache cleared (${count} entries)`);
 }
 
 /**
