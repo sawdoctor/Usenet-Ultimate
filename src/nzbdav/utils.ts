@@ -20,6 +20,41 @@ export function buildEpisodePattern(season: number, episode: number, allowMultiE
 }
 
 /**
+ * Folder-name season filter. A folder is only worth scanning if its name
+ * doesn't carry a season marker that contradicts the requested season.
+ * Conservative: if the name has no season hint at all, or carries a range
+ * / "complete" indicator, allow scanning. Reject only when the name
+ * specifies a definite season (Sxx or SxxExx) that doesn't include the target.
+ *
+ * Used at the top level by the library scan (rejects whole pack folders that
+ * can't contain the season) and recursively by findVideoFile (rejects
+ * per-season subdirectories inside a multi-season pack).
+ */
+export function folderCouldContainSeason(basename: string, season: number): boolean {
+  // Multi-season indicators — assume the folder could span the target.
+  if (/\b(complete|all\s*seasons|full\s*series|the\s*complete)\b/i.test(basename)) return true;
+
+  // Collect every Sxx (with or without an Exx suffix) marker in the name.
+  const seasonsFound: number[] = [];
+  for (const m of basename.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])/gi)) {
+    seasonsFound.push(parseInt(m[1], 10));
+  }
+  if (seasonsFound.length === 0) return true;        // No marker — allow
+  if (seasonsFound.includes(season)) return true;    // Direct match
+
+  // Range form: S01-S04, S01-04, S01_S04. Hyphen or underscore only — anything
+  // else (dot or whitespace) accidentally matches resolution / quality markers
+  // like 'S02.1080p' (which would otherwise read as a bogus range S02 to S10).
+  for (const m of basename.matchAll(/S(\d{1,2})[-_]S?(\d{1,2})/gi)) {
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    if (Math.min(a, b) <= season && season <= Math.max(a, b)) return true;
+  }
+
+  return false;
+}
+
+/**
  * Build an NZBDavConfig from the global config.
  * Centralizes the config → NZBDavConfig mapping used by routes and auto-resolve.
  */

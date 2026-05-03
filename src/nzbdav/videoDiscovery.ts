@@ -9,7 +9,7 @@ import { createClient, FileStat } from 'webdav';
 import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
-import { encodeWebdavPath, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
+import { encodeWebdavPath, folderCouldContainSeason, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
 import { config as globalConfig, getTvAllowMultiEpisode } from '../config/index.js';
 
 /**
@@ -41,6 +41,13 @@ export async function findVideoFile(
 
   const videoExts = ['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.wmv', '.webm', '.mpg', '.mpeg'];
   const minFileSize = 100 * 1024 * 1024; // 100MB minimum
+
+  // Pull the season out of the pattern once. Used to skip per-season subdirs
+  // inside a multi-season pack (e.g. Pack/S01/, Pack/S02/, ...) so we don't
+  // descend into the wrong season and pick a same-numbered episode from there.
+  // Absolute / cumulative tier patterns have no S prefix → null → no skip.
+  const seasonMatch = episodePattern?.match(/S(\d+)/i);
+  const targetSeason = seasonMatch ? parseInt(seasonMatch[1], 10) : null;
 
   try {
     const items = await client.getDirectoryContents(dirPath, {
@@ -154,10 +161,13 @@ export async function findVideoFile(
     for (const item of items) {
       if (item.type === 'directory') {
         const dirLower = item.filename.toLowerCase();
-        if (!dirLower.includes('/sample') && !dirLower.includes('/subs')) {
-          const found = await findVideoFile(client, item.filename, depth + 1, episodePattern, episodesInSeason, strictEpisodeMatch);
-          if (found) return found;
-        }
+        if (dirLower.includes('/sample') || dirLower.includes('/subs')) continue;
+        // Skip per-season subdirs whose name belongs to a different season
+        // (e.g. don't enter Pack/S01/ when looking for an S03 episode).
+        const subBasename = item.filename.split('/').pop() || '';
+        if (targetSeason != null && !folderCouldContainSeason(subBasename, targetSeason)) continue;
+        const found = await findVideoFile(client, item.filename, depth + 1, episodePattern, episodesInSeason, strictEpisodeMatch);
+        if (found) return found;
       }
     }
   } catch (err) {

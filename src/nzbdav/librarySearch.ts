@@ -24,7 +24,7 @@ import {
   parseQuality, parseCodec, parseSource, parseAudioTag, parseVisualTag,
   parseEdition, parseReleaseGroup, parseLanguage, formatBytes,
 } from '../parsers/metadataParsers.js';
-import { buildEpisodePattern } from './utils.js';
+import { buildEpisodePattern, folderCouldContainSeason } from './utils.js';
 import { isTextSearchMatch } from '../parsers/titleMatching.js';
 import type { SearchContext } from '../addon/searchOrchestrator.js';
 import type { NZBDavConfig } from './types.js';
@@ -77,9 +77,10 @@ export async function searchLibrary(
 
   // Season pre-filter: title match alone doesn't bound the season — a Season-1
   // pack folder can match the show name but cannot contain S02E03 content.
-  // findVideoFile's numbered-match fallback ignores season, so without this
-  // pre-filter an S01E03.mkv inside an S01 pack would be returned for an S02E03
-  // query. Reject wrong-season folders up front (saves a PROPFIND each).
+  // Reject whole top-level folders that can't contain the requested season up
+  // front, saving a PROPFIND each. findVideoFile applies the same check at
+  // every recursion step, so per-season subdirectories inside a multi-season
+  // pack are also skipped without entering them.
   const seasonRejected = new Set<string>();
   const toScan: FileStat[] = [];
   for (const d of titleMatches) {
@@ -183,37 +184,6 @@ export async function searchLibrary(
   return scanned
     .filter((s): s is { entry: FileStat; video: { path: string; size: number } } => s.video !== null)
     .map(({ entry, video }) => buildLibraryResult(video, entry.basename));
-}
-
-/**
- * Folder-name season filter. A title-matched dir is only worth scanning if
- * its name doesn't carry a season marker that contradicts the requested
- * season. Conservative: if the name has no season hint at all, or carries
- * a range / "complete" indicator, allow scanning. Reject only when the name
- * specifies a definite season (Sxx or SxxExx) that doesn't include the target.
- */
-function folderCouldContainSeason(basename: string, season: number): boolean {
-  // Multi-season indicators — assume the folder could span the target.
-  if (/\b(complete|all\s*seasons|full\s*series|the\s*complete)\b/i.test(basename)) return true;
-
-  // Collect every Sxx (with or without an Exx suffix) marker in the name.
-  const seasonsFound: number[] = [];
-  for (const m of basename.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])/gi)) {
-    seasonsFound.push(parseInt(m[1], 10));
-  }
-  if (seasonsFound.length === 0) return true;        // No marker — allow
-  if (seasonsFound.includes(season)) return true;    // Direct match
-
-  // Range form: S01-S04, S01-04, S01_S04. Hyphen or underscore only — anything
-  // else (dot or whitespace) accidentally matches resolution / quality markers
-  // like 'S02.1080p' (which would otherwise read as a bogus range S02 to S10).
-  for (const m of basename.matchAll(/S(\d{1,2})[-_]S?(\d{1,2})/gi)) {
-    const a = parseInt(m[1], 10);
-    const b = parseInt(m[2], 10);
-    if (Math.min(a, b) <= season && season <= Math.max(a, b)) return true;
-  }
-
-  return false;
 }
 
 function buildLibraryResult(file: { path: string; size: number }, releaseTitle: string): RawResult {
