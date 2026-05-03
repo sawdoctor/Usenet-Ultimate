@@ -205,7 +205,7 @@ export const config: Config = {
   },
   get filters() {
     return configData.filters || {
-      sortOrder: ['regexScore', 'seScore', 'quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'],
+      sortOrder: ['regexScore', 'quality', 'seScore', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'],
       enabledSorts: {
         regexScore: false,
         quality: true,
