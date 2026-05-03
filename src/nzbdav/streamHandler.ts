@@ -437,10 +437,12 @@ export async function handleStream(
   // Library-origin fast path: search-time library scan emitted a tile pointing
   // at a pre-extracted file on WebDAV. Skip the whole NZB grab cycle (submit,
   // wait, find video) and dispatch directly via the existing /v proxy/direct/pipe
-  // logic. Path is validated post-decode to block traversal attempts.
-  const originParam = req.query.origin as string | undefined;
+  // logic. Tile URL uses libraryVideoPath as the sole query param so it survives
+  // Infuse's iOS handoff (which strips everything after the first '&'). The
+  // /content/ prefix check below is the security boundary; only library tiles
+  // emit this query param so no other source can spoof it.
   const libraryVideoPathParam = req.query.libraryVideoPath as string | undefined;
-  if (originParam === 'library' && libraryVideoPathParam) {
+  if (libraryVideoPathParam) {
     const decoded = decodeURIComponent(libraryVideoPathParam);
     if (!decoded.startsWith('/content/')) {
       console.warn(`⚠️ Rejected library stream — path not under /content/: ${libraryVideoPathParam}`);

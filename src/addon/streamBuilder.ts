@@ -228,11 +228,13 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     // For native mode, use direct NZB download link
     // Library-origin results (from search-time WebDAV scan) emit a tile URL that
     // carries the videoPath directly. handleStream's early-exit recognizes the
-    // origin=library param and serves directly without the NZB grab cycle.
+    // libraryVideoPath query param and serves the file directly without the NZB
+    // grab cycle. URL is shaped as a single query param so Infuse's iOS handoff
+    // (which strips everything after the first '&') doesn't drop the path.
     if (result.origin === 'library' && result.libraryVideoPath && config.streamingMode === 'nzbdav') {
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const base = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}`;
-      const tileUrl = `${base}?origin=library&libraryVideoPath=${encodeURIComponent(result.libraryVideoPath)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}`;
+      const tileUrl = `${base}?libraryVideoPath=${encodeURIComponent(result.libraryVideoPath)}`;
       streams.push({
         name: streamName,
         title: streamTitle,
