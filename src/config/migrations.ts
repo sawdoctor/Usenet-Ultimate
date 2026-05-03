@@ -234,57 +234,47 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
-// Insert 'vvc' at the top of encodePriority arrays that pre-date VVC/h.266 support.
-// VVC is the MPEG successor to HEVC and the most efficient codec in the list,
-// so it ranks above av1/hevc/etc by default. Users who can't decode VVC can
-// disable it via the Encode Filter toggle in the filters overlay.
+// Append 'vvc' to encodePriority arrays that pre-date VVC/h.266 support.
+// VVC is the MPEG successor to HEVC and ranks at the top of the canonical
+// default order (highest priority). For upgrading users we append it at the
+// bottom of their existing list to preserve their customized ordering rather
+// than silently re-ranking codecs they already organized. New users and
+// Reset to Default get VVC at the top via the default constants.
 {
   const needsVvc = (arr: string[] | undefined): boolean => !!arr && arr.length > 0 && !arr.includes('vvc');
   let migrated = false;
   for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
     const f = configData[key] as any;
     if (needsVvc(f?.encodePriority)) {
-      f.encodePriority = ['vvc', ...f.encodePriority];
+      f.encodePriority = [...f.encodePriority, 'vvc'];
       migrated = true;
     }
   }
   if (migrated) {
     saveConfigFile(configData);
-    console.log('✅ Inserted VVC (h.266) at top of encodePriority');
+    console.log('✅ Appended VVC (h.266) to encodePriority for upgrading users');
   }
 }
 
-// Pin 'DCP' (Digital Cinema Package leaks) into videoPriority just above
-// 'WEBCap' — theatrical-master transcodes sit between standard web/BDRip
-// sources and screener-grade captures. Also catches old placements
-// (BluRay-adjacent, or between TeleCine and TeleSync) and repositions them.
-// correctIndex runs on the DCP-removed array, so returning WEBCap's index
-// splices DCP in right before WEBCap.
+// Append 'DCP' (Digital Cinema Package leaks) to videoPriority arrays that
+// pre-date DCP support. DCP ranks just above WEBCap in the canonical default
+// order (theatrical-master transcodes sit between standard web/BDRip sources
+// and screener-grade captures). For upgrading users we append it at the
+// bottom rather than re-ranking their customized list. New users and Reset
+// to Default get DCP at its canonical position via the default constants.
 {
-  const correctIndex = (arr: string[]): number => {
-    const webcap = arr.indexOf('WEBCap');
-    return webcap >= 0 ? webcap : arr.length;
-  };
-  const needsUpdate = (arr: string[] | undefined): boolean => {
-    if (!arr || arr.length === 0) return false;
-    const dcpIdx = arr.indexOf('DCP');
-    if (dcpIdx < 0) return true; // DCP missing, insert it
-    const copy = arr.filter(v => v !== 'DCP');
-    return dcpIdx !== correctIndex(copy); // DCP present but at wrong tier
-  };
+  const needsDcp = (arr: string[] | undefined): boolean => !!arr && arr.length > 0 && !arr.includes('DCP');
   let migrated = false;
   for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
     const f = configData[key] as any;
-    if (needsUpdate(f?.videoPriority)) {
-      const copy = (f.videoPriority as string[]).filter(v => v !== 'DCP');
-      copy.splice(correctIndex(copy), 0, 'DCP');
-      f.videoPriority = copy;
+    if (needsDcp(f?.videoPriority)) {
+      f.videoPriority = [...f.videoPriority, 'DCP'];
       migrated = true;
     }
   }
   if (migrated) {
     saveConfigFile(configData);
-    console.log('✅ DCP ranked above WEBCap in videoPriority');
+    console.log('✅ Appended DCP to videoPriority for upgrading users');
   }
 }
 
@@ -354,7 +344,10 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
       ur.desiredBackups = 0;
       ur.preferenceMode = 'priority';
       ur.whenToResolve = 'on-tile-selection';
-      ur.userPickFallback = 'failure-video';
+      // 'uf-lobby' = "Use Ultimate Fallback to Resolve From Top of List"
+      // — closest 1:1 to NZB Fallback's v1.3.0 behavior (auto-iterate
+      // candidates from the start of the list when a stream tile fails).
+      ur.userPickFallback = 'uf-lobby';
       ur.maxAttempts = typeof c.nzbdavMaxFallbacks === 'number' ? c.nzbdavMaxFallbacks : 0;
     }
     delete c.nzbdavFallbackEnabled;
@@ -364,7 +357,7 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     delete c.autoResolveTargets;
     saveConfigFile(configData);
     console.log(fallbackWasEnabled && !userHasUR
-      ? '✅ Migrated NZB Fallback → Ultimate Fallback (sequential, no health checks, no backups)'
+      ? '✅ Migrated NZB Fallback → Ultimate Fallback (sequential, lobby-from-top on tile failure, no health checks, no backups)'
       : '✅ Removed legacy NZB Fallback config fields');
   }
 
