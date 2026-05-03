@@ -31,7 +31,7 @@ import { searchLibrary } from '../nzbdav/librarySearch.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
-import { isDeadNzbByUrl, isDeadNzb, getDeadCacheKey } from '../nzbdav/streamCache.js';
+import { isDeadNzbByUrl, isDeadNzb, getDeadCacheKey, consumeLibraryBypass } from '../nzbdav/streamCache.js';
 import { requestContext } from '../requestContext.js';
 import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
 import { isDatabaseLoaded } from '../anime/animeDatabase.js';
@@ -66,6 +66,35 @@ const manifest = {
 };
 
 const builder = addonBuilder(manifest);
+
+/**
+ * Build the manifest-scoped search cache key. Single source of truth for the
+ * key composition used by the search-time write (this file) and the bypass-
+ * time delete (routes/nzbdav.ts library-bypass endpoint). Manifest-scoping
+ * prevents cross-manifest cache collisions in multi-tenant deployments.
+ */
+/** Drop a search cache entry by its full key. Used by the library-bypass
+ *  endpoint to clear stale results before the user re-searches. */
+export function deleteSearchCacheEntry(cacheKey: string): boolean {
+  return cache.del(cacheKey) > 0;
+}
+
+export function buildSearchCacheKey(manifestKey: string, type: string, id: string, cfg: typeof config): string {
+  const easynewsSuffix = cfg.easynewsEnabled ? ':en' : '';
+  const packsSuffix = cfg.searchConfig?.includeSeasonPacks ? ':packs' : '';
+  if (cfg.indexManager === 'prowlarr' || cfg.indexManager === 'nzbhydra') {
+    const syncedEnabled = (cfg.syncedIndexers || []).filter(i => i.enabledForSearch);
+    const syncedFingerprint = syncedEnabled
+      .map(i => `${i.id}:${type === 'movie' ? i.movieSearchMethod : i.tvSearchMethod}`)
+      .join(',');
+    return `${manifestKey}:stream:${type}:${id}:${cfg.indexManager}:${syncedFingerprint}${packsSuffix}${easynewsSuffix}`;
+  }
+  const enabledIndexers = cfg.indexers.filter(i => i.enabled);
+  const methodsFingerprint = enabledIndexers
+    .map(i => `${i.name}:${type === 'movie' ? (i.movieSearchMethod || ['imdb']).join('+') : (i.tvSearchMethod || ['imdb']).join('+')}`)
+    .join(',');
+  return `${manifestKey}:stream:${type}:${id}:${methodsFingerprint}${packsSuffix}${easynewsSuffix}`;
+}
 
 // Stream handler - called when user wants to watch something
 builder.defineStreamHandler(async ({ type, id }) => {
@@ -105,21 +134,20 @@ builder.defineStreamHandler(async ({ type, id }) => {
       episode = parts[2] ? parseInt(parts[2], 10) : undefined;
     }
 
-    // Build cache key based on index manager mode
-    const easynewsSuffix = config.easynewsEnabled ? ':en' : '';
-    let cacheKey: string;
-    if (config.indexManager === 'prowlarr' || config.indexManager === 'nzbhydra') {
-      const syncedEnabled = (config.syncedIndexers || []).filter(i => i.enabledForSearch);
-      const syncedFingerprint = syncedEnabled
-        .map(i => `${i.id}:${type === 'movie' ? i.movieSearchMethod : i.tvSearchMethod}`)
-        .join(',');
-      cacheKey = `stream:${type}:${id}:${config.indexManager}:${syncedFingerprint}${config.searchConfig?.includeSeasonPacks ? ':packs' : ''}${easynewsSuffix}`;
-    } else {
-      const enabledIndexers = config.indexers.filter(i => i.enabled);
-      const methodsFingerprint = enabledIndexers
-        .map(i => `${i.name}:${type === 'movie' ? (i.movieSearchMethod || ['imdb']).join('+') : (i.tvSearchMethod || ['imdb']).join('+')}`)
-        .join(',');
-      cacheKey = `stream:${type}:${id}:${methodsFingerprint}${config.searchConfig?.includeSeasonPacks ? ':packs' : ''}${easynewsSuffix}`;
+    // Manifest-scoped cache + bypass key. Both share the same manifestKey so a
+    // bypass-tile click under manifest A doesn't affect manifest B.
+    const requestManifestKey = requestContext.getStore()?.manifestKey || '';
+    const cacheKey = buildSearchCacheKey(requestManifestKey, type, id, config);
+
+    // Pre-search bypass check — fires FIRST, before the cache-hit gate below.
+    // Set when the user clicks the "Query indexers on next search" tile after a
+    // library short-circuit. One-shot consumption: the marker clears the moment
+    // we read it. When set, library scan is skipped for THIS search and
+    // indexer/EasyNews flow runs instead.
+    const bypassKey = `${requestManifestKey}:${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`;
+    const libraryBypassed = consumeLibraryBypass(bypassKey);
+    if (libraryBypassed) {
+      console.log(`📚 Ultimate Library bypassed for this search (user-armed via tile)`);
     }
 
     // === SHARED: Filter dead NZBs from raw results ===
@@ -179,7 +207,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     };
 
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
-    const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; now: number; runtime?: number }) => {
+    const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; now: number; runtime?: number; shortCircuited?: boolean }) => {
       // Filter dead NZBs
       let allResults = filterDeadFromRaw(rawResults);
 
@@ -240,6 +268,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         episodesInSeason: titleMeta.episodesInSeason,
         now: titleMeta.now,
         runtime: titleMeta.runtime,
+        shortCircuited: titleMeta.shortCircuited,
       });
 
       return { streams, fallbackGroupId, fallbackCandidates, allResults };
@@ -349,7 +378,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     let libraryResults: any[] = [];
     let shortCircuited = false;
     const libraryThreshold = config.searchConfig?.librarySearchThreshold ?? 0;
-    if (libraryThreshold > 0 && config.streamingMode === 'nzbdav' && config.nzbdavUrl) {
+    if (libraryThreshold > 0 && config.streamingMode === 'nzbdav' && config.nzbdavUrl && !libraryBypassed) {
       libraryResults = await searchLibrary(searchCtx, buildNzbdavConfig());
       if (libraryResults.length > 0) {
         // Pre-check: dedup + user-filters on library-only set. No fallback group,
@@ -403,7 +432,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const healthMap = new Map<string, any>();
     const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
       rawResults, deprioritizedPacks, healthMap,
-      { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, now, runtime: titleInfo.runtime }
+      { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, now, runtime: titleInfo.runtime, shortCircuited }
     );
 
     // Cache raw results + deprioritized packs + health map (filters/sorts reapply on cache hits).

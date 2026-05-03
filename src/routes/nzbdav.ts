@@ -17,8 +17,10 @@ import { PassThrough } from 'stream';
 import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
 import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
-import { evictReadyByVideoPath, markVideoPathBroken } from '../nzbdav/streamCache.js';
+import { evictReadyByVideoPath, markVideoPathBroken, markLibraryBypass } from '../nzbdav/streamCache.js';
+import { sendLibraryBypassArmedVideo } from '../nzbdav/streamHandler.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
+import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
 
 interface NzbdavDeps {
   config: Config;
@@ -206,6 +208,43 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   // Range probes and seek bursts otherwise spam the log during active playback.
   const loggedStreamHits = new Set<string>();
   const STREAM_HIT_LOG_TTL_MS = 15_000;
+
+  // Per-bypassKey log dedup. The bypass tile click triggers the player to fetch
+  // the URL with multiple range requests; without this, the "bypass armed" log
+  // fires once per range request. 30s TTL covers the burst of probe + open
+  // requests on a single user click.
+  const recentLoggedBypassKeys = new Set<string>();
+
+  // Ultimate Library bypass endpoint — fired by the "Query indexers on next
+  // search" action-tile. Sets a one-shot, manifest-scoped marker so the next
+  // search of this content skips Ultimate Library and runs indexers instead.
+  // Drops the corresponding search cache entry so the next request re-evaluates
+  // fresh. Returns 204 (no body) — Stremio shows a brief toast and the user
+  // backs out; marker is set as a background side-effect.
+  router.get('/library-bypass', async (req, res) => {
+    // Source of truth for manifestKey is req.params (already validated by the
+    // validateManifestKey middleware mounted upstream). The sk query param is
+    // user-controlled and must NOT be trusted as the manifest scope.
+    const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
+    const sk = req.query.sk as string | undefined;
+    if (!manifestKey || !sk) return sendLibraryBypassArmedVideo(req, res);
+    // sk encodes ${manifestKey}:${type}:${imdbId}:${season}:${episode}. Skip
+    // index 0 (the embedded manifestKey) and use the validated path manifest.
+    const [, type, imdbId, season, episode] = sk.split(':');
+    if (!type || !imdbId) return sendLibraryBypassArmedVideo(req, res);
+    const id = (season || episode) ? `${imdbId}:${season || ''}:${episode || ''}` : imdbId;
+    const bypassKey = `${manifestKey}:${type}:${imdbId}:${season || ''}:${episode || ''}`;
+    markLibraryBypass(bypassKey);
+    // Drop only THIS content's existing search cache entry under THIS manifest.
+    const targetCacheKey = buildSearchCacheKey(manifestKey, type, id, config);
+    deleteSearchCacheEntry(targetCacheKey);
+    if (!recentLoggedBypassKeys.has(bypassKey)) {
+      console.log(`📚 Ultimate Library bypass armed for ${bypassKey} (5 min TTL)`);
+      recentLoggedBypassKeys.add(bypassKey);
+      setTimeout(() => recentLoggedBypassKeys.delete(bypassKey), 30_000).unref?.();
+    }
+    return sendLibraryBypassArmedVideo(req, res);
+  });
 
   // NZBDav stream endpoint (key-protected)
   // Uses history API polling to detect job completion/failure

@@ -283,6 +283,12 @@ const FAILURE_VIDEO_PATH = path.resolve(
     : 'ui/public/nzb_failure_video.mp4'
 );
 
+const LIBRARY_BYPASS_VIDEO_PATH = path.resolve(
+  fs.existsSync(path.resolve('ui/dist/library_bypass_armed_video.mp4'))
+    ? 'ui/dist/library_bypass_armed_video.mp4'
+    : 'ui/public/library_bypass_armed_video.mp4'
+);
+
 /**
  * Serve the failure video (a 3-hour static "Stream Unavailable" screen).
  * The extreme duration ensures Stremio never considers the episode "completed"
@@ -338,6 +344,62 @@ async function sendFailureVideo(req: Request, res: ExpressResponse): Promise<voi
     }
   } catch (fileErr) {
     console.error('\u274C Failed to serve failure video:', fileErr);
+    if (!res.headersSent) res.status(500).end();
+  }
+}
+
+/**
+ * Serve the library-bypass-armed video. Played when the user clicks the
+ * "Query indexers on next search" tile after Ultimate Library short-circuits.
+ * Conveys "bypass is armed; back out and search again to see indexer results."
+ * Mirrors sendFailureVideo's Range handling so external players stream cleanly.
+ */
+export async function sendLibraryBypassArmedVideo(req: Request, res: ExpressResponse): Promise<void> {
+  try {
+    const stat = fs.statSync(LIBRARY_BYPASS_VIDEO_PATH);
+    const fileSize = stat.size;
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (req.headers.range) {
+      const match = req.headers.range.match(/bytes=(\d+)-(\d*)/);
+      if (match) {
+        const start = parseInt(match[1]);
+        if (start >= fileSize) {
+          res.status(416);
+          res.setHeader('Content-Range', `bytes */${fileSize}`);
+          res.end();
+          return;
+        }
+        const end = match[2] ? Math.min(parseInt(match[2]), fileSize - 1) : fileSize - 1;
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+        res.setHeader('Content-Length', end - start + 1);
+        const readStream = fs.createReadStream(LIBRARY_BYPASS_VIDEO_PATH, { start, end });
+        try {
+          await pipelineAsync(readStream, res);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+            console.error('\u274C Library bypass video stream error:', err);
+          }
+        }
+        return;
+      }
+    }
+
+    res.status(200);
+    res.setHeader('Content-Length', fileSize);
+    const readStream = fs.createReadStream(LIBRARY_BYPASS_VIDEO_PATH);
+    try {
+      await pipelineAsync(readStream, res);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        console.error('\u274C Library bypass video stream error:', err);
+      }
+    }
+  } catch (fileErr) {
+    console.error('\u274C Failed to serve library bypass video:', fileErr);
     if (!res.headersSent) res.status(500).end();
   }
 }

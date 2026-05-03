@@ -71,6 +71,27 @@ export function clearVideoPathBroken(videoPath: string): void {
   brokenVideoPaths.delete(videoPath);
 }
 
+// One-shot per-content marker that the next search for the same cache key
+// should skip Ultimate Library and run indexer queries instead. Set when the
+// user clicks the "Query indexers on next search" tile after a library short-
+// circuit. Auto-expires after 5 minutes; consumed on the next matching search.
+// Key is manifest-scoped: ${manifestKey}:${type}:${imdbId}:${season}:${episode}.
+const LIBRARY_BYPASS_TTL_MS = 5 * 60_000;
+const libraryBypassMarkers = new Map<string, number>();
+
+export function markLibraryBypass(bypassKey: string): void {
+  libraryBypassMarkers.set(bypassKey, Date.now() + LIBRARY_BYPASS_TTL_MS);
+}
+
+/** Returns true exactly once per set marker (one-shot consumption). Auto-evicts on read. */
+export function consumeLibraryBypass(bypassKey: string): boolean {
+  const expiresAt = libraryBypassMarkers.get(bypassKey);
+  if (expiresAt === undefined) return false;
+  libraryBypassMarkers.delete(bypassKey);
+  if (Date.now() >= expiresAt) return false;
+  return true;
+}
+
 /** Dynamic TTL helpers — when mode is 'storage', entries never expire by time */
 export function getReadyTTLMs(): number {
   if (globalConfig.healthyNzbDbMode === 'storage') return Infinity;

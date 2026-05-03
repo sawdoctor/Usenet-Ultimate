@@ -64,6 +64,9 @@ export interface StreamBuildContext {
   episodesInSeason?: number;
   now: number;
   runtime?: number;
+  /** True when Ultimate Library short-circuited indexer queries; gates the
+   *  "Query indexers on next search" bypass tile insertion. */
+  shortCircuited?: boolean;
 }
 
 export interface StreamBuildOutput {
@@ -76,7 +79,7 @@ export interface StreamBuildOutput {
  * Build Stremio Stream objects from processed search results.
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
-  const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, now, runtime } = ctx;
+  const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, now, runtime, shortCircuited } = ctx;
   // sessionKey includes manifestKey so concurrent requests from different Stremio installations
   // don't share UF session state (avoids cross-tenant state leaks on multi-user deployments).
   const streamManifestKey = requestContext.getStore()?.manifestKey || '';
@@ -381,6 +384,24 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       behaviorHints: {
         notWebReady: false,
         bingeGroup: ufBingeGroup,
+      },
+    });
+  }
+
+  // Ultimate Library bypass tile — appears at index 1 when Ultimate Library
+  // short-circuited indexer queries. Lets the user request indexer results on
+  // the next search of this same content without toggling the feature in the
+  // UI. When UF lobby is at index 0, bypass lands at index 1 (after UF). When
+  // UF lobby is absent, the first library result is at index 0 and bypass at
+  // index 1. The tile is NEVER added to fallbackCandidates so UF skips it.
+  if (shortCircuited && sessionKey && streamManifestKey) {
+    const bypassUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-bypass?sk=${encodeURIComponent(sessionKey)}`;
+    streams.splice(1, 0, {
+      name: 'Skip Ultimate Library',
+      title: 'On the next request for this content, skip Ultimate Library and search indexers.',
+      url: bypassUrl,
+      behaviorHints: {
+        notWebReady: true,
       },
     });
   }

@@ -625,6 +625,7 @@ export function IndexManagerOverlay({
                   <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
                     <p>Scan your WebDAV library before any indexer is queried.</p>
                     <p>When Ultimate Library returns at least the configured number of results after filtering, indexer searches are skipped entirely.</p>
+                    <p>If library results aren't desired, click the "Skip Ultimate Library" tile which will always appear 2nd in the Ultimate Library results list. Your next search for that content will skip Ultimate Library and query your indexers instead. No settings change required.</p>
                     <p>Supports <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Fallback</span> and is powered by <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Text Search</span>.</p>
                   </div>
                   <p className="text-xs text-amber-400/60 italic">Pairs best with Season Packs enabled.</p>
