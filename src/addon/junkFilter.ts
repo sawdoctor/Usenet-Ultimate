@@ -21,15 +21,27 @@ export const JUNK_EMOJI = '🧹';
  */
 const JUNK_PATTERN = /(?:^|[^a-z0-9])(par2|nzb|rar|r\d{1,3}|\d{3})\s*$/i;
 
+/**
+ * H.26x video codec family — 261, 262 (MPEG-2), 263, 264 (AVC), 265 (HEVC),
+ * 266 (VVC). These appear as bare-numeral suffixes in legitimate releases
+ * (e.g. "Show.S01E12.Episode.264.mkv" or releases that drop the "x"/"h"
+ * prefix on the codec tag) and must not be treated as archive parts.
+ */
+const CODEC_NUMERAL = /^26[1-6]$/;
+
 export function isBareArchivePart(title: string): boolean {
   if (!title) return false;
-  return JUNK_PATTERN.test(title);
+  const m = title.match(JUNK_PATTERN);
+  if (!m) return false;
+  if (CODEC_NUMERAL.test(m[1])) return false;
+  return true;
 }
 
 export function matchedJunkKind(title: string): string | null {
   const m = title?.match(JUNK_PATTERN);
   if (!m) return null;
   const tok = m[1].toLowerCase();
+  if (CODEC_NUMERAL.test(tok)) return null;
   if (tok === 'par2') return 'par2';
   if (tok === 'nzb') return 'nzb';
   if (tok === 'rar') return 'rar';
