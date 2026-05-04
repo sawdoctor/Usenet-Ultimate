@@ -177,8 +177,15 @@ function loadCacheFromDisk(): void {
         const error = new Error(entry.error.message);
         (error as any).isNzbdavFailure = entry.error.isNzbdavFailure;
         (error as any).isTimeout = entry.error.isTimeout ?? false;
-        // Legacy entries lack isEpisodeSpecific — infer from the multi-episode message
-        (error as any).isEpisodeSpecific = entry.error.isEpisodeSpecific ?? (entry.error.message === MULTI_EPISODE_BLOCKED_ERROR);
+        // Migration: writers prior to this fix stored episode-keyed entries
+        // with isEpisodeSpecific=false, causing isDeadNzbByUrl to bleed them
+        // as URL-wide bans. OR the three signals (stored flag, key shape,
+        // legacy multi-episode message) so any truthy signal upgrades on load.
+        // `||` is required: ?? would short-circuit on the false boolean.
+        const fromFlag = entry.error.isEpisodeSpecific === true;
+        const fromKey = key.includes('::');
+        const fromMessage = entry.error.message === MULTI_EPISODE_BLOCKED_ERROR;
+        (error as any).isEpisodeSpecific = fromFlag || fromKey || fromMessage;
         if (entry.title) {
           // New format — key is url or url::episodePattern, title stored in entry
           // Normalize Prowlarr URLs to strip volatile `link` param for stable lookups
@@ -265,6 +272,10 @@ export function setReadyCacheEntry(cacheKey: string, data: StreamData, indexerNa
 /** Write a failed NZB directly to deadNzbCache (used by Ultimate-Fallback to bypass getOrCreateStream). */
 export function setDeadNzbEntry(nzbUrl: string, title: string, error: Error, episodePattern?: string, indexerName?: string, size?: number): void {
   const key = getDeadCacheKey(nzbUrl, episodePattern);
+  // Invariant: an episode-keyed entry must carry the flag. Otherwise the
+  // prefix-iter loop in isDeadNzbByUrl treats it as a URL-wide ban and
+  // blocks every other episode of the same NZB.
+  if (episodePattern) (error as any).isEpisodeSpecific = true;
   const now = Date.now();
   deadNzbCache.set(key, { title, indexerName, size, error, createdAt: now, expiresAt: now + getDeadTTLMs() });
   saveCacheToDisk();
@@ -403,6 +414,9 @@ export async function getOrCreateStream(
       const deadCreatedAt = Date.now();
       const persist = !error.isTimeout || globalConfig.nzbdavCacheTimeouts !== false;
       const ttl = persist ? getDeadTTLMs() : (globalConfig.cacheTTL || 7200) * 1000;
+      // deadKey is episode-specific when episodePattern is set; tag the error
+      // so isDeadNzbByUrl's prefix-iter loop skips it as URL-wide.
+      if (episodePattern) (error as any).isEpisodeSpecific = true;
       deadNzbCache.set(deadKey, {
         title,
         indexerName,
@@ -548,6 +562,9 @@ export function evictReadyByVideoPath(videoPath: string, markDead: boolean = tru
             const now = Date.now();
             const error = new Error('Video file no longer available (404)');
             (error as any).isNzbdavFailure = true;
+            // deadKey is episode-specific when episodePattern is set; tag the error
+            // so isDeadNzbByUrl's prefix-iter loop skips it as URL-wide.
+            if (episodePattern) (error as any).isEpisodeSpecific = true;
             deadNzbCache.set(deadKey, {
               title: extractTitle(key),
               indexerName: entry.indexerName,
