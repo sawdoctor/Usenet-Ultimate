@@ -18,7 +18,7 @@ import { Router } from 'express';
 import { parseRankedRulesJson, previewTemplate, type ImportResult, type ImportWarning } from '../rules/importers.js';
 import { getCompiledRules, previewSingle, buildStreamContext } from '../rules/rankEngine.js';
 import { fetchRemoteJson, RemoteFetchError } from '../rules/remoteFetch.js';
-import { parseMetadata } from '../parsers/metadataParsers.js';
+import { parseMetadata, parseSeasonPack } from '../parsers/metadataParsers.js';
 
 const MAX_PREVIEW_RULES = 1000;
 
@@ -114,6 +114,12 @@ export function createRulesRoutes(): Router {
         edition: parsed.edition,
         language: parsed.language,
         seeders: null,
+        // Derived from the sample title via parse-torrent-title so SEL
+        // seasonPack() filters can be live-tested. Other context-dependent
+        // attrs (size, age, bitrate) can't be synthesized from a title alone
+        // and remain at their zero/null defaults. Rules using those
+        // functions need to be tested against real search results.
+        seasonPack: parseSeasonPack(sample),
       });
       // Query context lets SEL expressions branch on `queryType == 'movie'`.
       // Default to 'movie' for preview; the UI can pass its own if needed.

@@ -331,6 +331,17 @@ export function parseYear(title: string): string | undefined {
   return parseTorrentTitle(title).year;
 }
 
+/**
+ * Detect whether a title represents a season pack (one or more seasons, no
+ * episode markers). Used by the rule preview endpoint so SEL `seasonPack()`
+ * filters can be tested against a single sample title without going through
+ * the full search pipeline that normally tags pack results upstream.
+ */
+export function parseSeasonPack(title: string): boolean {
+  const parsed = parseTorrentTitle(title);
+  return (parsed.seasons?.length ?? 0) > 0 && (parsed.episodes?.length ?? 0) === 0;
+}
+
 export function buildStreamFilename(title: string, type: string, season?: number, episode?: number): string {
   const parsed = parseCleanTitle(title);
   const year = type === 'movie' ? parseYear(title) : undefined;

@@ -763,6 +763,7 @@ function LiveTestField({ rules, apiFetch }: LiveTestFieldProps) {
         placeholder="Paste a release title to see which rules match and the total score…"
         className="w-full px-2 py-1.5 text-xs font-mono bg-slate-900/70 border border-slate-700/50 rounded text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
       />
+      <p className="text-[11px] text-slate-500 italic">Only title-derived scoring is testable. Rules that filter on size, age, or bitrate need a real search to evaluate. Those attributes can't be inferred from the title alone.</p>
       {error && (
         <div className="flex items-start gap-2 p-2 rounded bg-red-500/10 border border-red-500/30 text-xs text-red-300">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
