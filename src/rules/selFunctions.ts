@@ -47,6 +47,35 @@ function asNumber(v: unknown): number | null {
   return null;
 }
 
+/**
+ * Parse a size value to bytes. Accepts raw numbers (passed through),
+ * bare numeric strings (treated as bytes), and suffixed strings using
+ * binary units: K/KB = 1024, M/MB = 1024², G/GB = 1024³, T/TB = 1024⁴.
+ * Case-insensitive. Returns null for unparseable input. Used by size()
+ * so quoted-string args like '1GB'/'500m' work as the docstring promises;
+ * bare unquoted numeric literals (e.g. 1g, 500m) are already converted
+ * by the SEL parser at compile time, so they arrive here as numbers.
+ */
+function parseSizeBytes(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string') return null;
+  const m = v.trim().match(/^(\d+(?:\.\d+)?)\s*([kmgt])b?$/i);
+  if (m) {
+    const n = parseFloat(m[1]);
+    if (!Number.isFinite(n)) return null;
+    const mult: Record<string, number> = {
+      k: 1024,
+      m: 1024 * 1024,
+      g: 1024 * 1024 * 1024,
+      t: 1024 * 1024 * 1024 * 1024,
+    };
+    return n * mult[m[2].toLowerCase()];
+  }
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function dedupRefs(streams: StreamRef[]): StreamRef[] {
   const seen = new Set<unknown>();
   const out: StreamRef[] = [];
@@ -207,8 +236,8 @@ const indexer: SelFunction = (args) => {
  */
 const size: SelFunction = (args) => {
   const streams = asArray(args[0]);
-  const min = asNumber(args[1]);
-  const max = asNumber(args[2]);
+  const min = parseSizeBytes(args[1]);
+  const max = parseSizeBytes(args[2]);
   return streams.filter(s => {
     const sz = typeof s.attrs.size === 'number' ? s.attrs.size : null;
     if (sz === null) return false;
