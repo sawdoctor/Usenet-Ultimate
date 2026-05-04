@@ -11,7 +11,7 @@
  *    and enforces configurable size bounds
  */
 
-import { parseMetadata, parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, parseYear, formatBytes } from '../parsers/metadataParsers.js';
+import { parseMetadata, parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, parseYear, parseDurationAttr, formatBytes } from '../parsers/metadataParsers.js';
 import { isRemakeFiltered } from '../parsers/titleMatching.js';
 import { applyRules as engineApplyRules, buildStreamContext } from '../rules/rankEngine.js';
 import type { FilterConfig } from '../types.js';
@@ -189,7 +189,7 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
  *
  * `queryType` is 'movie' or 'series' — SEL templates branch on this.
  */
-export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig, queryType?: string): any[] {
+export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig, queryType?: string, runtime?: number): any[] {
   const regexCount = filterConfig?.rules?.rankedRegexPatterns?.length ?? 0;
   const selCount   = filterConfig?.rules?.rankedStreamExpressions?.length ?? 0;
   if (!filterConfig?.rules || (regexCount === 0 && selCount === 0)) {
@@ -211,6 +211,15 @@ export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig,
     filterConfig,
     (r) => {
       const parsed = parseMetadata(r.title || '');
+      // Resolve duration via the same fallback chain used in streamBuilder.ts:
+      // EasyNews-provided duration → Newznab attribute → query-level runtime.
+      let durationSec: number | undefined = r.duration;
+      if (!durationSec) {
+        const runtimeAttr = r.attributes?.runtime || r.attributes?.duration;
+        if (runtimeAttr) durationSec = parseDurationAttr(String(runtimeAttr));
+      }
+      if (!durationSec && runtime) durationSec = runtime;
+      const bitrate = durationSec && r.size ? Math.round((r.size * 8) / durationSec) : null;
       return buildStreamContext({
         title: r.title,
         filename: r.filename ?? r.title,
@@ -226,6 +235,8 @@ export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig,
         edition: parsed.edition,
         language: parsed.language,
         seeders: null,
+        bitrate,
+        seasonPack: r.isSeasonPack ?? false,
       });
     },
     queryType,

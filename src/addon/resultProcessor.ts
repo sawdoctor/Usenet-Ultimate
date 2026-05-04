@@ -55,9 +55,9 @@ export function applyUserFilters(results: any[], type: string, now?: number, run
   const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
   const queryType = type === 'movie' ? 'movie' : 'series';
   results = applyQualityFilters(results, filterConfig);
-  results = applyRankedRules(results, filterConfig, queryType);
+  results = applyRankedRules(results, filterConfig, queryType, runtime);
   let filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];
-  if (filteredDeprioritized.length) filteredDeprioritized = applyRankedRules(filteredDeprioritized, filterConfig, queryType);
+  if (filteredDeprioritized.length) filteredDeprioritized = applyRankedRules(filteredDeprioritized, filterConfig, queryType, runtime);
   results = sortResults(results, filterConfig, now, runtime);
   results = [...results, ...filteredDeprioritized];
   results = applyStreamLimits(results, filterConfig);

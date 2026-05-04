@@ -181,6 +181,8 @@ export function buildStreamContext(parsed: {
   edition?: string;
   language?: string;
   seeders?: number | null;
+  bitrate?: number | null;
+  seasonPack?: boolean;
 }): StreamContext {
   return {
     title: parsed.title ?? '',
@@ -197,6 +199,8 @@ export function buildStreamContext(parsed: {
     edition: parsed.edition ?? '',
     language: parsed.language ?? '',
     seeders: parsed.seeders ?? null,
+    bitrate: parsed.bitrate ?? null,
+    seasonPack: parsed.seasonPack ?? false,
   };
 }
 

@@ -76,6 +76,28 @@ function parseSizeBytes(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Parse a bitrate value to bits per second. Accepts raw numbers (passed
+ * through), bare numeric strings (treated as bps), and suffixed strings
+ * with decimal units: K/Kbps = 1000, M/Mbps = 10⁶, G/Gbps = 10⁹.
+ * Bitrate uses decimal units by convention (network/encoding standards);
+ * differs from size which uses binary units.
+ */
+function parseBitrateBps(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string') return null;
+  const m = v.trim().match(/^(\d+(?:\.\d+)?)\s*([kmg])(?:bps|b\/s|bit\/s)?$/i);
+  if (m) {
+    const n = parseFloat(m[1]);
+    if (!Number.isFinite(n)) return null;
+    const mult: Record<string, number> = { k: 1e3, m: 1e6, g: 1e9 };
+    return n * mult[m[2].toLowerCase()];
+  }
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function dedupRefs(streams: StreamRef[]): StreamRef[] {
   const seen = new Set<unknown>();
   const out: StreamRef[] = [];
@@ -265,6 +287,37 @@ const age: SelFunction = (args) => {
 };
 
 /**
+ * bitrate(streams, min?, max?): filter by bits per second.
+ * Both bounds optional; string suffixes (5Mbps, 500kbps, 1.2g) supported via
+ * parseBitrateBps. Streams without computable duration get null bitrate and
+ * are rejected by any bound check.
+ */
+const bitrate: SelFunction = (args) => {
+  const streams = asArray(args[0]);
+  const min = parseBitrateBps(args[1]);
+  const max = parseBitrateBps(args[2]);
+  return streams.filter(s => {
+    const v = typeof s.attrs.bitrate === 'number' ? s.attrs.bitrate : null;
+    if (v === null) return false;
+    if (min !== null && v < min) return false;
+    if (max !== null && v > max) return false;
+    return true;
+  });
+};
+
+/**
+ * seasonPack(streams, mode?): filter season packs.
+ * The mode arg ('seasonPack' or 'onlySeasons') is parsed but treated
+ * identically: spec distinguishes torrent-origin metadata from title-only
+ * checks, but our addon has no torrent-origin distinction so both modes
+ * return the same set.
+ */
+const seasonPack: SelFunction = (args) => {
+  const streams = asArray(args[0]);
+  return streams.filter(s => s.attrs.seasonPack === true);
+};
+
+/**
  * negate(toExclude, original) — return streams in `original` that are NOT
  * in `toExclude`. Classic set difference; templates use this
  * for "everything except 4K" patterns: `negate(resolution(streams, '2160p'), streams)`.
@@ -320,6 +373,8 @@ export const BUILTIN_FUNCTIONS: Record<string, SelFunction> = {
   indexer,
   size,
   age,
+  bitrate,
+  seasonPack,
   negate,
   merge,
   slice,

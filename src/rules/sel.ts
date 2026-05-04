@@ -36,6 +36,7 @@
 export const ALLOWED_ATTRIBUTES = [
   'resolution', 'codec', 'releaseGroup', 'visualTag', 'audioTag', 'videoTag',
   'edition', 'language', 'size', 'title', 'filename', 'indexer', 'age', 'seeders',
+  'bitrate', 'seasonPack',
 ] as const;
 export type AllowedAttribute = typeof ALLOWED_ATTRIBUTES[number];
 const ALLOWED_SET = new Set<string>(ALLOWED_ATTRIBUTES);
@@ -414,7 +415,7 @@ export function compile(expression: string): CompiledExpr {
 // ─── Evaluator ────────────────────────────────────────────────────────
 
 /** Per-stream attribute map for legacy `stream.codec == '...'`-style expressions. */
-export type StreamContext = Partial<Record<AllowedAttribute, string | number | null | undefined>>;
+export type StreamContext = Partial<Record<AllowedAttribute, string | number | boolean | null | undefined>>;
 
 /** Opaque stream reference used by set-level functions. */
 export interface StreamRef {
