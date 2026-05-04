@@ -45,6 +45,7 @@ const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether 
 const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 500; // Safety cap on self-redirects — supports large fallback chains without infinite loops
 const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
 const DEDUP_CACHE_TTL_MS = 600_000;      // 10 min — covers a typical play session's seeks/probes without library-check overhead; eviction mid-session self-heals via the broken-path marker + live videoPathExists gate
+const LOBBY_CACHED_LOG_THROTTLE_MS = 15_000; // Suppress repeat "cached resolve served" lines within this window (matches /stream hit throttle)
 // Self-redirect query params (internal, appended to stream URL during 302 redirects):
 //   _rc — redirect count: how many self-redirects have occurred (prevents infinite loops)
 //   _ci — candidate index: which fallback candidate to resume at (avoids restarting from 0)
@@ -735,9 +736,19 @@ export async function handleStream(
           if (!lobbyFallbackOn) mode = 'proxy';
           const lastLobby = lastDeliveryLog.get(streamData.videoPath);
           const shouldLogLobby = !lastLobby || lastLobby.mode !== mode;
-          lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
+          const nowTs = Date.now();
+          // Throttle the cached-resolve log so range probes and seek bursts
+          // don't emit one line per request; only relog after the window elapses.
+          const shouldLogCached = !shouldLogLobby
+            && (!lastLobby || (nowTs - lastLobby.at) >= LOBBY_CACHED_LOG_THROTTLE_MS);
+          if (shouldLogLobby || shouldLogCached) {
+            lastDeliveryLog.set(streamData.videoPath, { mode, at: nowTs });
+          } else {
+            // Keep mode current but don't push the throttle window forward
+            lastDeliveryLog.set(streamData.videoPath, { mode, at: lastLobby!.at });
+          }
           if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Fallback result for ${sessionKey}`);
-          else console.log(`👑 Lobby: cached resolve served (sk=${sessionKey})`);
+          else if (shouldLogCached) console.log(`👑 Lobby: cached resolve served (sk=${sessionKey})`);
           const lobbySizeSuffix = streamData.videoSize ? ` (${formatBytes(streamData.videoSize)})` : '';
           if (mode !== 'direct') {
             const inline = proxyFn && !lobbyFallbackOn;
