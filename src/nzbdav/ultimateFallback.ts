@@ -22,7 +22,7 @@ import { NntpConnectionPool } from '../health/nntpConnection.js';
 import type { HealthCheckResult } from '../health/types.js';
 import { isDeadNzbByUrl, getCacheKey, setReadyCacheEntry, setDeadNzbEntry, addDeadNzbByUrl, saveCacheToDisk } from './streamCache.js';
 import { submitNzb, waitForJobCompletion, cancelJob, prefetchNzb } from './nzbdavApi.js';
-import { checkNzbLibrary, waitForVideoFile } from './videoDiscovery.js';
+import { checkNzbLibrary, checkLibraryVideoPath, waitForVideoFile } from './videoDiscovery.js';
 import { encodeWebdavPath, nzbdavError } from './utils.js';
 import { selectTimeoutMs, formatTimeoutSeconds, type TimeoutSet } from './timeoutDefaults.js';
 import type { FallbackCandidate, NZBDavConfig, StreamData } from './types.js';
@@ -345,15 +345,34 @@ export async function ultimateFallbackFromCandidates(
     console.log(`${tag} Starting — ${allCandidates.length} candidate(s), pool size ${options.candidateCount}, mode: ${options.preferenceMode} (movies=${formatTimeoutSeconds(activeSet.movies)}, tv=${formatTimeoutSeconds(activeSet.tv)}, pack=${formatTimeoutSeconds(activeSet.seasonPack)})`);
 
     // ── Stage 1: Library pre-check on ALL candidates ────────────
+    // Library-origin candidates (libraryVideoPath set) probe the exact path
+    // produced by the search-side scan, which avoids reconstructing the path
+    // via resolveCategory + title. This matters for /content/uncategorized/...
+    // hits where resolveCategory would otherwise build the wrong root.
     const libraryTasks = allCandidates
       .filter(c => !isDeadNzbByUrl(c.nzbUrl))
-      .map((candidate, i) => () =>
-        checkNzbLibrary(candidate.title, nzbdavConfig, episodePattern, contentType, episodesInSeason, `${tag} [lib #${i + 1}] `, true)
+      .map((candidate, i) => () => {
+        const probe = candidate.libraryVideoPath
+          ? checkLibraryVideoPath(candidate.libraryVideoPath, candidate.size ?? 0, nzbdavConfig, `${tag} [lib #${i + 1}] `, true)
+          : checkNzbLibrary(candidate.title, nzbdavConfig, episodePattern, contentType, episodesInSeason, `${tag} [lib #${i + 1}] `, true);
+        return probe
           .then(data => ({ candidate, index: i, data }))
-          .catch(() => ({ candidate, index: i, data: null as StreamData | null }))
-      );
+          .catch(() => ({ candidate, index: i, data: null as StreamData | null }));
+      });
 
     const libraryResults = await runWithConcurrency(libraryTasks, 4);
+
+    // Library-origin candidates whose probe missed (file 404 or unreachable)
+    // record an episode-specific dead entry so subsequent requests for THIS
+    // exact episode short-circuit the slow probe. The episode-specific key
+    // shape ensures other episodes of the same NZB are not blocked.
+    for (const r of libraryResults) {
+      if (r.data === null && r.candidate.libraryVideoPath) {
+        const err = new Error('Library file not servable (probe miss)');
+        (err as any).isNzbdavFailure = true;
+        setDeadNzbEntry(r.candidate.nzbUrl, r.candidate.title, err, episodePattern, r.candidate.indexerName, r.candidate.size);
+      }
+    }
 
     if (controller.signal.aborted) return;
 
@@ -485,6 +504,16 @@ export async function ultimateFallbackFromCandidates(
       const c = allCandidates[nextCandidateIdx];
       if (isDeadNzbByUrl(c.nzbUrl)) { nextCandidateIdx++; i--; continue; }
       const isLibraryHit = hitUrls.has(c.nzbUrl);
+      // Library-origin candidate that missed the probe: skip past, do not
+      // consume a pool slot. The candidate has nothing for UF to do (its NZB
+      // URL is library:..., not graspable), and a dead-NZB entry was just
+      // recorded above so future requests for THIS episode short-circuit.
+      if (!isLibraryHit && c.nzbUrl.startsWith('library:')) {
+        console.log(`${tag} \u23ED\uFE0F library-miss (probe failed), skipping ${c.title}`);
+        nextCandidateIdx++;
+        i--;
+        continue;
+      }
       // Honor maxAttempts cap on initial pool fill too. Library hits don't count
       // (they resolve for free); library hits beyond this point will be picked up
       // by the post-drain sweep.
@@ -644,6 +673,13 @@ export async function ultimateFallbackFromCandidates(
         const c = allCandidates[nextCandidateIdx];
         nextCandidateIdx++;
         if (isDeadNzbByUrl(c.nzbUrl)) continue;
+        // Library-origin candidate that missed the probe: skip past so the
+        // pool slot goes to a viable candidate. See parallel guard in the
+        // initial pool fill above for rationale.
+        if (c.nzbUrl.startsWith('library:') && !hitUrls.has(c.nzbUrl)) {
+          console.log(`${tag} \u23ED\uFE0F library-miss (probe failed), skipping ${c.title}`);
+          continue;
+        }
         const cs = addToPool(c, nextCandidateIdx - 1);
         if (primaryResolved && !hitUrls.has(c.nzbUrl)) postPrimaryGrabs++;
         if (!primaryResolved && !hitUrls.has(c.nzbUrl)) primaryAttempts++;

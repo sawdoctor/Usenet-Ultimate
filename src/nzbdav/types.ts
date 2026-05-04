@@ -53,6 +53,11 @@ export interface FallbackCandidate {
   indexerName: string;
   size?: number;
   isSeasonPack?: boolean;
+  /** Full WebDAV path, set only for library-origin candidates (mirrors
+   *  RawResult.libraryVideoPath). Lets UF probe the exact file regardless of
+   *  which root it lives under, including /content/uncategorized/... where
+   *  resolveCategory would otherwise reconstruct the wrong path. */
+  libraryVideoPath?: string;
 }
 
 export interface FallbackGroup {

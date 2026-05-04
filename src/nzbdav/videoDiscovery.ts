@@ -217,6 +217,55 @@ export async function waitForVideoFile(
  * Check if a video file already exists in the NZBDav library (WebDAV).
  * Returns StreamData if found, null if not present.
  */
+/** Range-probe a known WebDAV path to confirm the file is servable. Returns
+ *  StreamData on 200/206, null on 404/410/non-success/timeout. The caller
+ *  supplies `size`; Content-Length is not extracted here. */
+async function probeServable(
+  config: NZBDavConfig,
+  videoPath: string,
+  size: number,
+  logPrefix: string,
+  quiet: boolean,
+): Promise<StreamData | null> {
+  const webdavBase = (config.webdavUrl || config.url).replace(/\/+$/, '');
+  const probeUrl = `${webdavBase}${encodeWebdavPath(videoPath)}`;
+  const probeHeaders: Record<string, string> = { 'Range': 'bytes=0-0' };
+  if (config.webdavUser && config.webdavPassword) {
+    probeHeaders['Authorization'] = 'Basic ' + Buffer.from(`${config.webdavUser}:${config.webdavPassword}`).toString('base64');
+  }
+  try {
+    const probeResp = await fetch(probeUrl, { headers: probeHeaders, signal: AbortSignal.timeout(10_000) });
+    await probeResp.body?.cancel().catch(() => {});
+    if (probeResp.status === 404 || probeResp.status === 410) {
+      if (!quiet) console.log(`${logPrefix}📚 Library HIT but file not servable (${probeResp.status}), treating as miss`);
+      return null;
+    }
+    if (probeResp.status !== 200 && probeResp.status !== 206) {
+      if (!quiet) console.warn(`${logPrefix}📚 Library probe returned ${probeResp.status}, treating as miss`);
+      return null;
+    }
+  } catch (probeErr) {
+    if (!quiet) console.warn(`${logPrefix}📚 Library probe failed (${(probeErr as Error).message}), treating as miss`);
+    return null;
+  }
+  return { nzoId: 'library', videoPath, videoSize: size };
+}
+
+/** Probe a fully-resolved library video path directly, without walking via
+ *  findVideoFile. Used by Ultimate-Fallback when the search already produced
+ *  the exact file path on a library-origin candidate, regardless of which
+ *  root (configured category or /content/uncategorized/...) it lives under. */
+export async function checkLibraryVideoPath(
+  videoPath: string,
+  size: number,
+  config: NZBDavConfig,
+  logPrefix = '',
+  quiet = false,
+): Promise<StreamData | null> {
+  if (!quiet) console.log(`${logPrefix}\u{1F4DA} NZB library check (direct): ${videoPath}`);
+  return probeServable(config, videoPath, size, logPrefix, quiet);
+}
+
 export async function checkNzbLibrary(
   title: string,
   config: NZBDavConfig,
@@ -236,36 +285,10 @@ export async function checkNzbLibrary(
     const video = await findVideoFile(client, dirPath, 0, episodePattern, episodesInSeason);
     if (video) {
       const sizeMB = Math.round(video.size / 1024 / 1024);
-
-      // Probe: verify the file is actually servable (not corrupted/gone)
-      const webdavBase = (config.webdavUrl || config.url).replace(/\/+$/, '');
-      const probeUrl = `${webdavBase}${encodeWebdavPath(video.path)}`;
-      const probeHeaders: Record<string, string> = { 'Range': 'bytes=0-0' };
-      if (config.webdavUser && config.webdavPassword) {
-        probeHeaders['Authorization'] = 'Basic ' + Buffer.from(`${config.webdavUser}:${config.webdavPassword}`).toString('base64');
-      }
-      try {
-        const probeResp = await fetch(probeUrl, { headers: probeHeaders, signal: AbortSignal.timeout(10_000) });
-        await probeResp.body?.cancel().catch(() => {});
-        if (probeResp.status === 404 || probeResp.status === 410) {
-          if (!quiet) console.log(`${logPrefix}📚 Library HIT but file not servable (${probeResp.status}) — treating as miss`);
-          return null;
-        }
-        if (probeResp.status !== 200 && probeResp.status !== 206) {
-          if (!quiet) console.warn(`${logPrefix}📚 Library probe returned ${probeResp.status} — treating as miss`);
-          return null;
-        }
-      } catch (probeErr) {
-        if (!quiet) console.warn(`${logPrefix}📚 Library probe failed (${(probeErr as Error).message}) — treating as miss`);
-        return null;
-      }
-
+      const stream = await probeServable(config, video.path, video.size, logPrefix, quiet);
+      if (!stream) return null;
       if (!quiet) console.log(`${logPrefix}📚 Library HIT - skipping indexer grab: ${video.path} (${sizeMB}MB)`);
-      return {
-        nzoId: 'library',
-        videoPath: video.path,
-        videoSize: video.size,
-      };
+      return stream;
     }
   } catch (err) {
     if ((err as any).isNzbdavFailure) throw err;
