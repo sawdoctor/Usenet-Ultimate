@@ -372,27 +372,49 @@ export class UsenetSearcher {
         let filtered: NZBSearchResult[];
         let removed: NZBSearchResult[];
         if (isDate) {
-          // Date-numbered match: daily/talk-show releases append the guest name
-          // after the air date, so the extracted title for `Show.2024.05.21.Guest...`
-          // is `Show Guest` rather than just `Show`. Standard exact-title equality
-          // fails. Instead require: the indexer query already matched the air
-          // date (via the date-formatted query), so we only need to confirm the
-          // expected title appears as a prefix of the extracted title.
+          // Date-numbered match runs in two passes so each rejection cause
+          // shows up in its own log block, matching the convention used by
+          // the title / remake / multi-episode / disabled-encodes filters.
+          //
+          // Pass 1: date filter. The indexer treats the date tokens as fuzzy
+          // keywords and returns releases dated any day that share the title
+          // (e.g. a query for `Stephen Colbert 2025.09.02` brings back hits
+          // dated 2025.09.16, 2025.12.09, etc). Re-verify the requested air
+          // date is present in the release title.
+          const [y, mo, d] = options!.airedDate!.slice(0, 10).split('-');
+          const requestedDate = new RegExp(`\\b${y}[.\\s_-]?${mo}[.\\s_-]?${d}\\b`);
+          const dateOk = (r: NZBSearchResult) => requestedDate.test(r.title);
+          const dateFiltered = results.filter(dateOk);
+          if (before !== dateFiltered.length) {
+            const wrongDate = results.filter(r => !dateOk(r));
+            console.log(`   🎯 Date filter: ${before} → ${dateFiltered.length} (removed ${wrongDate.length} wrong date${wrongDate.length === 1 ? '' : 's'})`);
+            wrongDate.forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
+
+          // Pass 2: title filter. Daily/talk-show releases append the guest
+          // name after the air date, so the extracted title for
+          // `Show.<date>.Guest...` is `Show Guest` rather than `Show`.
+          // Standard exact-title equality fails; require the alias to be a
+          // prefix of the extracted release title instead.
           const normExpected = normalizeTitle(title);
-          const passes = (r: NZBSearchResult): boolean => {
+          const titleOk = (r: NZBSearchResult): boolean => {
             const cleaned = matchTitle(r.title);
             const extractedNorm = normalizeTitle(extractTitleFromRelease(cleaned));
             return normExpected.length > 0 && extractedNorm.startsWith(normExpected);
           };
-          filtered = results.filter(passes);
-          removed = results.filter(r => !passes(r));
+          filtered = dateFiltered.filter(titleOk);
+          removed = dateFiltered.filter(r => !titleOk(r));
+          if (dateFiltered.length !== filtered.length) {
+            console.log(`   🎯 Title filter: ${dateFiltered.length} → ${filtered.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
         } else {
           filtered = results.filter(r => isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
           removed = results.filter(r => !isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
-        }
-        if (before !== filtered.length) {
-          console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
-          removed.forEach(r => console.log(`      ✂️  ${r.title}`));
+          if (before !== filtered.length) {
+            console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
         }
 
         // Skip season-pack search on absolute-numbering AND date-numbered
