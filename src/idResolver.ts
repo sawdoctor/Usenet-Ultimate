@@ -473,6 +473,17 @@ export async function resolveTitleFromTvdb(
 }
 
 /**
+ * Synchronous title lookup from the in-process cache. Returns the cached
+ * TVDB title for the given IMDB ID, or the TMDB-cached fallback. Returns
+ * undefined on cache miss; never makes API calls. Intended for runtime
+ * recovery paths that need a title quickly without blocking on network.
+ */
+export function getCachedTitleByImdb(imdbId: string): string | undefined {
+  return idCache.get<string>(`title:${imdbId}`)
+    ?? idCache.get<string>(`title:tmdb:${imdbId}`);
+}
+
+/**
  * Clear the cached TVDB bearer token. Called when the user changes their TVDB
  * API key so the next request re-authenticates with the new key instead of
  * using the stale token issued for the old key.

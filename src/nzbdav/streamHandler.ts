@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';
+import { searchLibrary } from './librarySearch.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken, markVideoPathBroken, clearVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
@@ -20,6 +21,7 @@ import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, t
 import { encodeTileEnvelope, incrementRedirectCounter, parseTilePayload } from './redirectHelpers.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
+import { getCachedTitleByImdb } from '../idResolver.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -964,6 +966,52 @@ export async function handleStream(
 
     const backupCount = ufBackups?.backupStreams?.length ?? 0;
     const sessionExists = sessionKey ? getSessionPromise(sessionKey) !== null : false;
+    // Library check ONLY when session is gone (the post-clearSearchCache
+    // state). clearSearchCache wipes session/group memory but the resolved
+    // file is still on the WebDAV mount; do one check before giving up.
+    // Other UF failure modes (backups all broken, session active but no
+    // backups) keep current behavior since UF actively decided there's no
+    // usable file.
+    if (!sessionExists) {
+      const parts = (sessionKey ?? '').split(':');
+      // sk format: <manifestKey>:<type>:<imdbId>:<season>:<episode>
+      // Parsing from the tail handles anime IDs (kitsu:12345, mal:67890)
+      // which contain colons. Episode is always last; season second-to-last.
+      if (parts.length >= 5) {
+        const skType = parts[1];
+        const imdbId = parts.slice(2, -2).join(':');
+        const seasonStr = parts[parts.length - 2];
+        const episodeStr = parts[parts.length - 1];
+        const title = getCachedTitleByImdb(imdbId);
+        const isSupportedType = skType === 'movie' || skType === 'series';
+        if (title && isSupportedType) {
+          const season = seasonStr && !Number.isNaN(+seasonStr) ? +seasonStr : undefined;
+          const episode = episodeStr && !Number.isNaN(+episodeStr) ? +episodeStr : undefined;
+          try {
+            const hits = await searchLibrary({
+              type: skType,
+              imdbId,
+              title,
+              season,
+              episode,
+              isAnime: false,
+            }, buildNzbdavConfig());
+            const hitPath = hits[0]?.libraryVideoPath;
+            if (hitPath) {
+              console.log(`📚 UF tile: library check hit (sk=${sessionKey}) — serving ${hitPath}`);
+              const proxyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/v`);
+              proxyUrl.searchParams.set('path', hitPath);
+              proxyUrl.searchParams.set('_fb', req.originalUrl);
+              if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
+              res.redirect(302, proxyUrl.href);
+              return;
+            }
+          } catch (err) {
+            console.warn(`⚠️ UF tile library check failed: ${(err as Error).message}`);
+          }
+        }
+      }
+    }
     if (backupCount > 0) {
       console.log(`👑 UF tile: ${backupCount} backup(s) checked but all broken — serving failure video`);
     } else if (sessionExists) {
