@@ -383,12 +383,17 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     && config.streamingMode === 'nzbdav'
     && sessionKey
   ) {
-    // fbg lets the handler reach the full candidate list when UF-vetted
-    // backups are exhausted (fall-through iteration in streamHandler).
-    // Older clients with cached URLs lacking fbg degrade gracefully — no
-    // fall-through, just the failure video like before.
-    const fbgQuery = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-    const ufUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UF_STREAM_PATH}?sk=${encodeURIComponent(sessionKey)}${fbgQuery}`;
+    // Pack sk + fbg into a single base64url-encoded JSON envelope so the URL
+    // carries no `&`. iOS / Infuse handoff truncates URLs at the first `&`,
+    // which previously dropped fbg from the request once a second param was
+    // added (commit d5d9a42). When auto-resolve-on-search is off, no session
+    // is pre-populated for the sk and the lobby cannot fall back to a cached
+    // resolution; the truncated fbg leaves UF unable to look up the group at
+    // all. Same envelope shape as the library-delete tiles.
+    const ufPayload: { sk: string; fbg?: string } = { sk: sessionKey };
+    if (fallbackGroupId) ufPayload.fbg = fallbackGroupId;
+    const ufT = Buffer.from(JSON.stringify(ufPayload), 'utf8').toString('base64url');
+    const ufUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UF_STREAM_PATH}?t=${ufT}`;
     // bingeGroup matches regular tiles so cross-episode auto-play can continue via UF.
     const ufBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? 'usenetultimate' : undefined;
     const ufDisplay = ufTileDisplay(config.ultimateFallback?.preferenceMode);

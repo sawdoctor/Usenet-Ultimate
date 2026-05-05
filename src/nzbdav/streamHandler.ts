@@ -559,13 +559,16 @@ export async function handleStream(
     return;
   }
 
-  // Tile URL comes in one of two shapes:
-  //   (a) packed single-param: ?t=<fbg>.<idx>.<encodedSessionKey>.<season>.<episode>.<sp>.<epcount>
+  // Tile URL comes in one of three shapes:
+  //   (a) packed regular tile: ?t=<fbg>.<idx>.<encodedSessionKey>.<season>.<episode>.<sp>.<epcount>
   //       Presence of `t` implies user_pick=1. Used for external-player
   //       compatibility (Infuse truncates after the first `&`).
-  //   (b) legacy long form: ?nzb=&title=&type=&indexer=&fbg=&sk=&user_pick=...
-  //       Still accepted for in-flight cached URLs and UF tile's own
-  //       minimal ?sk= form.
+  //   (b) packed UF tile envelope: ?t=<base64url(JSON{sk,fbg?})>
+  //       Same single-param iOS-safe shape, base64url-encoded JSON. Detected
+  //       via filename === 'ultimate-fallback' to disambiguate from (a).
+  //       Falls through to (c) legacy params when the envelope can't decode.
+  //   (c) legacy long form: ?nzb=&title=&type=&indexer=&fbg=&sk=&user_pick=...
+  //       Still accepted for in-flight cached URLs.
   let nzbUrl: string;
   let title: string;
   let indexerName: string;
@@ -578,7 +581,23 @@ export async function handleStream(
   let tPackEpcount: string | undefined;
   let tPackUserPick = false;
   const tParam = req.query.t as string | undefined;
-  if (tParam) {
+  const isUfTilePath = req.params.filename === 'ultimate-fallback';
+  if (tParam && isUfTilePath) {
+    // Shape (b). UF tile clicks carry only sk and (optionally) fbg in a
+    // base64url-encoded JSON envelope. They never invoke user_pick or the
+    // regular tile fields. Falls through to the legacy `req.query.sk` /
+    // `req.query.fbg` reads at line ~605 if the envelope fails to decode.
+    try {
+      const parsed = JSON.parse(Buffer.from(tParam, 'base64url').toString('utf8'));
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.sk === 'string') tPackSessionKey = parsed.sk;
+        if (typeof parsed.fbg === 'string') fallbackGroupId = parsed.fbg;
+      }
+    } catch { /* fall through to legacy below */ }
+    nzbUrl = '';
+    title = '';
+    indexerName = '';
+  } else if (tParam) {
     const parts = tParam.split('.');
     // Trailing url/title/indexer (b64url) are a survival fallback for when the
     // in-memory fallback group has been evicted (TTL elapsed) — keeps a
