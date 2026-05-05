@@ -379,13 +379,29 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     }
   }
 
+  // Decode the single `?t=<base64url(JSON)>` envelope used by all delete tile
+  // URLs. iOS / Infuse handoff truncates URLs at the first `&`, so the tile
+  // packs every input into one query param (same pattern as regular tiles).
+  function readPackedTile(t: unknown): Record<string, unknown> | null {
+    if (typeof t !== 'string' || t.length === 0) return null;
+    try {
+      const parsed = JSON.parse(Buffer.from(t, 'base64url').toString('utf8'));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   router.get('/library-delete', async (req, res) => {
     const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
-    const sk = req.query.sk as string | undefined;
-    const rawPath = req.query.p as string | undefined;
-    const scope: 'file' | 'pack' = req.query.scope === 'pack' ? 'pack' : 'file';
-    const type = req.query.type as string | undefined;
-    const id = req.query.id as string | undefined;
+    const packed = readPackedTile(req.query.t);
+    const sk = typeof packed?.sk === 'string' ? packed.sk : undefined;
+    const rawPath = typeof packed?.p === 'string' ? packed.p : undefined;
+    const scope: 'file' | 'pack' = packed?.scope === 'pack' ? 'pack' : 'file';
+    const type = typeof packed?.type === 'string' ? packed.type : undefined;
+    const id = typeof packed?.id === 'string' ? packed.id : undefined;
     if (!manifestKey || !sk || !rawPath) return sendDeleteFailedVideo(req, res);
 
     const v = validateDeletePath(rawPath, scope);
@@ -421,39 +437,31 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
   router.get('/library-delete-all', async (req, res) => {
     const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
-    const sk = req.query.sk as string | undefined;
-    const type = req.query.type as string | undefined;
-    const id = req.query.id as string | undefined;
-    const targetsB64 = req.query.targets as string | undefined;
-    if (!manifestKey || !sk || !type || !id || !targetsB64) return sendDeleteFailedVideo(req, res);
+    const packed = readPackedTile(req.query.t);
+    const sk = typeof packed?.sk === 'string' ? packed.sk : undefined;
+    const type = typeof packed?.type === 'string' ? packed.type : undefined;
+    const id = typeof packed?.id === 'string' ? packed.id : undefined;
+    const rawTargets = packed?.targets;
+    if (!manifestKey || !sk || !type || !id || !Array.isArray(rawTargets)) {
+      return sendDeleteFailedVideo(req, res);
+    }
 
     // Dedup repeat Range requests from Stremio's placeholder playback.
     if (alreadyHandled(`${manifestKey}::all::${type}::${id}`)) {
       return sendDeleteAllSuccessVideo(req, res);
     }
 
-    // The targets list is base64url-encoded JSON embedded in the tile URL by
-    // streamBuilder. Ultimate Library results never cache (by design), so we
-    // cannot look up the visible library hits from any server-side cache;
-    // the tile carries them itself instead. Validation below per-path catches
-    // any tampered URL before it reaches WebDAV.
-    //
-    // Two on-the-wire shapes accepted:
-    //   1. New: Array<{ path: string; scope: 'file' | 'pack' }> — preferred.
-    //   2. Legacy: Array<string> — pre-pack-scope tile URLs treated as 'file'.
-    let targets: Array<{ path: string; scope: 'file' | 'pack' }>;
-    try {
-      const decoded = Buffer.from(targetsB64, 'base64url').toString('utf8');
-      const parsed = JSON.parse(decoded);
-      if (!Array.isArray(parsed)) throw new Error('not an array');
+    // Targets ride inside the packed `t=` envelope built by streamBuilder.
+    // Ultimate Library results never cache (by design), so the tile carries
+    // its own target list. Validation below per-path catches any tampered URL
+    // before it reaches WebDAV.
+    const targets: Array<{ path: string; scope: 'file' | 'pack' }> = [];
+    {
       const seen = new Set<string>();
-      targets = [];
-      for (const item of parsed) {
+      for (const item of rawTargets) {
         let path: string | undefined;
         let scope: 'file' | 'pack' = 'file';
-        if (typeof item === 'string') {
-          path = item;
-        } else if (item && typeof item === 'object' && typeof (item as any).path === 'string') {
+        if (item && typeof item === 'object' && typeof (item as any).path === 'string') {
           path = (item as any).path;
           if ((item as any).scope === 'pack') scope = 'pack';
         }
@@ -461,9 +469,6 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         seen.add(path);
         targets.push({ path, scope });
       }
-    } catch (err) {
-      console.warn(`\u{1F5D1}\uFE0F Delete-all: invalid targets param: ${(err as Error).message}`);
-      return sendDeleteFailedVideo(req, res);
     }
     if (targets.length === 0) {
       console.warn(`\u{1F5D1}\uFE0F Delete-all: targets list empty after decode`);

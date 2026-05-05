@@ -449,8 +449,11 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           ? `${imdbId}:${season ?? ''}:${episode ?? ''}`
           : imdbId)
       : '';
-    const skParamEnc = sessionKey ? `&sk=${encodeURIComponent(sessionKey)}` : '';
-    const ctxParams = `&type=${encodeURIComponent(type)}${idStr ? `&id=${encodeURIComponent(idStr)}` : ''}`;
+    // iOS / Infuse handoff truncates the URL at the first `&`, so every delete
+    // tile packs its inputs into a single `?t=<base64url(JSON)>` param,
+    // matching the same single-param shape used by regular tiles above.
+    const packTilePayload = (payload: Record<string, unknown>): string =>
+      Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 
     // Pass A — per-stream tiles
     if (sc?.libraryDeletePerStreamTile && streamManifestKey) {
@@ -460,7 +463,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         const fileTile: Stream = {
           name: '\u274C Delete The (Above / Left) Result From WebDAV',
           title: 'Clicking this tile permanently deletes the result from your WebDAV mount.',
-          url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete?scope=file&p=${encodeURIComponent(meta.libraryVideoPath)}${skParamEnc}${ctxParams}`,
+          url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete?t=${packTilePayload({
+            scope: 'file', p: meta.libraryVideoPath, sk: sessionKey, type, id: idStr,
+          })}`,
           behaviorHints: { notWebReady: true },
         };
         const tiles: Stream[] = [fileTile];
@@ -473,7 +478,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           tiles.push({
             name: '\u274C Delete The (Above / Left) Entire Series/Season Pack from WebDAV',
             title: 'Clicking this tile permanently deletes the entire release folder that contains the result from your WebDAV mount.',
-            url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete?scope=pack&p=${encodeURIComponent(packFolder)}${skParamEnc}${ctxParams}`,
+            url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete?t=${packTilePayload({
+              scope: 'pack', p: packFolder, sk: sessionKey, type, id: idStr,
+            })}`,
             behaviorHints: { notWebReady: true },
           });
         }
@@ -482,7 +489,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     }
 
     // Pass B — build the single delete-all tile (scoped to this request only).
-    // Targets list is base64url-encoded JSON in the URL so the route doesn't
+    // Targets list rides inside the packed `t=` envelope so the route doesn't
     // need to look up library state from any cache (Ultimate Library results
     // never cache by design — see addon/index.ts:445-449).
     // Insertion is decided AFTER this block: the tile follows the bypass
@@ -514,7 +521,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         return true;
       });
       if (allTargets.length > 0) {
-        const targetsParam = Buffer.from(JSON.stringify(allTargets), 'utf8').toString('base64url');
         const count = allTargets.length;
         const packNote = packScopeMode
           ? 'For series/season packs, the entire release folder is deleted.'
@@ -522,7 +528,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         deleteAllTile = {
           name: '\u274C Delete All Results From WebDAV',
           title: `Clicking this tile permanently deletes ${count} result(s) from your WebDAV mount. ${packNote}`,
-          url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete-all?${skParamEnc.slice(1)}${ctxParams}&targets=${targetsParam}`,
+          url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete-all?t=${packTilePayload({
+            sk: sessionKey, type, id: idStr, targets: allTargets,
+          })}`,
           behaviorHints: { notWebReady: true },
         };
       }
