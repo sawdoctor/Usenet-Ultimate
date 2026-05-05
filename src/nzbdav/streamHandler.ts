@@ -290,6 +290,21 @@ const LIBRARY_BYPASS_VIDEO_PATH = path.resolve(
     : 'ui/public/library_bypass_armed_video.mp4'
 );
 
+// Library-delete success placeholders. Each falls back to the bypass-armed
+// MP4 when the dedicated asset isn't on disk yet so the route keeps working
+// until the new assets are produced. Drop the new MP4s into ui/public/ with
+// the matching filenames and the asset is picked up on next start.
+function resolveDeleteVideoPath(filename: string): string {
+  const distPath = path.resolve(`ui/dist/${filename}`);
+  if (fs.existsSync(distPath)) return distPath;
+  const publicPath = path.resolve(`ui/public/${filename}`);
+  if (fs.existsSync(publicPath)) return publicPath;
+  return LIBRARY_BYPASS_VIDEO_PATH;
+}
+const DELETE_ALL_VIDEO_PATH = resolveDeleteVideoPath('library_delete_all_video.mp4');
+const DELETE_FILE_VIDEO_PATH = resolveDeleteVideoPath('library_delete_file_video.mp4');
+const DELETE_PACK_VIDEO_PATH = resolveDeleteVideoPath('library_delete_pack_video.mp4');
+
 /**
  * Serve the failure video (a 3-hour static "Stream Unavailable" screen).
  * The extreme duration ensures Stremio never considers the episode "completed"
@@ -403,6 +418,81 @@ export async function sendLibraryBypassArmedVideo(req: Request, res: ExpressResp
     console.error('\u274C Failed to serve library bypass video:', fileErr);
     if (!res.headersSent) res.status(500).end();
   }
+}
+
+/**
+ * Serve a placeholder MP4 for the library-delete tile flow. Range-aware so
+ * Stremio can scrub. No-cache headers stop Stremio from serving a cached
+ * body across repeat clicks.
+ */
+async function sendDeletePlaceholderVideo(req: Request, res: ExpressResponse, videoPath: string, errLabel: string): Promise<void> {
+  try {
+    const stat = fs.statSync(videoPath);
+    const fileSize = stat.size;
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+
+    if (req.headers.range) {
+      const match = req.headers.range.match(/bytes=(\d+)-(\d*)/);
+      if (match) {
+        const start = parseInt(match[1]);
+        if (start >= fileSize) {
+          res.status(416);
+          res.setHeader('Content-Range', `bytes */${fileSize}`);
+          res.end();
+          return;
+        }
+        const end = match[2] ? Math.min(parseInt(match[2]), fileSize - 1) : fileSize - 1;
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+        res.setHeader('Content-Length', end - start + 1);
+        const readStream = fs.createReadStream(videoPath, { start, end });
+        try {
+          await pipelineAsync(readStream, res);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+            console.error(`\u274C Delete ${errLabel} video stream error:`, err);
+          }
+        }
+        return;
+      }
+    }
+
+    res.status(200);
+    res.setHeader('Content-Length', fileSize);
+    const readStream = fs.createReadStream(videoPath);
+    try {
+      await pipelineAsync(readStream, res);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        console.error(`\u274C Delete ${errLabel} video stream error:`, err);
+      }
+    }
+  } catch (fileErr) {
+    console.error(`\u274C Failed to serve delete ${errLabel} video:`, fileErr);
+    if (!res.headersSent) res.status(500).end();
+  }
+}
+
+export async function sendDeleteAllSuccessVideo(req: Request, res: ExpressResponse): Promise<void> {
+  return sendDeletePlaceholderVideo(req, res, DELETE_ALL_VIDEO_PATH, 'all-success');
+}
+
+export async function sendDeleteFileSuccessVideo(req: Request, res: ExpressResponse): Promise<void> {
+  return sendDeletePlaceholderVideo(req, res, DELETE_FILE_VIDEO_PATH, 'file-success');
+}
+
+export async function sendDeletePackSuccessVideo(req: Request, res: ExpressResponse): Promise<void> {
+  return sendDeletePlaceholderVideo(req, res, DELETE_PACK_VIDEO_PATH, 'pack-success');
+}
+
+export async function sendDeleteFailedVideo(req: Request, res: ExpressResponse): Promise<void> {
+  // Failures reuse the existing nzb_failure_video.mp4 (already a "something
+  // went wrong" asset) so we don't need a fourth dedicated file.
+  return sendDeletePlaceholderVideo(req, res, FAILURE_VIDEO_PATH, 'failed');
 }
 
 // ============================================================================

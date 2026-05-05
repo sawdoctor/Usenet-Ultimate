@@ -164,6 +164,10 @@ export const config: Config = {
       // bad config.json or env var can't push it out of range; settings updater also clamps on writes.
       librarySearchThreshold: Math.max(0, Math.min(10, libraryThresholdEnv ?? sc.librarySearchThreshold ?? 0)),
       librarySearchScanUncategorized: scanUncategorizedEnv ?? sc.librarySearchScanUncategorized ?? true,
+      libraryDeleteAllTile: sc.libraryDeleteAllTile ?? false,
+      libraryDeletePerStreamTile: sc.libraryDeletePerStreamTile ?? false,
+      libraryDeleteAllPackScope: sc.libraryDeleteAllPackScope === 'pack' ? 'pack' : 'episode',
+      librarySkipTilePosition: sc.librarySkipTilePosition === 'last' ? 'last' : 'second',
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
       ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
       ...(cacheEmptyResultsEnv !== undefined && { cacheEmptyResults: cacheEmptyResultsEnv }),

@@ -10,7 +10,7 @@ export type { NZBDavConfig, FallbackCandidate } from './types.js';
 export { createFallbackGroup, getFallbackGroup, clearFallbackGroups } from './fallbackManager.js';
 
 // Stream cache
-export { getOrCreateStream, getCacheKey, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath, clearTimeoutEntries, setReadyCacheEntry, setDeadNzbEntry } from './streamCache.js';
+export { getOrCreateStream, getCacheKey, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath, evictReadyByVideoPathPrefix, clearVideoPathState, clearTimeoutEntries, setReadyCacheEntry, setDeadNzbEntry } from './streamCache.js';
 
 // Cache utilities
 export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';

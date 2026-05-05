@@ -128,6 +128,14 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
 
   const streams: Stream[] = [];
 
+  // Parallel array of library-origin entries collected during the main loop.
+  // Used by the post-loop splice passes that insert delete tiles. Entries are
+  // collected only for results that actually emit a library tile (origin
+  // 'library' + libraryVideoPath set + nzbdav streaming mode). Indices into
+  // `streams` shift when head tiles (UF, bypass) are inserted later, so the
+  // splice passes apply a `headOffset` correction.
+  const libraryStreamIndices: Array<{ originalIndex: number; libraryVideoPath: string; extractedFromPack: boolean }> = [];
+
   for (let streamIndex = 0; streamIndex < allResults.length; streamIndex++) {
     const result = allResults[streamIndex];
     const resolution = parseQuality(result.title);
@@ -240,6 +248,11 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         title: streamTitle,
         url: tileUrl,
         behaviorHints: { notWebReady: false, bingeGroup },
+      });
+      libraryStreamIndices.push({
+        originalIndex: streamIndex,
+        libraryVideoPath: result.libraryVideoPath,
+        extractedFromPack: result.extractedFromPack === true,
       });
     } else if (result.easynewsMeta && config.easynewsMode === 'nzb') {
       // EasyNews NZB mode — route through download client like regular NZB results
@@ -396,16 +409,137 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // UI. When UF lobby is at index 0, bypass lands at index 1 (after UF). When
   // UF lobby is absent, the first library result is at index 0 and bypass at
   // index 1. The tile is NEVER added to fallbackCandidates so UF skips it.
-  if (shortCircuited && sessionKey && streamManifestKey) {
-    const bypassUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-bypass?sk=${encodeURIComponent(sessionKey)}`;
-    streams.splice(1, 0, {
-      name: 'Skip Ultimate Library',
-      title: 'On the next request for this content, skip Ultimate Library and search indexers.',
-      url: bypassUrl,
-      behaviorHints: {
-        notWebReady: true,
-      },
-    });
+  const ufPresent = !!(config.ultimateFallback?.enabled && config.streamingMode === 'nzbdav' && sessionKey);
+  const bypassPresent = !!(shortCircuited && sessionKey && streamManifestKey);
+  // User-configurable position: 'second' (current default — splice at index 1)
+  // or 'last' (deferred push to the very end of the streams array AFTER
+  // delete-tile splices have run). headOffset below excludes bypass when at
+  // 'last' so the delete-all tile still lands right after head tiles.
+  const skipTileAtEnd = config.searchConfig?.librarySkipTilePosition === 'last';
+  // The delete-all tile is built lazily inside the post-loop splice block below
+  // (it depends on the libraryStreamIndices count). Hoisting the declaration
+  // here so the final-placement code at the bottom of the function can read it.
+  let deleteAllTile: Stream | null = null;
+  const bypassTile: Stream | null = bypassPresent
+    ? {
+        name: '\u23ED\uFE0F Skip Ultimate Library',
+        title: 'On the next request for this content, skip Ultimate Library and search indexers.',
+        url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-bypass?sk=${encodeURIComponent(sessionKey)}`,
+        behaviorHints: { notWebReady: true },
+      }
+    : null;
+  if (bypassTile && !skipTileAtEnd) {
+    streams.splice(1, 0, bypassTile);
+  }
+
+  // ── Library delete tiles (toggle-gated, NEVER added to fallbackCandidates
+  // so UF cannot pull them as candidates) ───────────────────────────────
+  // Two splice passes run only when at least one library-origin entry was
+  // collected during the main loop. Passes are intentionally ordered:
+  //   A. Per-stream tiles spliced after each library result. Walks indices
+  //      end to start so prior splices do not shift unprocessed indices.
+  //   B. Delete-all tile inserted at headOffset (after UF + bypass), so it
+  //      sits right under the head tiles regardless of which combination
+  //      is active.
+  const headOffset = (ufPresent ? 1 : 0) + (bypassPresent && !skipTileAtEnd ? 1 : 0);
+  const sc = config.searchConfig;
+  if (libraryStreamIndices.length > 0 && (sc?.libraryDeletePerStreamTile || sc?.libraryDeleteAllTile)) {
+    const idStr = imdbId
+      ? ((season !== undefined || episode !== undefined)
+          ? `${imdbId}:${season ?? ''}:${episode ?? ''}`
+          : imdbId)
+      : '';
+    const skParamEnc = sessionKey ? `&sk=${encodeURIComponent(sessionKey)}` : '';
+    const ctxParams = `&type=${encodeURIComponent(type)}${idStr ? `&id=${encodeURIComponent(idStr)}` : ''}`;
+
+    // Pass A — per-stream tiles
+    if (sc?.libraryDeletePerStreamTile && streamManifestKey) {
+      for (let i = libraryStreamIndices.length - 1; i >= 0; i--) {
+        const meta = libraryStreamIndices[i];
+        if (!meta.libraryVideoPath) continue; // defensive
+        const fileTile: Stream = {
+          name: '\u274C Delete The (Above / Left) Result From WebDAV',
+          title: 'Clicking this tile permanently deletes the result from your WebDAV mount.',
+          url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete?scope=file&p=${encodeURIComponent(meta.libraryVideoPath)}${skParamEnc}${ctxParams}`,
+          behaviorHints: { notWebReady: true },
+        };
+        const tiles: Stream[] = [fileTile];
+        if (meta.extractedFromPack) {
+          // Pack folder: top-level release dir under /content/<root>/.
+          // libraryVideoPath looks like /content/<root>/<releaseTitle>/.../file.mkv;
+          // slice(0, 4) keeps the leading empty plus 3 segments and joins back to
+          // /content/<root>/<releaseTitle>.
+          const packFolder = meta.libraryVideoPath.split('/').slice(0, 4).join('/');
+          tiles.push({
+            name: '\u274C Delete The (Above / Left) Entire Series/Season Pack from WebDAV',
+            title: 'Clicking this tile permanently deletes the entire release folder that contains the result from your WebDAV mount.',
+            url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete?scope=pack&p=${encodeURIComponent(packFolder)}${skParamEnc}${ctxParams}`,
+            behaviorHints: { notWebReady: true },
+          });
+        }
+        streams.splice(meta.originalIndex + headOffset + 1, 0, ...tiles);
+      }
+    }
+
+    // Pass B — build the single delete-all tile (scoped to this request only).
+    // Targets list is base64url-encoded JSON in the URL so the route doesn't
+    // need to look up library state from any cache (Ultimate Library results
+    // never cache by design — see addon/index.ts:445-449).
+    // Insertion is decided AFTER this block: the tile follows the bypass
+    // tile's position so it lands right after "Skip Ultimate Library"
+    // wherever that ends up.
+    if (sc?.libraryDeleteAllTile && streamManifestKey) {
+      // For pack-extracted results, the user's libraryDeleteAllPackScope
+      // setting decides whether the delete targets the per-episode .mkv
+      // ('episode', default) or the whole release folder ('pack'). Non-pack
+      // results always target the file. The route reads scope per-target so
+      // pack-folder DELETEs can use Depth: infinity per RFC 4918.
+      const packScopeMode = sc?.libraryDeleteAllPackScope === 'pack';
+      const targetEntries: Array<{ path: string; scope: 'file' | 'pack' }> = [];
+      for (const meta of libraryStreamIndices) {
+        if (typeof meta.libraryVideoPath !== 'string' || meta.libraryVideoPath.length === 0) continue;
+        if (packScopeMode && meta.extractedFromPack) {
+          const packFolder = meta.libraryVideoPath.split('/').slice(0, 4).join('/');
+          targetEntries.push({ path: packFolder, scope: 'pack' });
+        } else {
+          targetEntries.push({ path: meta.libraryVideoPath, scope: 'file' });
+        }
+      }
+      // Dedup by path: multiple per-episode entries inside the same pack
+      // collapse to a single pack DELETE in pack-scope mode.
+      const seen = new Set<string>();
+      const allTargets = targetEntries.filter(t => {
+        if (seen.has(t.path)) return false;
+        seen.add(t.path);
+        return true;
+      });
+      if (allTargets.length > 0) {
+        const targetsParam = Buffer.from(JSON.stringify(allTargets), 'utf8').toString('base64url');
+        const count = allTargets.length;
+        const packNote = packScopeMode
+          ? 'For series/season packs, the entire release folder is deleted.'
+          : 'For series/season packs, only the individual episode is deleted.';
+        deleteAllTile = {
+          name: '\u274C Delete All Results From WebDAV',
+          title: `Clicking this tile permanently deletes ${count} result(s) from your WebDAV mount. ${packNote}`,
+          url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete-all?${skParamEnc.slice(1)}${ctxParams}&targets=${targetsParam}`,
+          behaviorHints: { notWebReady: true },
+        };
+      }
+    }
+  }
+
+  // Final placement of bypass + delete-all tiles. The delete-all tile always
+  // follows the bypass tile's position: when bypass is at top (default), the
+  // delete-all lands at headOffset (right after bypass). When bypass is at
+  // last, both are pushed at the end with bypass first, delete-all after.
+  // When bypass isn't shown at all (no UL short-circuit), delete-all uses
+  // the headOffset slot, since there's no skip tile to anchor to.
+  if (bypassTile && skipTileAtEnd) {
+    streams.push(bypassTile);
+    if (deleteAllTile) streams.push(deleteAllTile);
+  } else if (deleteAllTile) {
+    streams.splice(headOffset, 0, deleteAllTile);
   }
 
   return { streams, fallbackGroupId, fallbackCandidates };

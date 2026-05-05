@@ -587,6 +587,89 @@ export function evictReadyByVideoPath(videoPath: string, markDead: boolean = tru
 }
 
 /**
+ * Clear broken-video marker and any dead-NZB entries that reference
+ * `library:<videoPath>` (any episode pattern). Used after a confirmed
+ * file-scope delete so the user can re-add the same NZB without a stale
+ * ban. Pack-scope cleanup uses `evictReadyByVideoPathPrefix` instead.
+ */
+export function clearVideoPathState(videoPath: string): void {
+  let removedAny = false;
+  if (brokenVideoPaths.delete(videoPath)) removedAny = true;
+  const libraryUrl = `library:${videoPath}`;
+  for (const [key] of deadNzbCache) {
+    const sepIdx = key.indexOf('::');
+    const url = sepIdx === -1 ? key : key.substring(0, sepIdx);
+    if (url === libraryUrl) {
+      deadNzbCache.delete(key);
+      removedAny = true;
+    }
+  }
+  if (removedAny) saveCacheToDisk();
+}
+
+/**
+ * Evict every ready cache entry whose `data.videoPath` is inside `prefix`,
+ * plus dead-NZB entries whose key references `library:<prefix>...` and
+ * broken-video markers under the same prefix. Used after a pack-scope
+ * delete so the next search re-evaluates fresh and dead entries do not
+ * block re-add of the same path.
+ */
+export function evictReadyByVideoPathPrefix(prefix: string, markDead: boolean = false): void {
+  const stripped = prefix.replace(/\/+$/, '');
+  const within = (p: string): boolean => p === stripped || p.startsWith(stripped + '/');
+  let removedAny = false;
+
+  for (const [key, entry] of readyCache.entries()) {
+    if (within(entry.data.videoPath)) {
+      readyCache.delete(key);
+      removedAny = true;
+      if (markDead) {
+        const sepIdx = key.indexOf('::');
+        if (sepIdx !== -1) {
+          const nzbUrl = key.substring(0, sepIdx);
+          const epMatch = key.match(/:S\d{2}(?:[. _\-\[(]|E\d)[\s\S]*$/);
+          const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
+          const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
+          if (!deadNzbCache.has(deadKey)) {
+            const now = Date.now();
+            const error = new Error('Video file no longer available (pack deleted)');
+            (error as any).isNzbdavFailure = true;
+            if (episodePattern) (error as any).isEpisodeSpecific = true;
+            deadNzbCache.set(deadKey, {
+              title: extractTitle(key),
+              indexerName: entry.indexerName,
+              size: entry.data.videoSize,
+              error,
+              createdAt: now,
+              expiresAt: now + getDeadTTLMs(),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Clear stale dead-NZB entries that reference paths inside the deleted
+  // prefix so the user can re-add the same NZB without a stale ban.
+  const libraryUrlPrefix = `library:${stripped}`;
+  for (const [key] of deadNzbCache) {
+    const sepIdx = key.indexOf('::');
+    const url = sepIdx === -1 ? key : key.substring(0, sepIdx);
+    if (url === libraryUrlPrefix || url.startsWith(libraryUrlPrefix + '/')) {
+      deadNzbCache.delete(key);
+      removedAny = true;
+    }
+  }
+
+  // Clear broken-video markers under the prefix.
+  for (const path of brokenVideoPaths.keys()) {
+    if (within(path)) brokenVideoPaths.delete(path);
+  }
+
+  if (removedAny) saveCacheToDisk();
+}
+
+/**
  * Extract title from a ready cache key (format: `${nzbUrl}::${title}` optionally with `:${episodePattern}`).
  * Dead cache entries store title in the entry value instead.
  */

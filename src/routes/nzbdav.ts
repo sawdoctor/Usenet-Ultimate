@@ -17,8 +17,10 @@ import { PassThrough } from 'stream';
 import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
 import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
-import { evictReadyByVideoPath, markVideoPathBroken, markLibraryBypass } from '../nzbdav/streamCache.js';
-import { sendLibraryBypassArmedVideo } from '../nzbdav/streamHandler.js';
+import { posix as pathPosix } from 'path';
+import { evictReadyByVideoPath, evictReadyByVideoPathPrefix, clearVideoPathState, markVideoPathBroken, markLibraryBypass } from '../nzbdav/streamCache.js';
+import { sendLibraryBypassArmedVideo, sendDeleteAllSuccessVideo, sendDeleteFileSuccessVideo, sendDeletePackSuccessVideo, sendDeleteFailedVideo } from '../nzbdav/streamHandler.js';
+import { getWebdavClient } from '../nzbdav/webdavClient.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
 
@@ -244,6 +246,254 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       setTimeout(() => recentLoggedBypassKeys.delete(bypassKey), 30_000).unref?.();
     }
     return sendLibraryBypassArmedVideo(req, res);
+  });
+
+  // ── Library delete tiles ─────────────────────────────────────────────
+  // Stremio tiles fire on a single click (the URL is fetched and the
+  // response video played), so the delete runs immediately on click and
+  // the response placeholder tells the user what happened. There is no
+  // two-step arm/confirm because tiles cannot reliably distinguish first
+  // click from second click in Stremio's UX.
+  //
+  // Stremio sends multiple Range requests against the placeholder MP4 as
+  // it plays it. Each request hits this route. Dedup by key for 30s so
+  // the WebDAV delete (and its log line) runs once per click rather than
+  // once per Range request. Cleanup is lazy on each insertion.
+  const recentDeletes = new Map<string, number>();
+  function alreadyHandled(key: string): boolean {
+    const now = Date.now();
+    const expiresAt = recentDeletes.get(key);
+    if (expiresAt && expiresAt > now) return true;
+    for (const [k, exp] of recentDeletes) {
+      if (exp <= now) recentDeletes.delete(k);
+    }
+    recentDeletes.set(key, now + 30_000);
+    return false;
+  }
+
+  // Validate that a query path is a legal absolute WebDAV path under /content/.
+  // Rejects path-traversal attempts (.., null bytes, paths that change under
+  // normalization) and enforces 4-segment depth for pack scope.
+  function validateDeletePath(rawPath: string, scope: 'file' | 'pack'): { ok: true; path: string } | { ok: false; reason: string } {
+    const normalized = pathPosix.normalize(rawPath);
+    if (!normalized.startsWith('/content/')) return { ok: false, reason: 'not under /content/' };
+    if (normalized.includes('..')) return { ok: false, reason: 'contains ..' };
+    if (normalized.includes('\0')) return { ok: false, reason: 'contains null byte' };
+    if (normalized !== rawPath) return { ok: false, reason: 'path normalizes differently than provided' };
+    if (scope === 'pack' && normalized.split('/').length !== 4) {
+      return { ok: false, reason: `pack scope requires 4 segments, got ${normalized.split('/').length}` };
+    }
+    return { ok: true, path: normalized };
+  }
+
+  // Issue a raw WebDAV DELETE so we can read the response status (the webdav
+  // package's deleteFile() throws on non-2xx but hides the status code on
+  // success). For pack scope we set Depth: infinity per RFC 4918 since
+  // compliant servers reject DELETE on a non-empty collection without it.
+  // 404/410 is treated as success (file already gone, goal achieved).
+  async function runWebdavDelete(targetPath: string, scope: 'file' | 'pack'): Promise<{ ok: true; status: number } | { ok: false; error: string; status?: number }> {
+    const nzbdavConfig = buildNzbdavConfig();
+    const webdavBase = (nzbdavConfig.webdavUrl || nzbdavConfig.url).replace(/\/+$/, '');
+    const url = `${webdavBase}${encodeWebdavPath(targetPath)}`;
+    const headers: Record<string, string> = {};
+    if (scope === 'pack') headers['Depth'] = 'infinity';
+    if (nzbdavConfig.webdavUser && nzbdavConfig.webdavPassword) {
+      headers['Authorization'] = 'Basic ' + Buffer.from(`${nzbdavConfig.webdavUser}:${nzbdavConfig.webdavPassword}`).toString('base64');
+    }
+    try {
+      const resp = await fetch(url, { method: 'DELETE', headers, signal: AbortSignal.timeout(15_000) });
+      const status = resp.status;
+      // Drain the body so the connection releases cleanly.
+      await resp.body?.cancel().catch(() => {});
+      console.log(`\u{1F5D1}\uFE0F WebDAV DELETE ${scope}: ${url} \u2192 HTTP ${status}`);
+      if (status === 404 || status === 410) return { ok: true, status };
+      if (status >= 200 && status < 300) return { ok: true, status };
+      return { ok: false, status, error: `HTTP ${status}` };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  // PROPFIND helper: is the given folder empty (no immediate children)?
+  // Returns false on error so we never prune a folder we couldn't list
+  // safely. Uses the webdav client (same auth/base URL as the rest of the
+  // pipeline) since DELETE was already proven to work via raw fetch.
+  async function isFolderEmpty(folderPath: string): Promise<boolean> {
+    const client = getWebdavClient(buildNzbdavConfig());
+    try {
+      const items = await (client as any).getDirectoryContents(folderPath, { deep: false });
+      const arr: Array<{ filename?: string; basename?: string }> = Array.isArray(items)
+        ? items
+        : (items && Array.isArray(items.data) ? items.data : []);
+      // Some WebDAV impls echo the folder itself in the response; filter it out
+      // by matching the requested path. Anything else is a real child.
+      const normalizedTarget = folderPath.replace(/\/+$/, '');
+      const children = arr.filter(x => {
+        const fn = (x.filename || '').replace(/\/+$/, '');
+        return fn !== normalizedTarget && fn !== '';
+      });
+      return children.length === 0;
+    } catch (err) {
+      console.warn(`\u{1F5D1}\uFE0F PROPFIND failed for ${folderPath}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  // After a successful file-scope delete, walk up the path and remove any
+  // parent folders that are now empty. Stops before `/content/<root>/` so
+  // category roots (Usenet-Ultimate-TV, Usenet-Ultimate-Movies, uncategorized)
+  // are never deleted. Stops as soon as a non-empty ancestor is found.
+  // Path layout: `/content/<root>/<release>/<...>/<file>` — segments[0]
+  // is 'content', segments[1] is the root; we never delete depth <= 2.
+  async function pruneEmptyAncestors(filePath: string): Promise<void> {
+    const segments = filePath.split('/').filter(s => s.length > 0);
+    for (let depth = segments.length - 1; depth >= 3; depth--) {
+      const parent = '/' + segments.slice(0, depth).join('/');
+      const empty = await isFolderEmpty(parent);
+      if (!empty) return;
+      const result = await runWebdavDelete(parent, 'pack');
+      if (!result.ok) {
+        console.warn(`\u{1F5D1}\uFE0F Could not prune empty folder ${parent}: ${result.error}`);
+        return;
+      }
+      console.log(`\u{1F5D1}\uFE0F Pruned empty folder: ${parent}`);
+    }
+  }
+
+  // Drop cache state that referenced the deleted path so the next search
+  // re-evaluates fresh. File scope: ready cache entry by exact videoPath,
+  // plus broken-video marker and dead-NZB entry pointing at library:<path>.
+  // Pack scope: prefix sweep across ready cache, dead-NZB cache, and
+  // broken-video markers. Search cache for the request key is dropped in
+  // both cases so the next search rescans the library.
+  function invalidateAfterDelete(targetPath: string, scope: 'file' | 'pack', manifestKey: string, type?: string, id?: string): void {
+    if (scope === 'file') {
+      evictReadyByVideoPath(targetPath, false);
+      clearVideoPathState(targetPath);
+    } else {
+      evictReadyByVideoPathPrefix(targetPath, false);
+    }
+    if (type && id) {
+      const searchCacheKey = buildSearchCacheKey(manifestKey, type, id, config);
+      deleteSearchCacheEntry(searchCacheKey);
+    }
+  }
+
+  router.get('/library-delete', async (req, res) => {
+    const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
+    const sk = req.query.sk as string | undefined;
+    const rawPath = req.query.p as string | undefined;
+    const scope: 'file' | 'pack' = req.query.scope === 'pack' ? 'pack' : 'file';
+    const type = req.query.type as string | undefined;
+    const id = req.query.id as string | undefined;
+    if (!manifestKey || !sk || !rawPath) return sendDeleteFailedVideo(req, res);
+
+    const v = validateDeletePath(rawPath, scope);
+    if (!v.ok) {
+      console.warn(`\u{1F5D1}\uFE0F Delete request rejected (${scope}): ${v.reason} (raw="${rawPath}")`);
+      return sendDeleteFailedVideo(req, res);
+    }
+    const targetPath = v.path;
+
+    // Stremio sends multiple Range requests against the placeholder video as
+    // it plays it. Without dedup, each Range request would re-run the delete
+    // and re-log. The first request actually does the work; subsequent
+    // hits within 30s short-circuit to the same placeholder silently.
+    const dedupKey = `${manifestKey}::${scope}::${targetPath}`;
+    const sendScopeSuccess = scope === 'pack' ? sendDeletePackSuccessVideo : sendDeleteFileSuccessVideo;
+    if (alreadyHandled(dedupKey)) {
+      return sendScopeSuccess(req, res);
+    }
+
+    const result = await runWebdavDelete(targetPath, scope);
+    if (result.ok) {
+      console.log(`\u{1F5D1}\uFE0F Deleted from WebDAV (${scope}): ${targetPath}`);
+      invalidateAfterDelete(targetPath, scope, manifestKey, type, id);
+      // File scope leaves behind empty parent folders (release dir, season
+      // subfolder for pack-extracted episodes). Pack scope already removed
+      // the whole release folder via Depth: infinity, so no cleanup.
+      if (scope === 'file') await pruneEmptyAncestors(targetPath);
+      return sendScopeSuccess(req, res);
+    }
+    console.error(`\u274C WebDAV delete failed (${scope}) for ${targetPath}: ${result.error}`);
+    return sendDeleteFailedVideo(req, res);
+  });
+
+  router.get('/library-delete-all', async (req, res) => {
+    const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
+    const sk = req.query.sk as string | undefined;
+    const type = req.query.type as string | undefined;
+    const id = req.query.id as string | undefined;
+    const targetsB64 = req.query.targets as string | undefined;
+    if (!manifestKey || !sk || !type || !id || !targetsB64) return sendDeleteFailedVideo(req, res);
+
+    // Dedup repeat Range requests from Stremio's placeholder playback.
+    if (alreadyHandled(`${manifestKey}::all::${type}::${id}`)) {
+      return sendDeleteAllSuccessVideo(req, res);
+    }
+
+    // The targets list is base64url-encoded JSON embedded in the tile URL by
+    // streamBuilder. Ultimate Library results never cache (by design), so we
+    // cannot look up the visible library hits from any server-side cache;
+    // the tile carries them itself instead. Validation below per-path catches
+    // any tampered URL before it reaches WebDAV.
+    //
+    // Two on-the-wire shapes accepted:
+    //   1. New: Array<{ path: string; scope: 'file' | 'pack' }> — preferred.
+    //   2. Legacy: Array<string> — pre-pack-scope tile URLs treated as 'file'.
+    let targets: Array<{ path: string; scope: 'file' | 'pack' }>;
+    try {
+      const decoded = Buffer.from(targetsB64, 'base64url').toString('utf8');
+      const parsed = JSON.parse(decoded);
+      if (!Array.isArray(parsed)) throw new Error('not an array');
+      const seen = new Set<string>();
+      targets = [];
+      for (const item of parsed) {
+        let path: string | undefined;
+        let scope: 'file' | 'pack' = 'file';
+        if (typeof item === 'string') {
+          path = item;
+        } else if (item && typeof item === 'object' && typeof (item as any).path === 'string') {
+          path = (item as any).path;
+          if ((item as any).scope === 'pack') scope = 'pack';
+        }
+        if (!path || path.length === 0 || seen.has(path)) continue;
+        seen.add(path);
+        targets.push({ path, scope });
+      }
+    } catch (err) {
+      console.warn(`\u{1F5D1}\uFE0F Delete-all: invalid targets param: ${(err as Error).message}`);
+      return sendDeleteFailedVideo(req, res);
+    }
+    if (targets.length === 0) {
+      console.warn(`\u{1F5D1}\uFE0F Delete-all: targets list empty after decode`);
+      return sendDeleteFailedVideo(req, res);
+    }
+
+    let okCount = 0;
+    let failCount = 0;
+    for (const t of targets) {
+      const v = validateDeletePath(t.path, t.scope);
+      if (!v.ok) {
+        console.warn(`\u{1F5D1}\uFE0F Delete-all skipped (validation, ${t.scope}): ${v.reason} for ${t.path}`);
+        failCount++;
+        continue;
+      }
+      const result = await runWebdavDelete(v.path, t.scope);
+      if (result.ok) {
+        console.log(`\u{1F5D1}\uFE0F Delete-all removed (${t.scope}): ${v.path}`);
+        invalidateAfterDelete(v.path, t.scope, manifestKey, type, id);
+        // File-scope leaves empty parents; pack-scope already removed the
+        // release folder via Depth: infinity so there's nothing to prune.
+        if (t.scope === 'file') await pruneEmptyAncestors(v.path);
+        okCount++;
+      } else {
+        console.error(`\u274C Delete-all failed (${t.scope}) for ${v.path}: ${result.error}`);
+        failCount++;
+      }
+    }
+    console.log(`\u{1F5D1}\uFE0F Delete-all done: ${okCount} removed, ${failCount} failed (of ${targets.length})`);
+    return okCount > 0 ? sendDeleteAllSuccessVideo(req, res) : sendDeleteFailedVideo(req, res);
   });
 
   // NZBDav stream endpoint (key-protected)

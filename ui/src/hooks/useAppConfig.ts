@@ -105,6 +105,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [testQuery, setTestQuery] = useState<Record<string, string>>({});
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
   const [directModeWarning, setDirectModeWarning] = useState<{ show: boolean }>({ show: false });
+  const [libraryDeleteWarning, setLibraryDeleteWarning] = useState<{ show: boolean; toggleType: 'all' | 'perStream' | null }>({ show: false, toggleType: null });
   const [activeOverlay, setActiveOverlay] = useState<OverlayType>(null);
   const [failedLogos, setFailedLogos] = useState<Set<string>>(new Set());
   const [showApiKey, setShowApiKey] = useState<{ new: boolean; edit: boolean }>({ new: false, edit: false });
@@ -137,6 +138,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [librarySearchScanUncategorized, setLibrarySearchScanUncategorized] = useState(true);
   const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
   const [displayLibraryInResults, setDisplayLibraryInResults] = useState(true);
+  const [libraryDeleteAllTile, setLibraryDeleteAllTile] = useState(false);
+  const [libraryDeletePerStreamTile, setLibraryDeletePerStreamTile] = useState(false);
+  const [librarySkipTilePosition, setLibrarySkipTilePosition] = useState<'second' | 'last'>('second');
+  const [libraryDeleteAllPackScope, setLibraryDeleteAllPackScope] = useState<'episode' | 'pack'>('episode');
   const [absoluteEpisodeFallback, setAbsoluteEpisodeFallback] = useState(true);
   const [parallelAlternateTitleSearch, setParallelAlternateTitleSearch] = useState(false);
   const [tvdbPreferEnglishTitle, setTvdbPreferEnglishTitle] = useState(true);
@@ -403,6 +408,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         librarySearchThreshold,
         librarySearchScanUncategorized,
         displayLibraryInResults,
+        libraryDeleteAllTile,
+        libraryDeletePerStreamTile,
+        librarySkipTilePosition,
+        libraryDeleteAllPackScope,
         absoluteEpisodeFallback,
         parallelAlternateTitleSearch,
         tvdbPreferEnglishTitle,
@@ -411,7 +420,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, librarySearchScanUncategorized, displayLibraryInResults, absoluteEpisodeFallback, parallelAlternateTitleSearch, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, librarySearchScanUncategorized, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -567,6 +576,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setLibrarySearchThreshold(Math.max(0, Math.min(10, sc?.librarySearchThreshold ?? 0)));
       setLibrarySearchScanUncategorized(sc?.librarySearchScanUncategorized !== false);
       setDisplayLibraryInResults(sc?.displayLibraryInResults !== false);
+      setLibraryDeleteAllTile(sc?.libraryDeleteAllTile === true);
+      setLibraryDeletePerStreamTile(sc?.libraryDeletePerStreamTile === true);
+      setLibrarySkipTilePosition(sc?.librarySkipTilePosition === 'last' ? 'last' : 'second');
+      setLibraryDeleteAllPackScope(sc?.libraryDeleteAllPackScope === 'pack' ? 'pack' : 'episode');
       setAbsoluteEpisodeFallback(sc?.absoluteEpisodeFallback !== false);
       setParallelAlternateTitleSearch(sc?.parallelAlternateTitleSearch === true);
       setTvdbPreferEnglishTitle(sc?.tvdbPreferEnglishTitle !== false);
@@ -1228,6 +1241,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const setZyclopsConfirmDialogWithSentinel = useSentinelSetter(zyclopsConfirmDialog, setZyclopsConfirmDialog, v => v.show);
   const setSingleIpConfirmDialogWithSentinel = useSentinelSetter(singleIpConfirmDialog, setSingleIpConfirmDialog, v => v.show);
   const setDirectModeWarningWithSentinel = useSentinelSetter(directModeWarning, setDirectModeWarning, v => v.show);
+  const setLibraryDeleteWarningWithSentinel = useSentinelSetter(libraryDeleteWarning, setLibraryDeleteWarning, v => v.show);
   const setActiveTabWithSentinel = useSentinelSetter(activeTab, setActiveTab, v => v !== 'dashboard');
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1255,6 +1269,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     testQuery, setTestQuery,
     deleteConfirmation, setDeleteConfirmation: setDeleteConfirmationWithSentinel,
     directModeWarning, setDirectModeWarning: setDirectModeWarningWithSentinel,
+    libraryDeleteWarning, setLibraryDeleteWarning: setLibraryDeleteWarningWithSentinel,
     activeOverlay, setActiveOverlay: setActiveOverlayWithSentinel,
     failedLogos, setFailedLogos,
     showApiKey, setShowApiKey,
@@ -1286,6 +1301,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     librarySearchThreshold, setLibrarySearchThreshold,
     librarySearchScanUncategorized, setLibrarySearchScanUncategorized,
     displayLibraryInResults, setDisplayLibraryInResults,
+    libraryDeleteAllTile, setLibraryDeleteAllTile,
+    libraryDeletePerStreamTile, setLibraryDeletePerStreamTile,
+    librarySkipTilePosition, setLibrarySkipTilePosition,
+    libraryDeleteAllPackScope, setLibraryDeleteAllPackScope,
     absoluteEpisodeFallback, setAbsoluteEpisodeFallback,
     parallelAlternateTitleSearch, setParallelAlternateTitleSearch,
     tvdbPreferEnglishTitle, setTvdbPreferEnglishTitle,

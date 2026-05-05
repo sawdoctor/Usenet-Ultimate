@@ -38,6 +38,7 @@ import { LogsOverlay } from './components/overlays/LogsOverlay';
 // Modals
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
 import { DirectModeWarningModal } from './components/modals/DirectModeWarningModal';
+import { LibraryDeleteWarningModal } from './components/modals/LibraryDeleteWarningModal';
 import { AddIndexerModal } from './components/modals/AddIndexerModal';
 import { EditIndexerModal } from './components/modals/EditIndexerModal';
 
@@ -511,6 +512,19 @@ function App() {
         />
       )}
 
+      {/* Library Delete Warning Modal */}
+      {ac.libraryDeleteWarning.show && (
+        <LibraryDeleteWarningModal
+          libraryDeleteWarning={ac.libraryDeleteWarning}
+          setLibraryDeleteWarning={ac.setLibraryDeleteWarning}
+          handleEnableLibraryDelete={() => {
+            if (ac.libraryDeleteWarning.toggleType === 'all') ac.setLibraryDeleteAllTile(true);
+            else if (ac.libraryDeleteWarning.toggleType === 'perStream') ac.setLibraryDeletePerStreamTile(true);
+            ac.setLibraryDeleteWarning({ show: false, toggleType: null });
+          }}
+        />
+      )}
+
       {/* Add Indexer Modal */}
       {ac.showAddIndexer && (
         <AddIndexerModal
@@ -604,6 +618,15 @@ function App() {
           setLibrarySearchScanUncategorized={ac.setLibrarySearchScanUncategorized}
           displayLibraryInResults={ac.displayLibraryInResults}
           setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
+          libraryDeleteAllTile={ac.libraryDeleteAllTile}
+          setLibraryDeleteAllTile={ac.setLibraryDeleteAllTile}
+          libraryDeletePerStreamTile={ac.libraryDeletePerStreamTile}
+          setLibraryDeletePerStreamTile={ac.setLibraryDeletePerStreamTile}
+          setLibraryDeleteWarning={ac.setLibraryDeleteWarning}
+          librarySkipTilePosition={ac.librarySkipTilePosition}
+          setLibrarySkipTilePosition={ac.setLibrarySkipTilePosition}
+          libraryDeleteAllPackScope={ac.libraryDeleteAllPackScope}
+          setLibraryDeleteAllPackScope={ac.setLibraryDeleteAllPackScope}
           absoluteEpisodeFallback={ac.absoluteEpisodeFallback}
           setAbsoluteEpisodeFallback={ac.setAbsoluteEpisodeFallback}
           parallelAlternateTitleSearch={ac.parallelAlternateTitleSearch}

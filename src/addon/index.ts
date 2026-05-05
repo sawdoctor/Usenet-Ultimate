@@ -79,6 +79,7 @@ export function deleteSearchCacheEntry(cacheKey: string): boolean {
   return cache.del(cacheKey) > 0;
 }
 
+
 export function buildSearchCacheKey(manifestKey: string, type: string, id: string, cfg: typeof config): string {
   const easynewsSuffix = cfg.easynewsEnabled ? ':en' : '';
   const packsSuffix = cfg.searchConfig?.includeSeasonPacks ? ':packs' : '';
