@@ -116,6 +116,7 @@ export function DashboardTab({
   const [nzbDbReady, setNzbDbReady] = useState(0);
   const [nzbDbFailed, setNzbDbFailed] = useState(0);
   const prevOverlayRef = useRef<typeof activeOverlay | undefined>(undefined);
+  const libraryEnabled = (config.searchConfig?.librarySearchThreshold ?? 0) > 0;
 
   useEffect(() => {
     if (streamingMode !== 'nzbdav') return;
@@ -182,26 +183,33 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'indexManager')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-blue-400/50 hover:!shadow-blue-400/30 active:!border-blue-400/50 active:!shadow-blue-400/30 transition-all",
+                      "card p-4 cursor-move group transition-all relative overflow-hidden",
+                      libraryEnabled
+                        ? "hover:!border-amber-400/50 hover:!shadow-amber-500/30 active:!border-amber-400/50 active:!shadow-amber-500/30 !border-amber-500/30"
+                        : "hover:!border-blue-400/50 hover:!shadow-blue-400/30 active:!border-blue-400/50 active:!shadow-blue-400/30",
                       isDragging && "opacity-50 scale-95",
-                      isOver && "ring-2 ring-blue-400 scale-105"
+                      isOver && (libraryEnabled ? "ring-2 ring-amber-400 scale-105" : "ring-2 ring-blue-400 scale-105")
                     )}
                     onClick={() => {
                       if (!draggedCard) setActiveOverlay('indexManager');
                     }}
                   >
-                    <div className="flex items-center gap-3 mb-2">
+                    {libraryEnabled && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5 animate-pulse" style={{ animationDuration: '4s' }} />
+                    )}
+                    <div className="relative flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
                       <Database className="w-5 h-5 text-blue-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Index Manager</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-blue-400 group-active:text-blue-400 transition-colors">
+                    <div className="relative text-3xl font-bold group-hover:text-blue-400 group-active:text-blue-400 transition-colors">
                       {indexManager === 'newznab' && 'Newznab'}
                       {indexManager === 'prowlarr' && 'Prowlarr'}
                       {indexManager === 'nzbhydra' && 'NZBHydra2'}
-                      {easynewsEnabled && <span className="text-lg font-normal text-blue-400 ml-2">+ EasyNews</span>}
+                      {easynewsEnabled && <span className="text-lg font-normal text-blue-400 ml-2">+ {libraryEnabled ? 'EN' : 'EasyNews'}</span>}
+                      {libraryEnabled && <span className="text-lg font-normal text-amber-400 ml-2">+ Ultimate Library</span>}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
+                    <div className="relative text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                       {indexManager === 'newznab' && (() => {
                         const total = config.indexers.length;
                         const enabled = enabledIndexersCount;
