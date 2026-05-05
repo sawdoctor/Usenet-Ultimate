@@ -83,18 +83,21 @@ export function deleteSearchCacheEntry(cacheKey: string): boolean {
 export function buildSearchCacheKey(manifestKey: string, type: string, id: string, cfg: typeof config): string {
   const easynewsSuffix = cfg.easynewsEnabled ? ':en' : '';
   const packsSuffix = cfg.searchConfig?.includeSeasonPacks ? ':packs' : '';
+  // Bake the alias-fallback flag into the key so toggling it invalidates
+  // any cached zero-result entry whose outcome depended on the flag's state.
+  const aliasFbSuffix = cfg.searchConfig?.aliasTitleFallback === false ? ':noaf' : '';
   if (cfg.indexManager === 'prowlarr' || cfg.indexManager === 'nzbhydra') {
     const syncedEnabled = (cfg.syncedIndexers || []).filter(i => i.enabledForSearch);
     const syncedFingerprint = syncedEnabled
       .map(i => `${i.id}:${type === 'movie' ? i.movieSearchMethod : i.tvSearchMethod}`)
       .join(',');
-    return `${manifestKey}:stream:${type}:${id}:${cfg.indexManager}:${syncedFingerprint}${packsSuffix}${easynewsSuffix}`;
+    return `${manifestKey}:stream:${type}:${id}:${cfg.indexManager}:${syncedFingerprint}${packsSuffix}${easynewsSuffix}${aliasFbSuffix}`;
   }
   const enabledIndexers = cfg.indexers.filter(i => i.enabled);
   const methodsFingerprint = enabledIndexers
     .map(i => `${i.name}:${type === 'movie' ? (i.movieSearchMethod || ['imdb']).join('+') : (i.tvSearchMethod || ['imdb']).join('+')}`)
     .join(',');
-  return `${manifestKey}:stream:${type}:${id}:${methodsFingerprint}${packsSuffix}${easynewsSuffix}`;
+  return `${manifestKey}:stream:${type}:${id}:${methodsFingerprint}${packsSuffix}${easynewsSuffix}${aliasFbSuffix}`;
 }
 
 // Stream handler - called when user wants to watch something
@@ -367,6 +370,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
       additionalTitles: titleInfo.additionalTitles,
       isAnime: titleInfo.isAnime,
       titleYear: titleInfo.titleYear,
+      searchAliases: titleInfo.searchAliases,
+      episodeAired: titleInfo.episodeAired,
       animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
     };
 

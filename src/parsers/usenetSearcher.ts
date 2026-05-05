@@ -12,7 +12,7 @@ import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
 import { parseNewznabXmlWithMeta } from './newznabClient.js';
-import { stripDiacritics, isTextSearchMatch, tagSeasonPack } from './titleMatching.js';
+import { stripDiacritics, isTextSearchMatch, tagSeasonPack, normalizeTitle, extractTitleFromRelease } from './titleMatching.js';
 
 export class UsenetSearcher {
   public timedOut = false;
@@ -332,7 +332,7 @@ export class UsenetSearcher {
     searchMethod?: string,
     additionalTitles?: string[],
     titleYear?: string,
-    options?: { numberingScheme?: 'seasonal' | 'absolute'; absoluteEp?: number },
+    options?: { numberingScheme?: 'seasonal' | 'absolute' | 'date'; absoluteEp?: number; airedDate?: string },
   ): Promise<NZBSearchResult[]> {
     try {
       const tvMethods = this.indexer.tvSearchMethod;
@@ -343,9 +343,16 @@ export class UsenetSearcher {
         const s = season.toString().padStart(2, '0');
         const e = episode.toString().padStart(2, '0');
         const isAbsolute = options?.numberingScheme === 'absolute' && options.absoluteEp !== undefined;
+        // Date-numbered query: substitute YYYY.MM.DD for SxxExx. Used by the
+        // alias fallback when TVDB has an aired date and releases are dated
+        // rather than season/episode-numbered (e.g. daily talk shows).
+        const isDate = options?.numberingScheme === 'date' && typeof options.airedDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(options.airedDate);
+        const dateDotted = isDate ? options!.airedDate!.slice(0, 10).replace(/-/g, '.') : '';
         const query = isAbsolute
           ? stripDiacritics(`${title} E${options!.absoluteEp!.toString().padStart(2, '0')}`)
-          : stripDiacritics(`${title} S${s}E${e}`);
+          : isDate
+            ? stripDiacritics(`${title} ${dateDotted}`)
+            : stripDiacritics(`${title} S${s}E${e}`);
         console.log(`📺 TV text search for: ${query}`);
         const results = await this.search(query, '5000'); // Category 5000 = TV
         const before = results.length;
@@ -353,20 +360,45 @@ export class UsenetSearcher {
         // matching: extractTitleFromRelease only anchors on SxxExx, so a release
         // like "Lady Of Law E23 1080p..." would extract as "Lady Of Law E23"
         // and fail equality. The \b boundary leaves "S03E23" untouched.
+        // On date-numbered retries the same problem exists for embedded dates
+        // (`Show.2024.05.21` extracts as `Show 2024 05 21`), so strip
+        // `YYYY[.\s_-]MM[.\s_-]DD` runs from the candidate before matching.
+        const datePattern = /\b(?:19|20)\d{2}[.\s_-]?(?:0[1-9]|1[0-2])[.\s_-]?(?:0[1-9]|[12]\d|3[01])\b/g;
         const matchTitle = isAbsolute
           ? (s: string) => s.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ')
-          : (s: string) => s;
-        const filtered = results.filter(r => isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
+          : isDate
+            ? (s: string) => s.replace(datePattern, ' ').replace(/\s+/g, ' ')
+            : (s: string) => s;
+        let filtered: NZBSearchResult[];
+        let removed: NZBSearchResult[];
+        if (isDate) {
+          // Date-numbered match: daily/talk-show releases append the guest name
+          // after the air date, so the extracted title for `Show.2024.05.21.Guest...`
+          // is `Show Guest` rather than just `Show`. Standard exact-title equality
+          // fails. Instead require: the indexer query already matched the air
+          // date (via the date-formatted query), so we only need to confirm the
+          // expected title appears as a prefix of the extracted title.
+          const normExpected = normalizeTitle(title);
+          const passes = (r: NZBSearchResult): boolean => {
+            const cleaned = matchTitle(r.title);
+            const extractedNorm = normalizeTitle(extractTitleFromRelease(cleaned));
+            return normExpected.length > 0 && extractedNorm.startsWith(normExpected);
+          };
+          filtered = results.filter(passes);
+          removed = results.filter(r => !passes(r));
+        } else {
+          filtered = results.filter(r => isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
+          removed = results.filter(r => !isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
+        }
         if (before !== filtered.length) {
-          const removed = results.filter(r => !isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
           console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
           removed.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
 
-        // Skip season-pack search on absolute-numbering retries — pack queries
-        // use the seasonal `Title S03` format which doesn't apply when we're
-        // probing absolute episode numbers.
-        const includeSeasonPacks = !isAbsolute && (config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks);
+        // Skip season-pack search on absolute-numbering AND date-numbered
+        // retries — pack queries use the seasonal `Title S03` format which
+        // doesn't apply when probing absolute episode numbers or air dates.
+        const includeSeasonPacks = !isAbsolute && !isDate && (config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks);
         if (includeSeasonPacks) {
           const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
           const spAdditionalPages = config.searchConfig?.seasonPackAdditionalPages;

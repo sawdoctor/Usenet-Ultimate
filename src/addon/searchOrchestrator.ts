@@ -40,6 +40,10 @@ export interface SearchContext {
   additionalTitles?: string[];
   isAnime: boolean;
   titleYear?: string;
+  /** English aliases from TVDB whose normalized form is a strict substring of the canonical title and substantially shorter. Used as a zero-result UTS fallback for shows whose release groups publish under a shortened name. */
+  searchAliases?: string[];
+  /** Air date of the targeted episode in `YYYY-MM-DD` form. Triggers a date-formatted alias query (e.g. `<alias> 2024.05.21`) instead of `<alias> SxxExx` when set, for shows whose releases are date-named rather than season/episode-numbered. */
+  episodeAired?: string;
   // Pre-resolved IDs from anime database (when request came from anime ID prefix)
   animeResolvedIds?: { tmdbId?: string; tvdbId?: string };
 }
@@ -48,7 +52,7 @@ export interface SearchContext {
  * Search via the configured index manager (Prowlarr, NZBHydra, or Newznab).
  */
 export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
-  const { type, imdbId, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, isAnime, titleYear, animeResolvedIds } = ctx;
+  const { type, imdbId, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, isAnime, titleYear, searchAliases, episodeAired, animeResolvedIds } = ctx;
 
   if (config.indexManager === 'prowlarr' && config.prowlarrUrl && config.prowlarrApiKey) {
     // === PROWLARR MODE ===
@@ -395,6 +399,58 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         const fallbackResults = await Promise.all(fallbackPromises);
         results = fallbackResults.flat();
         console.log(`   🎯 Text fallback returned ${results.length} results`);
+      }
+    }
+
+    // Alias title fallback: when both the primary pass and the text fallback
+    // returned zero, retry once per substring-shortcut English alias from
+    // TVDB. Each alias is the indexer query AND its own filter target, so
+    // results that match the alias but not the canonical title are kept.
+    // Mirrors the per-alt shape of the parallel-alt block above. Skipped for
+    // anime (anime has its own Kitsu/Cinemeta fan-out path).
+    if (
+      results.length === 0
+      && !isAnime
+      && config.searchConfig?.aliasTitleFallback !== false
+      && !!searchAliases?.length
+    ) {
+      const retryIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
+      if (retryIndexers.length > 0) {
+        // When TVDB has an aired date for the targeted episode, use the
+        // date-numbered query format (alias YYYY.MM.DD) so daily/talk shows
+        // whose releases are dated rather than SxxExx-numbered are reachable.
+        // Falls back to seasonal SxxExx when no aired date is known.
+        const useDateScheme = type === 'series' && typeof episodeAired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(episodeAired);
+        const fmtSuffix = useDateScheme ? `aired ${episodeAired}` : 'SxxExx';
+        console.log(`🎤 0 results for "${title}"; trying TVDB aliases (${fmtSuffix}): [${searchAliases.map(a => `"${a}"`).join(', ')}]`);
+        const aliasPromises = retryIndexers.flatMap(indexer => searchAliases!.map(async (alias) => {
+          const startTime = Date.now();
+          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+          try {
+            let fbResults: any[] = [];
+            if (type === 'movie') {
+              fbResults = await searcher.searchMovie(imdbId, alias, year, country, undefined, 'text', undefined, titleYear);
+            } else if (type === 'series' && season !== undefined && episode !== undefined) {
+              const tvOptions = useDateScheme
+                ? { numberingScheme: 'date' as const, airedDate: episodeAired }
+                : undefined;
+              fbResults = await searcher.searchTVShow(imdbId, alias, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear, tvOptions);
+            }
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, true, responseTime, fbResults.length);
+            return fbResults.map(r => ({ ...r, indexerName: indexer.name }));
+          } catch (error) {
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+            console.error(`❌ Error in alias fallback for ${indexer.name} ("${alias}"):`, error);
+            return [];
+          }
+        }));
+        const aliasResults = await Promise.all(aliasPromises);
+        results = aliasResults.flat();
+        console.log(`   🎯 Alias fallback returned ${results.length} results across ${searchAliases.length} alias(es)`);
       }
     }
 

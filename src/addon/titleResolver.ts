@@ -43,6 +43,10 @@ export interface ResolvedTitleInfo {
   hasRemake?: boolean;
   /** Year extracted from parenthetical suffix in resolved title, e.g. "2003" from "Show (2003)" */
   titleYear?: string;
+  /** English aliases from TVDB whose normalized form is a strict substring of the resolved title and substantially shorter (< 70% length). Used as a zero-result UTS fallback for shows whose release groups publish under a shortened name. */
+  searchAliases?: string[];
+  /** Air date of the targeted episode in `YYYY-MM-DD` form, when TVDB has it. Used by the alias fallback to send date-formatted queries (e.g. `Jimmy Fallon 2024.05.21`) for shows whose releases are dated rather than season/episode-numbered. */
+  episodeAired?: string;
 }
 
 /**
@@ -112,6 +116,7 @@ export async function resolveTitle(
   let episodeName: string | undefined;
   let absoluteEpisodeNumber: number | undefined;
   let tvdbPriorSeasonsCount: number | undefined;
+  let episodeAired: string | undefined;
   if (type === 'series' && season !== undefined) {
     const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
     if (tvdbResult) {
@@ -123,6 +128,7 @@ export async function resolveTitle(
       if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
       if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
       if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
+      if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
     }
   }
   console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
@@ -134,6 +140,7 @@ export async function resolveTitle(
   // For anime: use Kitsu-IMDB title (series-level canonical name), skip TVDB/TMDB
   // For non-anime: TVDB for TV, TMDB for movies
   let resolvedTitle: string | null = null;
+  let tvdbAliases: string[] | undefined;
   if (isAnime) {
     const fribb = lookupByImdbId(imdbId);
     if (fribb?.kitsu_id) {
@@ -154,6 +161,7 @@ export async function resolveTitle(
         console.log(`📅 Using TVDB year ${tvdbTitleResult.year} (Cinemeta: ${year})`);
         year = tvdbTitleResult.year;
       }
+      tvdbAliases = tvdbTitleResult?.aliases;
     } else {
       const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
       resolvedTitle = tmdbResult?.title ?? null;
@@ -213,6 +221,30 @@ export async function resolveTitle(
     ? await detectRemake(title)
     : undefined;
 
+  // Step 7: Substring-shortcut alias filter for the zero-result UTS fallback.
+  // Keeps an alias only when it is a strict substring of the canonical title
+  // and substantially shorter (< 70% length ratio). Excludes length-similar
+  // variants and longer supplemental aliases that wouldn't help the search.
+  let searchAliases: string[] | undefined;
+  if (tvdbAliases?.length && title) {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const titleNorm = norm(title);
+    if (titleNorm.length > 0) {
+      const kept: string[] = [];
+      for (const alias of tvdbAliases) {
+        const aliasNorm = norm(alias);
+        if (aliasNorm.length === 0) continue;
+        if (!titleNorm.includes(aliasNorm)) continue;
+        if (aliasNorm.length / titleNorm.length >= 0.7) continue;
+        kept.push(alias);
+      }
+      if (kept.length > 0) {
+        searchAliases = kept;
+        console.log(`🎤 Substring alias(es) for "${title}": [${kept.map(a => `"${a}"`).join(', ')}]`);
+      }
+    }
+  }
+
   return {
     title,
     cinemetaTitle,
@@ -229,5 +261,7 @@ export async function resolveTitle(
     episodeName,
     hasRemake,
     titleYear,
+    searchAliases,
+    episodeAired,
   };
 }

@@ -631,6 +631,8 @@ function App() {
           setAbsoluteEpisodeFallback={ac.setAbsoluteEpisodeFallback}
           parallelAlternateTitleSearch={ac.parallelAlternateTitleSearch}
           setParallelAlternateTitleSearch={ac.setParallelAlternateTitleSearch}
+          aliasTitleFallback={ac.aliasTitleFallback}
+          setAliasTitleFallback={ac.setAliasTitleFallback}
           tvdbPreferEnglishTitle={ac.tvdbPreferEnglishTitle}
           setTvdbPreferEnglishTitle={ac.setTvdbPreferEnglishTitle}
           indexerPriorityDedup={ac.indexerPriorityDedup}

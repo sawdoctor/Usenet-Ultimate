@@ -144,6 +144,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [libraryDeleteAllPackScope, setLibraryDeleteAllPackScope] = useState<'episode' | 'pack'>('episode');
   const [absoluteEpisodeFallback, setAbsoluteEpisodeFallback] = useState(true);
   const [parallelAlternateTitleSearch, setParallelAlternateTitleSearch] = useState(false);
+  const [aliasTitleFallback, setAliasTitleFallback] = useState(true);
   const [tvdbPreferEnglishTitle, setTvdbPreferEnglishTitle] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
@@ -414,13 +415,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         libraryDeleteAllPackScope,
         absoluteEpisodeFallback,
         parallelAlternateTitleSearch,
+        aliasTitleFallback,
         tvdbPreferEnglishTitle,
         cacheEmptyResults,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, librarySearchScanUncategorized, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, librarySearchScanUncategorized, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, aliasTitleFallback, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -582,6 +584,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setLibraryDeleteAllPackScope(sc?.libraryDeleteAllPackScope === 'pack' ? 'pack' : 'episode');
       setAbsoluteEpisodeFallback(sc?.absoluteEpisodeFallback !== false);
       setParallelAlternateTitleSearch(sc?.parallelAlternateTitleSearch === true);
+      setAliasTitleFallback(sc?.aliasTitleFallback !== false);
       setTvdbPreferEnglishTitle(sc?.tvdbPreferEnglishTitle !== false);
       setCacheEmptyResults(sc?.cacheEmptyResults !== false);
       setIndexerPriority(data.indexerPriority || []);
@@ -1307,6 +1310,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     libraryDeleteAllPackScope, setLibraryDeleteAllPackScope,
     absoluteEpisodeFallback, setAbsoluteEpisodeFallback,
     parallelAlternateTitleSearch, setParallelAlternateTitleSearch,
+    aliasTitleFallback, setAliasTitleFallback,
     tvdbPreferEnglishTitle, setTvdbPreferEnglishTitle,
     cacheEmptyResults, setCacheEmptyResults,
     indexerPriority, setIndexerPriority,

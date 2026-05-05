@@ -97,6 +97,8 @@ interface IndexManagerOverlayProps {
   setAbsoluteEpisodeFallback: React.Dispatch<React.SetStateAction<boolean>>;
   parallelAlternateTitleSearch: boolean;
   setParallelAlternateTitleSearch: React.Dispatch<React.SetStateAction<boolean>>;
+  aliasTitleFallback: boolean;
+  setAliasTitleFallback: React.Dispatch<React.SetStateAction<boolean>>;
   tvdbPreferEnglishTitle: boolean;
   setTvdbPreferEnglishTitle: React.Dispatch<React.SetStateAction<boolean>>;
 
@@ -251,6 +253,8 @@ export function IndexManagerOverlay({
   setAbsoluteEpisodeFallback,
   parallelAlternateTitleSearch,
   setParallelAlternateTitleSearch,
+  aliasTitleFallback,
+  setAliasTitleFallback,
   tvdbPreferEnglishTitle,
   setTvdbPreferEnglishTitle,
   indexerPriorityDedup,
@@ -501,6 +505,24 @@ export function IndexManagerOverlay({
                     </label>
                   </div>
                   <div className="text-xs text-slate-500">When a series text-search returns zero results for a SxxExx query, retry with absolute episode numbering (Title E31 instead of S03E07). Applies to Ultimate Text Search only.</div>
+                </div>
+
+                {/* Alias Title Fallback (zero-result UTS retry with TVDB substring aliases) */}
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-slate-300">Alias Title Fallback</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="alias-title-fallback"
+                        checked={aliasTitleFallback}
+                        onChange={(e) => setAliasTitleFallback(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500">When a search returns zero results, retry once per English alias from TVDB whose normalized form is a strict substring of the canonical title and substantially shorter. Helps shows whose release groups publish under a shortened name rather than the full canonical title. Applies to Ultimate Text Search only.</div>
                 </div>
 
                 {/* TVDB English title preference (substitute non-English canonical names with the English translation) */}

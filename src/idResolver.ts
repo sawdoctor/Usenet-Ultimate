@@ -270,10 +270,10 @@ export async function detectRemake(title: string): Promise<boolean> {
 async function findOnTvdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<{ id: number; title: string; year?: string } | null> {
+): Promise<{ id: number; title: string; year?: string; aliases?: string[] } | null> {
   const tvdbType = type === 'movie' ? 'movie' : 'series';
 
-  const doSearch = async (token: string): Promise<{ id: number; title: string; year?: string } | null> => {
+  const doSearch = async (token: string): Promise<{ id: number; title: string; year?: string; aliases?: string[] } | null> => {
     const response = await axios.get(`https://api4.thetvdb.com/v4/search/remoteid/${imdbId}`, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 5000,
@@ -304,8 +304,27 @@ async function findOnTvdb(
               title = englishTitle;
             }
           }
-          console.log(`🔗 TVDB remoteid result: ${tvdbType} id=${record.id} name="${title || 'unknown'}"${year ? ` (${year})` : ''}`);
-          return { id: record.id, title, year };
+          // Collect English aliases for the zero-result alias-fallback path.
+          // Filter is intentionally permissive here (any well-formed eng entry
+          // not equal to the resolved title); the substring + length-ratio
+          // shape filter is applied downstream in titleResolver so this layer
+          // keeps the raw candidate list available for callers that may want it.
+          const titleNorm = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const aliasSet = new Set<string>();
+          const aliases: string[] = [];
+          if (Array.isArray(record.aliases)) {
+            for (const entry of record.aliases) {
+              if (!entry || typeof entry !== 'object') continue;
+              if (typeof entry.language !== 'string' || entry.language !== 'eng') continue;
+              if (typeof entry.name !== 'string' || entry.name.length === 0) continue;
+              const norm = entry.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (norm.length === 0 || norm === titleNorm || aliasSet.has(norm)) continue;
+              aliasSet.add(norm);
+              aliases.push(entry.name);
+            }
+          }
+          console.log(`🔗 TVDB remoteid result: ${tvdbType} id=${record.id} name="${title || 'unknown'}"${year ? ` (${year})` : ''}${aliases.length ? ` aliases=${aliases.length}` : ''}`);
+          return { id: record.id, title, year, aliases: aliases.length ? aliases : undefined };
         }
       }
     }
@@ -414,13 +433,15 @@ async function resolveTvdbId(
 export async function resolveTitleFromTvdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<{ title: string; year?: string } | null> {
+): Promise<{ title: string; year?: string; aliases?: string[] } | null> {
   const titleCacheKey = `title:${imdbId}`;
+  const aliasesCacheKey = `aliases:tvdb:${imdbId}`;
   const cached = idCache.get<string>(titleCacheKey);
   if (cached) {
     const cachedYear = idCache.get<string>(`year:tvdb:${imdbId}`);
+    const cachedAliases = idCache.get<string[]>(aliasesCacheKey);
     console.log(`🎯 TVDB title cache hit: ${imdbId} → "${cached}"`);
-    return { title: cached, year: cachedYear };
+    return { title: cached, year: cachedYear, aliases: cachedAliases };
   }
 
   const apiKey = config.searchConfig?.tvdbApiKey;
@@ -434,6 +455,8 @@ export async function resolveTitleFromTvdb(
     if (result.year) {
       idCache.set(`year:tvdb:${imdbId}`, result.year);
     }
+    // Cache aliases (or empty array sentinel so we don't refetch on miss).
+    idCache.set(aliasesCacheKey, result.aliases ?? []);
 
     // Also cache the ID as a bonus
     const idCacheKey = `id:${imdbId}:tvdb`;
@@ -442,7 +465,7 @@ export async function resolveTitleFromTvdb(
     }
 
     console.log(`🎯 TVDB title resolved: ${imdbId} → "${result.title}"`);
-    return { title: result.title, year: result.year };
+    return { title: result.title, year: result.year, aliases: result.aliases };
   } catch (error) {
     console.warn(`⚠️  Failed to resolve TVDB title for ${imdbId}:`, (error as Error).message);
     return null;
@@ -469,7 +492,7 @@ export function clearTvdbTitleCache(): void {
   const keys = idCache.keys();
   let count = 0;
   for (const k of keys) {
-    if ((k.startsWith('title:') && !k.startsWith('title:tmdb:')) || k.startsWith('tvdb:translation:')) {
+    if ((k.startsWith('title:') && !k.startsWith('title:tmdb:')) || k.startsWith('tvdb:translation:') || k.startsWith('aliases:tvdb:')) {
       idCache.del(k);
       count++;
     }
@@ -547,7 +570,7 @@ async function resolveTvmazeId(
 // without IMDB mappings) share the same cached data.
 interface TvdbSeriesEpisodeData {
   seasonCounts: Record<number, number>;  // excludes S0 specials
-  episodes: Record<number, Record<number, { id?: number; runtime?: number; name?: string; absoluteNumber?: number; nameTranslations?: string[] }>>;
+  episodes: Record<number, Record<number, { id?: number; runtime?: number; name?: string; absoluteNumber?: number; nameTranslations?: string[]; aired?: string }>>;
 }
 
 // In-flight fetch deduplication: concurrent callers for the same TVDB ID
@@ -564,6 +587,8 @@ interface SeriesEpisodeResult {
   episodeName?: string;
   absoluteNumber?: number;
   priorSeasonsCount?: number;
+  /** Air date of the targeted episode in `YYYY-MM-DD` form, when TVDB has it. Used by date-based query fallbacks. */
+  episodeAired?: string;
 }
 
 /**
@@ -630,13 +655,16 @@ async function fetchTvdbSeriesEpisodesByTvdbId(tvdbId: number, logLabel: string)
       // Per-episode entry is built for every aired season (including S0 specials)
       // so callers can still look up specials by name. seasonCounts excludes S0
       // because absolute numbering only counts aired episodes.
-      const epEntry: { id?: number; runtime?: number; name?: string; absoluteNumber?: number; nameTranslations?: string[] } = {};
+      const epEntry: { id?: number; runtime?: number; name?: string; absoluteNumber?: number; nameTranslations?: string[]; aired?: string } = {};
       if (typeof ep.id === 'number' && ep.id > 0) epEntry.id = ep.id;
       if (typeof ep.runtime === 'number' && ep.runtime > 0) epEntry.runtime = ep.runtime;
       if (typeof ep.name === 'string' && ep.name.length > 0) epEntry.name = ep.name;
       if (typeof ep.absoluteNumber === 'number' && ep.absoluteNumber > 0) epEntry.absoluteNumber = ep.absoluteNumber;
       if (Array.isArray(ep.nameTranslations)) {
         epEntry.nameTranslations = ep.nameTranslations.filter((s: any) => typeof s === 'string');
+      }
+      if (typeof ep.aired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(ep.aired)) {
+        epEntry.aired = ep.aired.slice(0, 10);
       }
       if (!episodes[ep.seasonNumber]) episodes[ep.seasonNumber] = {};
       episodes[ep.seasonNumber][ep.number] = epEntry;
@@ -698,11 +726,13 @@ async function buildSeasonResult(data: TvdbSeriesEpisodeData, season: number, ep
   let runtime: number | undefined;
   let episodeName: string | undefined;
   let absoluteNumber: number | undefined;
+  let episodeAired: string | undefined;
   if (episode !== undefined) {
     const targetEp = seasonEps[episode];
     if (targetEp?.runtime) runtime = targetEp.runtime * 60;
     if (targetEp?.name) episodeName = targetEp.name;
     if (targetEp?.absoluteNumber) absoluteNumber = targetEp.absoluteNumber;
+    if (targetEp?.aired) episodeAired = targetEp.aired;
     if (
       episodeName
       && targetEp?.id
@@ -727,7 +757,7 @@ async function buildSeasonResult(data: TvdbSeriesEpisodeData, season: number, ep
     const sn = Number(s);
     if (sn > 0 && sn < season) priorSeasonsCount += c;
   }
-  return { count, runtime, episodeName, absoluteNumber, priorSeasonsCount };
+  return { count, runtime, episodeName, absoluteNumber, priorSeasonsCount, episodeAired };
 }
 
 function logEpisodeResult(label: string, season: number, result: SeriesEpisodeResult): void {
@@ -735,7 +765,8 @@ function logEpisodeResult(label: string, season: number, result: SeriesEpisodeRe
   const runtimeStr = result.runtime ? ` (${Math.round(result.runtime / 60)}min)` : '';
   const nameStr = result.episodeName ? ` [${result.episodeName}]` : '';
   const absStr = result.absoluteNumber ? ` [abs E${result.absoluteNumber}]` : '';
-  console.log(`🔗 TVDB episode count: ${label} S${seasonStr} → ${result.count} episodes${runtimeStr}${nameStr}${absStr}`);
+  const airedStr = result.episodeAired ? ` [aired ${result.episodeAired}]` : '';
+  console.log(`🔗 TVDB episode count: ${label} S${seasonStr} → ${result.count} episodes${runtimeStr}${nameStr}${absStr}${airedStr}`);
 }
 
 /**
