@@ -7,6 +7,7 @@
 
 import { config } from '../config/index.js';
 import { UsenetSearcher } from '../parsers/usenetSearcher.js';
+import { withBuffer, flushBuffer, withSubBuffer, slog } from '../parsers/searchLogger.js';
 import { trackQuery } from '../statsTracker.js';
 import { resolveExternalId } from '../idResolver.js';
 import { ProwlarrSearcher } from '../searchers/prowlarrSearcher.js';
@@ -80,6 +81,8 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       const methodArr = Array.isArray(methods) ? methods : [methods];
       for (const m of methodArr) neededMethods.add(m);
     }
+    console.log('');
+    console.log('═══ Search Setup ' + '═'.repeat(46));
     console.log(`📋 Prowlarr search methods: ${[...neededMethods].join(', ')} across ${searchIndexers.length} indexer(s)`);
     for (const indexer of searchIndexers) {
       const m = type === 'movie' ? indexer.movieSearchMethod : indexer.tvSearchMethod;
@@ -107,16 +110,16 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     );
 
     try {
-      let results: any[];
-      if (type === 'movie') {
-        results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
-      } else if (type === 'series' && season !== undefined && episode !== undefined) {
-        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
-      } else {
-        results = [];
-      }
+      const { result: results, lines } = await withBuffer(async (): Promise<any[]> => {
+        if (type === 'movie') {
+          return await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
+        } else if (type === 'series' && season !== undefined && episode !== undefined) {
+          return await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
+        }
+        return [];
+      });
+      flushBuffer(lines, 'Prowlarr');
 
-      // Track queries per unique indexer name in results
       const responseTime = Date.now() - startTime;
       const indexerCounts = new Map<string, number>();
       for (const r of results) {
@@ -158,6 +161,8 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       const methodArr = Array.isArray(methods) ? methods : [methods];
       for (const m of methodArr) neededMethods.add(m);
     }
+    console.log('');
+    console.log('═══ Search Setup ' + '═'.repeat(46));
     console.log(`📋 NZBHydra search methods: ${[...neededMethods].join(', ')} across ${searchIndexers.length} indexer(s)`);
     for (const indexer of searchIndexers) {
       const m = type === 'movie' ? indexer.movieSearchMethod : indexer.tvSearchMethod;
@@ -186,14 +191,15 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     );
 
     try {
-      let results: any[];
-      if (type === 'movie') {
-        results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
-      } else if (type === 'series' && season !== undefined && episode !== undefined) {
-        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
-      } else {
-        results = [];
-      }
+      const { result: results, lines } = await withBuffer(async (): Promise<any[]> => {
+        if (type === 'movie') {
+          return await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
+        } else if (type === 'series' && season !== undefined && episode !== undefined) {
+          return await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
+        }
+        return [];
+      });
+      flushBuffer(lines, 'NZBHydra');
 
       const responseTime = Date.now() - startTime;
       const indexerCounts = new Map<string, number>();
@@ -234,6 +240,8 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       const methodArr = Array.isArray(methods) ? methods : [methods];
       for (const m of methodArr) neededMethods.add(m);
     }
+    console.log('');
+    console.log('═══ Search Setup ' + '═'.repeat(46));
     console.log(`📋 Newznab search methods: ${[...neededMethods].join(', ')} across ${effectiveIndexers.length} indexer(s)`);
     for (const indexer of effectiveIndexers) {
       const m = type === 'movie'
@@ -275,47 +283,52 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
 
         const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
 
-        try {
-          const allMethodResults: any[] = [];
-          for (const method of methodArr) {
-            const externalId = (method !== 'imdb' && method !== 'text')
-              ? resolvedIds.get(method) ?? null
-              : null;
+        const { result, lines } = await withBuffer(async (): Promise<any[]> => {
+          try {
+            const tasks: Promise<any[]>[] = [];
+            for (let i = 0; i < methodArr.length; i++) {
+              const method = methodArr[i];
+              const externalId = (method !== 'imdb' && method !== 'text')
+                ? resolvedIds.get(method) ?? null
+                : null;
 
-            if (type === 'movie') {
-              const results = await searcher.searchMovie(imdbId, title, year, country, externalId || undefined, method, additionalTitles, titleYear);
-              allMethodResults.push(...results);
-            } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              const results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, externalId || undefined, method, additionalTitles, titleYear);
-              allMethodResults.push(...results);
-            }
+              if (type === 'movie') {
+                tasks.push(withSubBuffer(`movie ${method} search`, () => searcher.searchMovie(imdbId, title, year, country, externalId || undefined, method, additionalTitles, titleYear)));
+              } else if (type === 'series' && season !== undefined && episode !== undefined) {
+                tasks.push(withSubBuffer(`TV ${method} search S${season}E${episode}`, () => searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, externalId || undefined, method, additionalTitles, titleYear, { includePacks: false })));
+              }
 
-            // For anime text searches, also search with alternate titles (e.g. Cinemeta English name when Kitsu is romanized Japanese)
-            if (method === 'text' && isAnime && additionalTitles?.length) {
-              for (const altTitle of additionalTitles) {
-                if (type === 'movie') {
-                  const altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', additionalTitles, titleYear);
-                  allMethodResults.push(...altResults);
-                } else if (type === 'series' && season !== undefined && episode !== undefined) {
-                  const altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles, titleYear);
-                  allMethodResults.push(...altResults);
+              if (method === 'text' && isAnime && additionalTitles?.length) {
+                for (const altTitle of additionalTitles) {
+                  if (type === 'movie') {
+                    tasks.push(withSubBuffer(`movie text search [alt: "${altTitle}"]`, () => searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', additionalTitles, titleYear)));
+                  } else if (type === 'series' && season !== undefined && episode !== undefined) {
+                    tasks.push(withSubBuffer(`TV text search [alt: "${altTitle}"]`, () => searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles, titleYear, { includePacks: false })));
+                  }
                 }
               }
             }
+
+            if (type === 'series' && season !== undefined) {
+              tasks.push(withSubBuffer('Pack queries', () => searcher.searchTVShowPacks(title, season, episodesInSeason, year, country, additionalTitles, titleYear)));
+            }
+
+            const allMethodResults = (await Promise.all(tasks)).flat();
+
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, true, responseTime, allMethodResults.length);
+
+            return allMethodResults.map(r => ({ ...r, indexerName: indexer.name }));
+          } catch (error) {
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+            console.error(`❌ Error searching ${indexer.name}:`, error);
+            return [];
           }
-
-          if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-          const responseTime = Date.now() - startTime;
-          trackQuery(indexer.name, true, responseTime, allMethodResults.length);
-
-          return allMethodResults.map(result => ({ ...result, indexerName: indexer.name }));
-        } catch (error) {
-          if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-          const responseTime = Date.now() - startTime;
-          trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-          console.error(`❌ Error searching ${indexer.name}:`, error);
-          return [];
-        }
+        });
+        return { result, lines, indexerName: indexer.name };
       });
 
     // Parallel alt-title search: when the user toggle is on, fire each
@@ -333,76 +346,38 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       ? effectiveIndexers.flatMap(indexer => additionalTitles!.map(async (altTitle) => {
           const startTime = Date.now();
           const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
-          try {
-            let altResults: any[] = [];
-            if (type === 'movie') {
-              altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', undefined, titleYear);
-            } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear);
+          const { result, lines } = await withBuffer(async (): Promise<any[]> => {
+            try {
+              let altResults: any[] = [];
+              if (type === 'movie') {
+                altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', undefined, titleYear);
+              } else if (type === 'series' && season !== undefined && episode !== undefined) {
+                altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear);
+              }
+              if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+              const responseTime = Date.now() - startTime;
+              trackQuery(indexer.name, true, responseTime, altResults.length);
+              return altResults.map(r => ({ ...r, indexerName: indexer.name }));
+            } catch (error) {
+              if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+              const responseTime = Date.now() - startTime;
+              trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+              console.error(`❌ Error in parallel alt-title search for ${indexer.name} ("${altTitle}"):`, error);
+              return [];
             }
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, true, responseTime, altResults.length);
-            return altResults.map(result => ({ ...result, indexerName: indexer.name }));
-          } catch (error) {
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-            console.error(`❌ Error in parallel alt-title search for ${indexer.name} ("${altTitle}"):`, error);
-            return [];
-          }
+          });
+          return { result, lines };
         }))
       : [];
 
-    let results = (await Promise.all([...searchPromises, ...altSearchPromises])).flat();
+    const mainResults = await Promise.all(searchPromises);
+    for (const r of mainResults) flushBuffer(r.lines, r.indexerName);
+    const altResults = await Promise.all(altSearchPromises);
+    for (const r of altResults) flushBuffer(r.lines);
 
-    // Zero-result text fallback: if ID-based searches returned nothing, retry with text.
-    // Indexers that timed out in the main pass are skipped so we don't stack another timeout.
-    if (results.length === 0 && title) {
-      const nonTextIndexers = enabledIndexers.filter(indexer => {
-        if (timedOutIndexers.has(indexer.name)) return false;
-        const methods = type === 'movie'
-          ? (indexer.movieSearchMethod || ['imdb'])
-          : (indexer.tvSearchMethod || ['imdb']);
-        const methodArr = Array.isArray(methods) ? methods : [methods];
-        return !methodArr.every(m => m === 'text');
-      });
-      if (timedOutIndexers.size > 0) {
-        console.log(`⏱️  Skipping text fallback for ${timedOutIndexers.size} indexer(s) — prior timeout: ${[...timedOutIndexers].map(n => `"${n}"`).join(', ')}`);
-      }
+    let results = [...mainResults.flatMap(r => r.result), ...altResults.flatMap(r => r.result)];
 
-      if (nonTextIndexers.length > 0) {
-        console.log(`🔄 ID search returned 0 — text fallback for ${nonTextIndexers.length} indexer(s)`);
-        const fallbackPromises = nonTextIndexers.map(async (indexer) => {
-          const startTime = Date.now();
-          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
-          try {
-            let fbResults: any[] = [];
-            if (type === 'movie') {
-              fbResults = await searcher.searchMovie(imdbId, title, year, country, undefined, 'text', additionalTitles, titleYear);
-            } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              fbResults = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles, titleYear);
-            }
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, true, responseTime, fbResults.length);
-            return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
-          } catch (error) {
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-            console.error(`❌ Error in text fallback for ${indexer.name}:`, error);
-            return [];
-          }
-        });
-
-        const fallbackResults = await Promise.all(fallbackPromises);
-        results = fallbackResults.flat();
-        console.log(`   🎯 Text fallback returned ${results.length} results`);
-      }
-    }
-
-    // Alias title fallback: when both the primary pass and the text fallback
+    // Alias title fallback: when the primary pass
     // returned zero, retry once per substring-shortcut English alias from
     // TVDB. Each alias is the indexer query AND its own filter target, so
     // results that match the alias but not the canonical title are kept.
@@ -647,18 +622,21 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
   );
 
   try {
-    let results: any[];
-    if (type === 'movie') {
-      results = await searcher.searchMovie(title, year, country, additionalTitles, titleYear);
-    } else if (type === 'series' && season !== undefined && episode !== undefined) {
-      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
-    } else {
-      results = [];
-    }
+    const { result: results, lines } = await withBuffer(async (): Promise<any[]> => {
+      let r: any[] = [];
+      if (type === 'movie') {
+        r = await searcher.searchMovie(title, year, country, additionalTitles, titleYear);
+      } else if (type === 'series' && season !== undefined && episode !== undefined) {
+        r = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
+      }
+      const responseTime = Date.now() - easynewsStartTime;
+      slog(`📰 EasyNews: ${r.length} results in ${responseTime}ms`);
+      return r;
+    });
+    flushBuffer(lines, 'EasyNews');
 
     const responseTime = Date.now() - easynewsStartTime;
     trackQuery('EasyNews', true, responseTime, results.length);
-    console.log(`📰 EasyNews: ${results.length} results in ${responseTime}ms`);
     return results;
   } catch (error) {
     const responseTime = Date.now() - easynewsStartTime;
