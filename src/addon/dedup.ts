@@ -35,6 +35,43 @@ export function stripBareArchiveParts(allResults: any[]): any[] {
 }
 
 /**
+ * Within-indexer content dedup — drops repeats of the same release returned
+ * by the same indexer. Catches multi-method indexers (e.g. Prowlarr with
+ * imdb+tvdb+tvmaze enabled) whose proxy generates a unique URL per call,
+ * defeating URL-dedup even when the underlying release is identical.
+ *
+ * Key: indexerName|title|size|pubDate-as-epoch. pubDate distinguishes
+ * re-uploads of the same release name + size from the same physical post
+ * returned across different ID-method calls. pubDate is parsed to epoch
+ * because Prowlarr's aggregate endpoint emits ISO-8601 while its newznab
+ * proxy emits RFC-822 for the same field.
+ */
+export function deduplicateByIndexerContent(allResults: any[]): any[] {
+  if (allResults.length === 0) return allResults;
+  const seen = new Map<string, string>();
+  const duplicates: { title: string; indexer: string }[] = [];
+  const deduped = allResults.filter(r => {
+    const pubMs = r.pubDate ? Date.parse(r.pubDate) : 0;
+    const pubKey = isNaN(pubMs) ? (r.pubDate || '') : pubMs;
+    const key = `${r.indexerName || ''}|${(r.title || '').trim()}|${r.size || 0}|${pubKey}`;
+    if (seen.has(key)) {
+      duplicates.push({ title: r.title, indexer: r.indexerName || 'Unknown' });
+      return false;
+    }
+    seen.set(key, r.indexerName || 'Unknown');
+    return true;
+  });
+  if (duplicates.length > 0) {
+    const byIndexer = new Map<string, number>();
+    for (const d of duplicates) byIndexer.set(d.indexer, (byIndexer.get(d.indexer) || 0) + 1);
+    const breakdown = [...byIndexer.entries()].map(([name, n]) => `${name}: ${n}`).join(', ');
+    console.log(`🔁 Indexer-content dedup: removed ${duplicates.length} duplicate(s) [${breakdown}] (${deduped.length} remaining)`);
+    for (const d of duplicates) console.log(`   ✂️  "${d.title}" [${d.indexer}]`);
+  }
+  return deduped;
+}
+
+/**
  * URL deduplication — removes results with identical download URLs.
  * First occurrence wins; subsequent duplicates are dropped.
  */

@@ -13,14 +13,14 @@
  */
 
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
-import { stripBareArchiveParts, deduplicateByUrl, deduplicateByPriority } from './dedup.js';
+import { stripBareArchiveParts, deduplicateByUrl, deduplicateByPriority, deduplicateByIndexerContent } from './dedup.js';
 import { applyRemakeFilter, applyMultiEpisodeFilter, applyQualityFilters, applyRankedRules } from './filters.js';
 import { sortResults } from './sort.js';
 import { applyStreamLimits } from './limits.js';
 
 // Re-export the individual passes so downstream callers can import from
 // resultProcessor without caring about the submodule split.
-export { stripBareArchiveParts, deduplicateByUrl, deduplicateByPriority } from './dedup.js';
+export { stripBareArchiveParts, deduplicateByUrl, deduplicateByPriority, deduplicateByIndexerContent } from './dedup.js';
 export { applyRemakeFilter, applyMultiEpisodeFilter, applyQualityFilters, applyRankedRules } from './filters.js';
 export { sortResults } from './sort.js';
 export { applyStreamLimits } from './limits.js';
@@ -46,6 +46,7 @@ export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, 
  */
 export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
   results = stripBareArchiveParts(results);
+  results = deduplicateByIndexerContent(results);
   results = deduplicateByUrl(results);
 
   if (type !== 'movie' && !getTvAllowMultiEpisode(config)) {
