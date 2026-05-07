@@ -15,7 +15,7 @@ import type { NZBSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, getSeriesPackAdditionalPages, extractSeasonTokens } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, getSeriesPackAdditionalPages, extractSeasonTokens, normalizeTitle, extractTitleFromRelease } from '../parsers/titleMatching.js';
 import { slog, withSubBuffer } from '../parsers/searchLogger.js';
 
 const EASYNEWS_SEARCH_URL = 'https://members.easynews.com/2.0/search/solr-search/';
@@ -367,6 +367,15 @@ export class EasynewsSearcher {
     // Date-numbered variant when episodeAired is set (daily/talk shows).
     if (filtered.length === 0 && !this.timedOut && config.searchConfig?.aliasTitleFallback !== false && searchAliases?.length) {
       const useDateScheme = typeof episodeAired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(episodeAired);
+      let dateOk: ((s: string) => boolean) | null = null;
+      let stripDate: (s: string) => string = (s) => s;
+      if (useDateScheme) {
+        const [y, mo, d] = episodeAired!.slice(0, 10).split('-');
+        const requestedDate = new RegExp(`\\b${y}[.\\s_-]?${mo}[.\\s_-]?${d}\\b`);
+        dateOk = (t: string) => requestedDate.test(t);
+        const datePattern = /\b(?:19|20)\d{2}[.\s_-]?(?:0[1-9]|1[0-2])[.\s_-]?(?:0[1-9]|[12]\d|3[01])\b/g;
+        stripDate = (s: string) => s.replace(datePattern, ' ').replace(/\s+/g, ' ');
+      }
       const aliasPromises = searchAliases.map((alias) => {
         const q = useDateScheme
           ? `${alias} ${episodeAired!.slice(0, 10).replace(/-/g, '.')}`
@@ -374,8 +383,26 @@ export class EasynewsSearcher {
         return withSubBuffer(`Alias fallback: "${q}"`, async () => {
           slog(`🔍 Query: "${q}"`);
           const r = await this.search(q);
-          const f = r.filter(x => isTextSearchMatch(alias, x.title, year, country, undefined, titleYear));
-          if (r.length !== f.length) slog(`   🎯 Alias "${alias}" filter: ${r.length} → ${f.length}`);
+          const dateFiltered = dateOk ? r.filter(x => dateOk!(x.title)) : r;
+          if (dateOk && r.length !== dateFiltered.length) {
+            slog(`   📅 Date filter: ${r.length} → ${dateFiltered.length}`);
+          }
+          // Daily/talk-show releases (date-scheme) carry the guest name
+          // after the air date, so the extracted title is "Show Guest"
+          // rather than "Show". Equality fails; require the alias to be a
+          // prefix of the extracted release title instead. Mirrors the
+          // Newznab path at usenetSearcher.ts:386-393.
+          let f: typeof dateFiltered;
+          if (useDateScheme) {
+            const normExpected = normalizeTitle(alias);
+            f = dateFiltered.filter(x => {
+              const extractedNorm = normalizeTitle(extractTitleFromRelease(stripDate(x.title)));
+              return normExpected.length > 0 && extractedNorm.startsWith(normExpected);
+            });
+          } else {
+            f = dateFiltered.filter(x => isTextSearchMatch(alias, x.title, year, country, undefined, titleYear));
+          }
+          if (dateFiltered.length !== f.length) slog(`   🎯 Alias "${alias}" filter: ${dateFiltered.length} → ${f.length}`);
           return f;
         });
       });
