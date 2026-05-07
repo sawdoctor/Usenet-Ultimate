@@ -8,6 +8,7 @@ import type { Config, IndexerCaps, EditIndexerForm } from '../../types';
 import { normalizeNewznabUrl } from '../../utils/normalizeNewznabUrl';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import { TimeoutStepper } from '../shared/TimeoutStepper';
+import { PagesStepper } from '../shared/PagesStepper';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
 
 interface EditIndexerModalProps {
@@ -201,16 +202,10 @@ export function EditIndexerModal({
               </label>
             </div>
             {editForm.pagination && (
-              <div className="pl-6 flex items-center gap-2">
-                <label className="text-xs text-slate-400">Max extra pages</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
+              <div className="pl-6">
+                <PagesStepper
                   value={editForm.maxPages}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, maxPages: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) }))}
-                  onFocus={(e) => e.target.select()}
-                  className="input w-20 text-sm"
+                  onChange={(v) => setEditForm(prev => ({ ...prev, maxPages: v }))}
                 />
               </div>
             )}

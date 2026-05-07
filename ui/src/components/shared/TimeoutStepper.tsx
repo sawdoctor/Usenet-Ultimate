@@ -21,6 +21,12 @@ interface TimeoutStepperProps {
   incProps: HoldRepeatProps;
   onChange: (next: number) => void;
   inputId?: string;
+  /** Label shown beneath the value. Default "seconds". */
+  unit?: string;
+  /** Aria-label suffix for the buttons. Default "timeout". */
+  ariaLabel?: string;
+  /** Compact rendering for tight contexts (e.g. inside other cards). */
+  compact?: boolean;
 }
 
 export function TimeoutStepper({
@@ -32,16 +38,22 @@ export function TimeoutStepper({
   incProps,
   onChange,
   inputId,
+  unit = 'seconds',
+  ariaLabel = 'timeout',
+  compact = false,
 }: TimeoutStepperProps) {
   const isDefault = value === defaultValue;
+  const buttonSize = compact ? 'w-6 h-6' : 'w-7 h-7';
+  const containerPad = compact ? 'px-2.5 py-1.5' : 'px-3 py-2';
+  const valueText = compact ? 'w-12 text-lg' : 'w-14 text-2xl';
   return (
     <div className="flex flex-col items-start gap-1">
-      <div className="inline-flex items-center gap-2 rounded-lg bg-slate-800/40 border border-slate-700/30 px-3 py-2">
+      <div className={`inline-flex items-center gap-2 rounded-lg bg-slate-800/40 border border-slate-700/30 ${containerPad}`}>
         <button
           type="button"
-          aria-label="Decrease timeout"
+          aria-label={`Decrease ${ariaLabel}`}
           {...decProps}
-          className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+          className={`${buttonSize} rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none`}
         >−</button>
         <div className="flex flex-col items-center">
           <input
@@ -56,15 +68,15 @@ export function TimeoutStepper({
               const v = parseInt(e.target.value, 10);
               if (!isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
             }}
-            className="w-14 bg-transparent text-center text-2xl font-bold text-slate-100 focus:outline-none focus:text-primary-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+            className={`${valueText} bg-transparent text-center font-bold text-slate-100 focus:outline-none focus:text-primary-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none`}
           />
-          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+          <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">{unit}</span>
         </div>
         <button
           type="button"
-          aria-label="Increase timeout"
+          aria-label={`Increase ${ariaLabel}`}
           {...incProps}
-          className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+          className={`${buttonSize} rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none`}
         >+</button>
       </div>
       {!isDefault && (

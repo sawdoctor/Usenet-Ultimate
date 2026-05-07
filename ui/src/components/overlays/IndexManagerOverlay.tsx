@@ -28,6 +28,7 @@ import type { Config, Indexer, SyncedIndexer, IndexerCaps } from '../../types';
 import { SERIES_PACK_KEYWORDS } from '../../types';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import { TimeoutStepper } from '../shared/TimeoutStepper';
+import { PagesStepper } from '../shared/PagesStepper';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
 
 interface IndexManagerOverlayProps {
@@ -386,6 +387,12 @@ export function IndexManagerOverlay({
   const easynewsTimeoutInc = useHoldRepeat(useCallback(() => setEasynewsTimeout(p => Math.min(45, p + 1)), [setEasynewsTimeout]));
   const libraryThresholdDec = useHoldRepeat(useCallback(() => setLibrarySearchThreshold(p => Math.max(1, p - 1)), [setLibrarySearchThreshold]));
   const libraryThresholdInc = useHoldRepeat(useCallback(() => setLibrarySearchThreshold(p => Math.min(10, p + 1)), [setLibrarySearchThreshold]));
+  const seasonPackPagesDec = useHoldRepeat(useCallback(() => setSeasonPackAdditionalPages(p => Math.max(1, p - 1)), [setSeasonPackAdditionalPages]));
+  const seasonPackPagesInc = useHoldRepeat(useCallback(() => setSeasonPackAdditionalPages(p => Math.min(10, p + 1)), [setSeasonPackAdditionalPages]));
+  const seriesPackPagesDec = useHoldRepeat(useCallback(() => setSeriesPackAdditionalPages(p => Math.max(1, p - 1)), [setSeriesPackAdditionalPages]));
+  const seriesPackPagesInc = useHoldRepeat(useCallback(() => setSeriesPackAdditionalPages(p => Math.min(10, p + 1)), [setSeriesPackAdditionalPages]));
+  const easynewsPagesDec = useHoldRepeat(useCallback(() => setEasynewsMaxPages(p => Math.max(1, p - 1)), [setEasynewsMaxPages]));
+  const easynewsPagesInc = useHoldRepeat(useCallback(() => setEasynewsMaxPages(p => Math.min(10, p + 1)), [setEasynewsMaxPages]));
 
   /** Reset all sync-related UI state (called when credentials change or manager switches) */
   const resetSyncState = () => {
@@ -950,16 +957,18 @@ export function IndexManagerOverlay({
                       </label>
                     </div>
                     {seasonPackPagination && (
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-slate-400">Additional pages</label>
-                        <input
-                          type="number"
+                      <div className="flex items-center gap-3">
+                        <TimeoutStepper
+                          value={seasonPackAdditionalPages}
+                          defaultValue={1}
                           min={1}
                           max={10}
-                          value={seasonPackAdditionalPages}
-                          onChange={(e) => setSeasonPackAdditionalPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                          onFocus={(e) => e.target.select()}
-                          className="input w-20 text-sm"
+                          decProps={seasonPackPagesDec}
+                          incProps={seasonPackPagesInc}
+                          onChange={setSeasonPackAdditionalPages}
+                          unit="pages"
+                          ariaLabel="additional pages"
+                          compact
                         />
                         <span className="text-xs text-slate-500">Extra pages for season pack searches</span>
                       </div>
@@ -1037,16 +1046,18 @@ export function IndexManagerOverlay({
                         </label>
                       </div>
                       {seriesPackPagination && (
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs text-slate-400">Additional pages</label>
-                          <input
-                            type="number"
+                        <div className="flex items-center gap-3">
+                          <TimeoutStepper
+                            value={seriesPackAdditionalPages}
+                            defaultValue={1}
                             min={1}
                             max={10}
-                            value={seriesPackAdditionalPages}
-                            onChange={(e) => setSeriesPackAdditionalPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                            onFocus={(e) => e.target.select()}
-                            className="input w-20 text-sm"
+                            decProps={seriesPackPagesDec}
+                            incProps={seriesPackPagesInc}
+                            onChange={setSeriesPackAdditionalPages}
+                            unit="pages"
+                            ariaLabel="additional pages"
+                            compact
                           />
                           <span className="text-xs text-slate-500">Extra pages for series pack searches</span>
                         </div>
@@ -1283,16 +1294,17 @@ export function IndexManagerOverlay({
                         </label>
                       </div>
                       {easynewsPagination && (
-                        <div className="pl-6 flex items-center gap-2">
-                          <label className="text-xs text-slate-400">Additional pages</label>
-                          <input
-                            type="number"
+                        <div className="pl-6">
+                          <TimeoutStepper
+                            value={easynewsMaxPages}
+                            defaultValue={1}
                             min={1}
                             max={10}
-                            value={easynewsMaxPages}
-                            onChange={(e) => setEasynewsMaxPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                            onFocus={(e) => e.target.select()}
-                            className="input w-20 text-sm"
+                            decProps={easynewsPagesDec}
+                            incProps={easynewsPagesInc}
+                            onChange={setEasynewsMaxPages}
+                            unit="pages"
+                            ariaLabel="additional pages"
                           />
                         </div>
                       )}
@@ -1636,16 +1648,10 @@ export function IndexManagerOverlay({
                                 </label>
                               </div>
                               {indexer.pagination && (
-                                <div className="pl-6 flex items-center gap-2">
-                                  <label className="text-xs text-slate-400">Additional pages</label>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={10}
+                                <div className="pl-6">
+                                  <PagesStepper
                                     value={indexer.additionalPages ?? 3}
-                                    onChange={(e) => updateSynced({ additionalPages: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
-                                    onFocus={(e) => e.target.select()}
-                                    className="input w-20 text-sm"
+                                    onChange={(v) => updateSynced({ additionalPages: v })}
                                   />
                                 </div>
                               )}
@@ -1979,16 +1985,10 @@ export function IndexManagerOverlay({
                                 </label>
                               </div>
                               {indexer.pagination && (
-                                <div className="pl-6 flex items-center gap-2">
-                                  <label className="text-xs text-slate-400">Additional pages</label>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={10}
+                                <div className="pl-6">
+                                  <PagesStepper
                                     value={indexer.additionalPages ?? 3}
-                                    onChange={(e) => updateSynced({ additionalPages: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
-                                    onFocus={(e) => e.target.select()}
-                                    className="input w-20 text-sm"
+                                    onChange={(v) => updateSynced({ additionalPages: v })}
                                   />
                                 </div>
                               )}
