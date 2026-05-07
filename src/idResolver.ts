@@ -214,8 +214,11 @@ export async function resolveRuntimeFromTmdb(imdbId: string): Promise<number | u
  */
 export async function detectRemake(title: string): Promise<boolean> {
   const cacheKey = `remake:${title.toLowerCase()}`;
-  const cached = idCache.get<boolean>(cacheKey);
-  if (cached !== undefined) return cached;
+  const cached = idCache.get<{ remake: boolean; years?: string[] }>(cacheKey);
+  if (cached !== undefined) {
+    if (cached.remake) console.log(`🔄 Remake detected for "${title}": ${cached.years?.join(', ') ?? '?'} (cached)`);
+    return cached.remake;
+  }
 
   const token = await getTvdbToken();
   if (!token) return false;
@@ -229,7 +232,7 @@ export async function detectRemake(title: string): Promise<boolean> {
 
     const results = response.data?.data;
     if (!Array.isArray(results) || results.length < 2) {
-      idCache.set(cacheKey, false);
+      idCache.set(cacheKey, { remake: false });
       return false;
     }
 
@@ -246,15 +249,15 @@ export async function detectRemake(title: string): Promise<boolean> {
     });
 
     if (matchingShows.length >= 2) {
-      const years = new Set(matchingShows.map((r: any) => r.year).filter(Boolean));
-      if (years.size >= 2) {
-        console.log(`🔄 Remake detected for "${title}": ${[...years].sort().join(', ')}`);
-        idCache.set(cacheKey, true);
+      const years = [...new Set(matchingShows.map((r: any) => r.year).filter(Boolean))].sort() as string[];
+      if (years.length >= 2) {
+        console.log(`🔄 Remake detected for "${title}": ${years.join(', ')}`);
+        idCache.set(cacheKey, { remake: true, years });
         return true;
       }
     }
 
-    idCache.set(cacheKey, false);
+    idCache.set(cacheKey, { remake: false });
     return false;
   } catch (error) {
     console.warn(`⚠️  Remake detection failed for "${title}":`, (error as Error).message);
