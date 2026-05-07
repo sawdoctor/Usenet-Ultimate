@@ -609,7 +609,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     return [];
   }
 
-  const { type, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, titleYear } = ctx;
+  const { type, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, titleYear, searchAliases, episodeAired } = ctx;
   const easynewsStartTime = Date.now();
   const easynewsTimeoutEnabled = config.searchTimeoutOverride !== undefined ? true : config.easynewsTimeoutEnabled;
   const easynewsTimeoutSeconds = config.searchTimeoutOverride ?? config.easynewsTimeout;
@@ -624,9 +624,9 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     const { result: results, lines } = await withBuffer(async (): Promise<any[]> => {
       let r: any[] = [];
       if (type === 'movie') {
-        r = await searcher.searchMovie(title, year, country, additionalTitles, titleYear);
+        r = await searcher.searchMovie(title, year, country, additionalTitles, titleYear, searchAliases);
       } else if (type === 'series' && season !== undefined && episode !== undefined) {
-        r = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
+        r = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, searchAliases, episodeAired);
       }
       const responseTime = Date.now() - easynewsStartTime;
       slog(`📰 EasyNews: ${r.length} results in ${responseTime}ms`);
