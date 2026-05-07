@@ -308,10 +308,7 @@ export function titleContainsSeasonPack(title: string, season: number): { matche
   //      from matching an S01 query just because it has the keyword.
   if (hasSeriesPackKeyword(title)) {
     if (/\bS\d{1,2}[._\s-]?E\d{1,3}\b/i.test(title)) return { matched: false, seasonSpan: 0 };
-    const seasonTokens: number[] = [];
-    for (const m of title.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])/gi)) {
-      seasonTokens.push(parseInt(m[1], 10));
-    }
+    const seasonTokens = extractSeasonTokens(title);
     if (seasonTokens.length === 0) return { matched: true, seasonSpan: 0 };
     if (seasonTokens.includes(season)) return { matched: true, seasonSpan: 0 };
   }
@@ -332,6 +329,22 @@ export function titleContainsSeasonPack(title: string, season: number): { matche
 const SERIES_PACK_KEYWORD_RE = /\b(complete|all\s*seasons|full\s*series|the\s*complete|anthology|box[\s.-]?set|collection|saga)\b/i;
 export function hasSeriesPackKeyword(text: string): boolean {
   return SERIES_PACK_KEYWORD_RE.test(text);
+}
+
+/**
+ * Extract every Sxx season token from a release title or folder name.
+ * Handles single-episode (`S01E01`), bare seasons (`S01`), and multi-episode
+ * chains (`S06E14E15`). Two-digit seasons only; `S100+` won't match.
+ *
+ * Shared by the indexer-result season filter, the WebDAV folder filter, and
+ * the EasyNews wrong-season reject in the absolute-episode fallback.
+ */
+export function extractSeasonTokens(text: string): number[] {
+  const out: number[] = [];
+  for (const m of text.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})*(?![A-Za-z0-9])/gi)) {
+    out.push(parseInt(m[1], 10));
+  }
+  return out;
 }
 
 /**

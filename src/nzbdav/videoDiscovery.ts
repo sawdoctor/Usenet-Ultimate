@@ -102,24 +102,32 @@ export async function findVideoFile(
             if (altMatch) return altMatch;
           }
 
-          // Try to extract episode numbers from all filenames and pick the right one
-          // (only captures first ep in chain — ep-in-chain check below handles the rest)
+          // Try to extract season/episode numbers from all filenames and pick the right one.
+          // Captures both so the season check below can reject wrong-season files (e.g. an
+          // S06E14E15 file leaking through to an S08E14 query).
           const epRegex = allowMultiEp
-            ? /S\d+E(\d+)/i
-            : /S\d+E(\d+)(?!\d|[. _-]?E\d|-\d)/i;
+            ? /S(\d+)E(\d+)/i
+            : /S(\d+)E(\d+)(?!\d|[. _-]?E\d|-\d)/i;
           const numbered = videos
-            .map(v => ({ ...v, ep: parseInt((v.path.match(epRegex)?.[1] || '0'), 10) }))
+            .map(v => {
+              const m = v.path.match(epRegex);
+              return { ...v, season: m ? parseInt(m[1], 10) : 0, ep: m ? parseInt(m[2], 10) : 0 };
+            })
             .filter(v => v.ep > 0);
           if (numbered.length > 0) {
-            const exact = numbered.find(v => v.ep === targetEp);
+            const exact = numbered.find(v => v.ep === targetEp && (targetSeason == null || v.season === targetSeason));
             if (exact) return exact;
           }
 
           // When multi-ep is allowed, check if targetEp appears anywhere in an SxxExx...Exx chain
-          // (handles separators like dots/dashes between chained episode numbers)
+          // (handles separators like dots/dashes between chained episode numbers). Pin the
+          // season anchor to the requested season when known so a wrong-season chain can't match.
           if (allowMultiEp) {
             const teStr = targetEp.toString().padStart(2, '0');
-            const epInChain = new RegExp(`S\\d+(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${teStr}|-${teStr})(?!\\d)`, 'i');
+            const seasonAnchor = targetSeason != null
+              ? `S${targetSeason.toString().padStart(2, '0')}`
+              : 'S\\d+';
+            const epInChain = new RegExp(`${seasonAnchor}(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${teStr}|-${teStr})(?!\\d)`, 'i');
             const chainMatch = videos.find(v => epInChain.test(v.path));
             if (chainMatch) return chainMatch;
           }

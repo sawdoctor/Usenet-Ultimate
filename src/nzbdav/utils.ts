@@ -4,7 +4,7 @@
  */
 
 import { config as globalConfig } from '../config/index.js';
-import { hasSeriesPackKeyword } from '../parsers/titleMatching.js';
+import { hasSeriesPackKeyword, extractSeasonTokens } from '../parsers/titleMatching.js';
 import type { NZBDavConfig } from './types.js';
 
 /**
@@ -37,11 +37,8 @@ export function folderCouldContainSeason(basename: string, season: number): bool
   if (hasSeriesPackKeyword(basename)) return true;
 
   // Collect every Sxx (with or without an Exx suffix) marker in the name.
-  const seasonsFound: number[] = [];
-  for (const m of basename.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])/gi)) {
-    seasonsFound.push(parseInt(m[1], 10));
-  }
-  if (seasonsFound.length === 0) return true;        // No marker — allow
+  const seasonsFound = extractSeasonTokens(basename);
+  if (seasonsFound.length === 0) return true;        // No marker, allow
   if (seasonsFound.includes(season)) return true;    // Direct match
 
   // Range form: S01-S04, S01-04, S01_S04. Hyphen or underscore allow the

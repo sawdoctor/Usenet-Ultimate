@@ -12,7 +12,7 @@ import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
 import { parseNewznabXmlWithMeta } from './newznabClient.js';
-import { stripDiacritics, isTextSearchMatch, tagSeasonPack, normalizeTitle, extractTitleFromRelease, runSeriesPackQueries, buildSeriesPackPaginationMaxPages } from './titleMatching.js';
+import { stripDiacritics, isTextSearchMatch, tagSeasonPack, normalizeTitle, extractTitleFromRelease, runSeriesPackQueries, buildSeriesPackPaginationMaxPages, extractSeasonTokens } from './titleMatching.js';
 import { slog, withSubBuffer } from './searchLogger.js';
 
 export class UsenetSearcher {
@@ -398,8 +398,21 @@ export class UsenetSearcher {
             removed.forEach(r => slog(`      ✂️  ${r.title}`));
           }
         } else {
-          filtered = results.filter(r => isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
-          removed = results.filter(r => !isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear));
+          // On absolute-numbering retries, also reject results whose title carries
+          // an Sxx token that doesn't match the requested season. Catches
+          // non-absolute shows whose absolute query accidentally surfaced
+          // wrong-season episodes. Releases without any Sxx token (anime
+          // "Show E150" form) still pass.
+          const seasonOk = (resultTitle: string): boolean => {
+            if (!isAbsolute) return true;
+            const seasonTokens = extractSeasonTokens(resultTitle);
+            return seasonTokens.length === 0 || seasonTokens.includes(season);
+          };
+          const matches = (r: NZBSearchResult) =>
+            isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear)
+            && seasonOk(r.title);
+          filtered = results.filter(matches);
+          removed = results.filter(r => !matches(r));
           if (before !== filtered.length) {
             slog(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
             removed.forEach(r => slog(`      ✂️  ${r.title}`));
