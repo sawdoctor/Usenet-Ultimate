@@ -112,9 +112,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     try {
       const { result: results, lines } = await withBuffer(async (): Promise<any[]> => {
         if (type === 'movie') {
-          return await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
+          return await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear, isAnime, searchAliases);
         } else if (type === 'series' && season !== undefined && episode !== undefined) {
-          return await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
+          return await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear, isAnime, searchAliases, episodeAired, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
         }
         return [];
       });
@@ -193,9 +193,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     try {
       const { result: results, lines } = await withBuffer(async (): Promise<any[]> => {
         if (type === 'movie') {
-          return await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
+          return await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear, isAnime, searchAliases);
         } else if (type === 'series' && season !== undefined && episode !== undefined) {
-          return await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
+          return await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear, isAnime, searchAliases, episodeAired, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
         }
         return [];
       });
@@ -425,7 +425,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         }));
         const aliasResults = await Promise.all(aliasPromises);
         results = aliasResults.flat();
-        console.log(`   🎯 Alias fallback returned ${results.length} results across ${searchAliases.length} alias(es)`);
       }
     }
 

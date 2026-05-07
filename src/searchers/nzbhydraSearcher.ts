@@ -13,7 +13,7 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages, extractSeasonTokens } from '../parsers/titleMatching.js';
 import { slog, withSubBuffer } from '../parsers/searchLogger.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
@@ -53,26 +53,23 @@ export class NzbhydraSearcher {
     resolvedIds?: Map<string, { idParam: string; idValue: string } | null>,
     additionalTitles?: string[],
     titleYear?: string,
+    isAnime?: boolean,
+    searchAliases?: string[],
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('movie');
-    const allResults: (NZBSearchResult & { indexerName: string })[] = [];
+    const idTasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
     const idSearchedNames: string[] = [];
-
-    const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
+    const textMethodNames: string[] = [];
 
     for (const [method, indexerNames] of groups) {
-      const params: Record<string, string> = {
-        apikey: this.apiKey,
-        extended: '1',
-      };
-
-      params.indexers = indexerNames.join(',');
-
       if (method === 'text') {
-        params.t = 'search';
-        params.q = stripDiacritics(year ? `${title} ${year}` : title);
-        params.cat = '2000';
-      } else if (method === 'imdb') {
+        textMethodNames.push(...indexerNames);
+        continue;
+      }
+      const params: Record<string, string> = {
+        apikey: this.apiKey, extended: '1', indexers: indexerNames.join(','),
+      };
+      if (method === 'imdb') {
         params.t = 'movie';
         params.imdbid = imdbId.replace('tt', '');
         idSearchedNames.push(...indexerNames);
@@ -88,59 +85,104 @@ export class NzbhydraSearcher {
         slog(`⚠️  ${method} ID unavailable for ${indexerNames.length} indexer(s) — skipping`);
         continue;
       }
-
-      const isText = method === 'text';
-      tasks.push(withSubBuffer(`movie ${method} search × ${indexerNames.length} indexer(s)`, async () => {
-        const results = await this.doSearch(params);
-        if (isText) {
-          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          slog(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
-          if (results.length !== filtered.length) {
-            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-              .forEach(r => slog(`      ✂️  ${r.title}`));
-          }
-          return filtered;
-        }
-        return results;
-      }));
+      idTasks.push(withSubBuffer(`movie ${method} search × ${indexerNames.length} indexer(s)`, () => this.doSearch(params)));
     }
 
-    const settled = await Promise.all(tasks);
-    for (const arr of settled) allResults.push(...arr);
+    const allTextNames = [...new Set([...textMethodNames, ...idSearchedNames])];
+    const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
+    const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
 
-    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    const canonicalTextPromise = allTextNames.length > 0 && title
+      ? this.runTitleSearchMovie(title, title, year, country, additionalTitles, titleYear, allTextNames)
+      : Promise.resolve([] as (NZBSearchResult & { indexerName: string })[]);
+
+    const altPromises: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
+    if ((parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length && allTextNames.length > 0) {
+      slog(parallelAltEnabled
+        ? `🔀 NZBHydra parallel alt-title movie search: querying primary + ${additionalTitles.length} alt(s) concurrently`
+        : `🎌 NZBHydra anime dual-title fan-out: querying primary + ${additionalTitles.length} alt(s)`);
+      for (const alt of additionalTitles) {
+        altPromises.push(this.runTitleSearchMovie(alt, alt, year, country, undefined, titleYear, allTextNames));
+      }
+    }
+
+    const [idResults, canonicalResults, ...altResults] = await Promise.all([
+      Promise.all(idTasks).then(sets => sets.flat()),
+      canonicalTextPromise,
+      ...altPromises,
+    ]);
+    let allResults: (NZBSearchResult & { indexerName: string })[] = [...idResults, ...canonicalResults, ...altResults.flat()];
+
+    const skipSequentialAlt = parallelAltEnabled || animeFanoutEnabled;
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
       slog(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
     }
-    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
-      const allNames = [...new Set(idSearchedNames)];
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt) {
+      const allNames = allTextNames.length > 0 ? allTextNames : [...new Set(idSearchedNames)];
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
-          const altParams: Record<string, string> = {
-            apikey: this.apiKey,
-            extended: '1',
-            t: 'search',
-            q: stripDiacritics(year ? `${altTitle} ${year}` : altTitle),
-            cat: '2000',
-            indexers: allNames.join(','),
-          };
-          slog(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
-          const altResults = await this.doSearch(altParams);
-          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          slog(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
-          if (altResults.length !== altFiltered.length) {
-            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-              .forEach(r => slog(`      ✂️  ${r.title}`));
-          }
+          slog(`🔄 NZBHydra alt-title retry: "${altTitle}"`);
+          const altFiltered = await this.runTitleSearchMovie(altTitle, altTitle, year, country, undefined, titleYear, allNames);
           if (altFiltered.length > 0) {
-            allResults.push(...altFiltered);
+            allResults = altFiltered;
             break;
           }
         }
       }
     }
 
+    if (allResults.length === 0 && !this.timedOut && config.searchConfig?.aliasTitleFallback !== false && searchAliases?.length) {
+      const allNames = allTextNames.length > 0 ? allTextNames : [...new Set(idSearchedNames)];
+      if (allNames.length > 0) {
+        const aliasPromises = searchAliases.map((alias) => {
+          const q = stripDiacritics(year ? `${alias} ${year}` : alias);
+          return withSubBuffer(`Alias fallback: "${q}"`, async () => {
+            slog(`🔍 Query: "${q}"`);
+            const params: Record<string, string> = {
+              apikey: this.apiKey, extended: '1', t: 'search', q, cat: '2000', indexers: allNames.join(','),
+            };
+            const r = await this.doSearch(params);
+            const f = r.filter(x => isTextSearchMatch(alias, x.title, year, country, undefined, titleYear));
+            if (r.length !== f.length) slog(`   🎯 Alias "${alias}" filter: ${r.length} → ${f.length}`);
+            return f;
+          });
+        });
+        const aliasResults = (await Promise.all(aliasPromises)).flat();
+        allResults = aliasResults;
+      }
+    }
+
     return allResults;
+  }
+
+  /**
+   * Run a movie text-search query for one title against the given indexers.
+   */
+  private async runTitleSearchMovie(
+    filterTitle: string,
+    queryTitle: string,
+    year: string | undefined,
+    country: string | undefined,
+    additionalFilterTitles: string[] | undefined,
+    titleYear: string | undefined,
+    indexerNames: string[],
+  ): Promise<(NZBSearchResult & { indexerName: string })[]> {
+    if (indexerNames.length === 0) return [];
+    const q = stripDiacritics(year ? `${queryTitle} ${year}` : queryTitle);
+    return withSubBuffer(`movie text search "${queryTitle}"`, async () => {
+      slog(`🔍 Query: "${q}"`);
+      const params: Record<string, string> = {
+        apikey: this.apiKey, extended: '1', t: 'search', q, cat: '2000', indexers: indexerNames.join(','),
+      };
+      const results = await this.doSearch(params);
+      const filtered = results.filter(r => isTextSearchMatch(filterTitle, r.title, year, country, additionalFilterTitles, titleYear));
+      if (results.length !== filtered.length) {
+        slog(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
+        results.filter(r => !isTextSearchMatch(filterTitle, r.title, year, country, additionalFilterTitles, titleYear))
+          .forEach(r => slog(`      ✂️  ${r.title}`));
+      }
+      return filtered;
+    });
   }
 
   async searchTVShow(
@@ -154,30 +196,31 @@ export class NzbhydraSearcher {
     resolvedIds?: Map<string, { idParam: string; idValue: string } | null>,
     additionalTitles?: string[],
     titleYear?: string,
+    isAnime?: boolean,
+    searchAliases?: string[],
+    episodeAired?: string,
+    priorSeasonsEpisodeCount?: number,
+    absoluteEpisodeNumber?: number,
+    tvdbPriorSeasonsCount?: number,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('tv');
-    const allResults: (NZBSearchResult & { indexerName: string })[] = [];
+    const idTasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
     const idSearchedNames: string[] = [];
     const textMethodNames: string[] = [];
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
 
-    const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
-
     for (const [method, indexerNames] of groups) {
+      if (method === 'text') {
+        textMethodNames.push(...indexerNames);
+        continue;
+      }
       const params: Record<string, string> = {
         apikey: this.apiKey,
         extended: '1',
+        indexers: indexerNames.join(','),
       };
-
-      params.indexers = indexerNames.join(',');
-
-      if (method === 'text') {
-        params.t = 'search';
-        params.q = stripDiacritics(`${title} S${s}E${e}`);
-        params.cat = '5000';
-        textMethodNames.push(...indexerNames);
-      } else if (method === 'imdb') {
+      if (method === 'imdb') {
         params.t = 'tvsearch';
         params.imdbid = imdbId.replace('tt', '');
         params.season = season.toString();
@@ -199,147 +242,240 @@ export class NzbhydraSearcher {
         slog(`⚠️  ${method} ID unavailable for ${indexerNames.length} indexer(s) — skipping`);
         continue;
       }
-
-      const isText = method === 'text';
-      tasks.push(withSubBuffer(`TV ${method} search S${season}E${episode} × ${indexerNames.length} indexer(s)`, async () => {
-        const results = await this.doSearch(params);
-        if (isText) {
-          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          slog(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
-          if (results.length !== filtered.length) {
-            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-              .forEach(r => slog(`      ✂️  ${r.title}`));
-          }
-          return filtered;
-        }
-        return results;
-      }));
+      idTasks.push(withSubBuffer(`TV ${method} search S${season}E${episode} × ${indexerNames.length} indexer(s)`, () => this.doSearch(params)));
     }
 
     const packIndexerNames = [...new Set([...textMethodNames, ...idSearchedNames])];
-    if (packIndexerNames.length > 0 && title) {
-      const packIndexersCsv = packIndexerNames.join(',');
+    const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
+    const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
 
-      if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-        const spPagination = config.searchConfig?.seasonPackPagination !== false;
-        const spPages = config.searchConfig?.seasonPackAdditionalPages;
-        const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-        const packParams: Record<string, string> = {
-          apikey: this.apiKey,
-          extended: '1',
-          t: 'search',
-          q: stripDiacritics(`${title} S${s}`),
-          cat: '5000',
-          indexers: packIndexersCsv,
-        };
-        tasks.push(withSubBuffer(`Season pack: ${packParams.q}`, async () => {
-          const packResults = await this.doSearch(packParams, spOverride);
-          const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-          if (packResults.length !== packs.length) {
-            const keptLinks = new Set(packs.map(p => p.link));
-            const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-            slog(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-            removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
-          }
-          if (packs.length > 0) slog(`   📦 Found ${packs.length} season packs`);
-          return packs;
-        }));
+    const canonicalTextPromise = packIndexerNames.length > 0 && title
+      ? this.runTitleSearchTV(title, title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, packIndexerNames)
+      : Promise.resolve([] as (NZBSearchResult & { indexerName: string })[]);
+
+    const altPromises: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
+    if ((parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length && packIndexerNames.length > 0) {
+      slog(parallelAltEnabled
+        ? `🔀 NZBHydra parallel alt-title search: querying primary + ${additionalTitles.length} alt(s) concurrently`
+        : `🎌 NZBHydra anime dual-title fan-out: querying primary + ${additionalTitles.length} alt(s)`);
+      for (const alt of additionalTitles) {
+        altPromises.push(this.runTitleSearchTV(alt, alt, season, episode, episodesInSeason, year, country, undefined, titleYear, packIndexerNames));
       }
-
-      const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
-      if (season > 1 && includeMultiSeasonPacks) {
-        const fanoutOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
-        const fanoutParams: Record<string, string> = {
-          apikey: this.apiKey,
-          extended: '1',
-          t: 'search',
-          q: stripDiacritics(`${title} S01`),
-          cat: '5000',
-          indexers: packIndexersCsv,
-        };
-        tasks.push(withSubBuffer(`Multi-season fanout: ${fanoutParams.q}`, async () => {
-          const fanoutResults = await this.doSearch(fanoutParams, fanoutOverride);
-          const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
-          if (fanoutResults.length !== fanoutPacks.length) {
-            slog(`   📦 Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
-          }
-          if (fanoutPacks.length > 0) slog(`   📦 Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
-          return fanoutPacks;
-        }));
-      }
-
-      const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
-      tasks.push(withSubBuffer(`Series-pack keyword queries`, () => runSeriesPackQueries({
-        searchFn: async (q) => {
-          const seriesParams: Record<string, string> = {
-            apikey: this.apiKey,
-            extended: '1',
-            t: 'search',
-            q,
-            cat: '5000',
-            indexers: packIndexersCsv,
-          };
-          return this.doSearch(seriesParams, seriesOverride);
-        },
-        title, season, episodesInSeason,
-        isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
-        searchConfig: config.searchConfig,
-        logPrefix: 'NZBHydra',
-      })));
     }
 
-    const settled = await Promise.all(tasks);
-    for (const arr of settled) allResults.push(...arr);
+    const [idResults, canonicalResults, ...altResults] = await Promise.all([
+      Promise.all(idTasks).then(sets => sets.flat()),
+      canonicalTextPromise,
+      ...altPromises,
+    ]);
+    let allResults: (NZBSearchResult & { indexerName: string })[] = [...idResults, ...canonicalResults, ...altResults.flat()];
 
-    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    const skipSequentialAlt = parallelAltEnabled || animeFanoutEnabled;
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
       slog(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
     }
-    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
-      const allNames = [...new Set(idSearchedNames)];
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt) {
+      const allNames = packIndexerNames.length > 0 ? packIndexerNames : [...new Set(idSearchedNames)];
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
-          const altParams: Record<string, string> = {
-            apikey: this.apiKey,
-            extended: '1',
-            t: 'search',
-            q: stripDiacritics(`${altTitle} S${s}E${e}`),
-            cat: '5000',
-            indexers: allNames.join(','),
-          };
-          slog(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
-          const altResults = await this.doSearch(altParams);
-          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          slog(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
-          if (altResults.length !== altFiltered.length) {
-            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-              .forEach(r => slog(`      ✂️  ${r.title}`));
-          }
-          if (altFiltered.length > 0) {
-            // Also check for season packs with the alternative title
-            if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-              const spPagination = config.searchConfig?.seasonPackPagination !== false;
-              const spPages = config.searchConfig?.seasonPackAdditionalPages;
-              const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-              const packParams: Record<string, string> = { ...altParams, q: stripDiacritics(`${altTitle} S${s}`) };
-              const packResults = await this.doSearch(packParams, spOverride);
-              const titleMatched = packResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-              const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-              if (packs.length > 0) {
-                slog(`   📦 Found ${packs.length} season packs (alt-title)`);
-              }
-              altFiltered.push(...packs);
-            }
-            allResults.push(...altFiltered);
+          slog(`🔄 NZBHydra alt-title retry: "${altTitle}"`);
+          const altPackResults = await this.runTitleSearchTV(altTitle, altTitle, season, episode, episodesInSeason, year, country, undefined, titleYear, allNames);
+          if (altPackResults.length > 0) {
+            allResults = altPackResults;
             break;
           }
+          if (config.searchConfig?.absoluteEpisodeFallback !== false) {
+            const absResults = await this.runAbsoluteSearchTV(altTitle, altTitle, season, episode, year, country, titleYear, allNames, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
+            if (absResults.length > 0) {
+              allResults = absResults;
+              break;
+            }
+          }
         }
+      }
+    }
+
+    if (allResults.length === 0 && !this.timedOut && config.searchConfig?.absoluteEpisodeFallback !== false) {
+      const allNames = packIndexerNames.length > 0 ? packIndexerNames : [...new Set(idSearchedNames)];
+      if (allNames.length > 0) {
+        const titlesToRetry = (parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length
+          ? [title, ...additionalTitles]
+          : [title];
+        const absPromises = titlesToRetry.map(t => this.runAbsoluteSearchTV(t, t, season, episode, year, country, titleYear, allNames, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount));
+        const absResults = (await Promise.all(absPromises)).flat();
+        allResults.push(...absResults);
+      }
+    }
+
+    if (allResults.length === 0 && !this.timedOut && config.searchConfig?.aliasTitleFallback !== false && searchAliases?.length) {
+      const allNames = packIndexerNames.length > 0 ? packIndexerNames : [...new Set(idSearchedNames)];
+      if (allNames.length > 0) {
+        const useDateScheme = typeof episodeAired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(episodeAired);
+        const aliasPromises = searchAliases.map((alias) => {
+          const q = useDateScheme
+            ? stripDiacritics(`${alias} ${episodeAired!.slice(0, 10).replace(/-/g, '.')}`)
+            : stripDiacritics(`${alias} S${s}E${e}`);
+          return withSubBuffer(`Alias fallback: "${q}"`, async () => {
+            slog(`🔍 Query: "${q}"`);
+            const params: Record<string, string> = {
+              apikey: this.apiKey, extended: '1', t: 'search', q, cat: '5000', indexers: allNames.join(','),
+            };
+            const r = await this.doSearch(params);
+            const f = r.filter(x => isTextSearchMatch(alias, x.title, year, country, undefined, titleYear));
+            if (r.length !== f.length) slog(`   🎯 Alias "${alias}" filter: ${r.length} → ${f.length}`);
+            return f;
+          });
+        });
+        const aliasResults = (await Promise.all(aliasPromises)).flat();
+        allResults = aliasResults;
       }
     }
 
     return allResults;
+  }
+
+  /**
+   * Run the full text-mode flow (episode + season pack + multi-season fanout +
+   * series-pack keywords) for one title against the given indexers.
+   */
+  private async runTitleSearchTV(
+    filterTitle: string,
+    queryTitle: string,
+    season: number,
+    episode: number,
+    episodesInSeason: number | undefined,
+    year: string | undefined,
+    country: string | undefined,
+    additionalFilterTitles: string[] | undefined,
+    titleYear: string | undefined,
+    indexerNames: string[],
+  ): Promise<(NZBSearchResult & { indexerName: string })[]> {
+    if (indexerNames.length === 0) return [];
+    const s = season.toString().padStart(2, '0');
+    const e = episode.toString().padStart(2, '0');
+    const indexersCsv = indexerNames.join(',');
+    const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
+
+    const epQuery = stripDiacritics(`${queryTitle} S${s}E${e}`);
+    tasks.push(withSubBuffer(`TV text search "${queryTitle}"`, async () => {
+      slog(`🔍 Query: "${epQuery}"`);
+      const params: Record<string, string> = {
+        apikey: this.apiKey, extended: '1', t: 'search', q: epQuery, cat: '5000', indexers: indexersCsv,
+      };
+      const r = await this.doSearch(params);
+      const f = r.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
+      if (r.length !== f.length) {
+        slog(`   🎯 Title filter: ${r.length} → ${f.length}`);
+        r.filter(x => !isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear))
+          .forEach(x => slog(`      ✂️  ${x.title}`));
+      }
+      return f;
+    }));
+
+    if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
+      const spPagination = config.searchConfig?.seasonPackPagination !== false;
+      const spPages = config.searchConfig?.seasonPackAdditionalPages;
+      const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
+      const packQuery = stripDiacritics(`${queryTitle} S${s}`);
+      tasks.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
+        const params: Record<string, string> = {
+          apikey: this.apiKey, extended: '1', t: 'search', q: packQuery, cat: '5000', indexers: indexersCsv,
+        };
+        const packResults = await this.doSearch(params, spOverride);
+        const titleMatched = packResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
+        const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
+        if (packResults.length !== packs.length) {
+          slog(`   📦 Season pack filter: ${packResults.length} → ${packs.length}`);
+        }
+        if (packs.length > 0) slog(`   📦 Found ${packs.length} season pack(s) for "${queryTitle}"`);
+        return packs;
+      }));
+    }
+
+    const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+    if (season > 1 && includeMultiSeasonPacks) {
+      const fanoutOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+      const fanoutQuery = stripDiacritics(`${queryTitle} S01`);
+      tasks.push(withSubBuffer(`Multi-season fanout: ${fanoutQuery}`, async () => {
+        const params: Record<string, string> = {
+          apikey: this.apiKey, extended: '1', t: 'search', q: fanoutQuery, cat: '5000', indexers: indexersCsv,
+        };
+        const fanoutResults = await this.doSearch(params, fanoutOverride);
+        const fanoutMatched = fanoutResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
+        const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
+        if (fanoutResults.length !== fanoutPacks.length) {
+          slog(`   📦 Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+        }
+        if (fanoutPacks.length > 0) slog(`   📦 Found ${fanoutPacks.length} multi-season pack(s) covering S${season} for "${queryTitle}"`);
+        return fanoutPacks;
+      }));
+    }
+
+    const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+    tasks.push(withSubBuffer(`Series-pack keyword queries (${queryTitle})`, () => runSeriesPackQueries({
+      searchFn: async (q) => {
+        const params: Record<string, string> = {
+          apikey: this.apiKey, extended: '1', t: 'search', q, cat: '5000', indexers: indexersCsv,
+        };
+        return this.doSearch(params, seriesOverride);
+      },
+      title: queryTitle, season, episodesInSeason,
+      isTitleMatch: (rt) => isTextSearchMatch(filterTitle, rt, year, country, additionalFilterTitles, titleYear),
+      searchConfig: config.searchConfig,
+      logPrefix: 'NZBHydra',
+    })));
+
+    const sets = await Promise.all(tasks);
+    return sets.flat();
+  }
+
+  /**
+   * Run an absolute-episode fallback query (`Title E{absoluteEp}`) for one title.
+   * Strips bare `\bE\d{1,3}\b` from result titles before title matching, and
+   * rejects results whose Sxx token doesn't match the requested season.
+   */
+  private async runAbsoluteSearchTV(
+    filterTitle: string,
+    queryTitle: string,
+    season: number,
+    episode: number,
+    year: string | undefined,
+    country: string | undefined,
+    titleYear: string | undefined,
+    indexerNames: string[],
+    priorSeasonsEpisodeCount: number | undefined,
+    absoluteEpisodeNumber: number | undefined,
+    tvdbPriorSeasonsCount: number | undefined,
+  ): Promise<(NZBSearchResult & { indexerName: string })[]> {
+    if (indexerNames.length === 0) return [];
+    let absoluteEp: number;
+    if (typeof absoluteEpisodeNumber === 'number') absoluteEp = absoluteEpisodeNumber;
+    else if (typeof tvdbPriorSeasonsCount === 'number') absoluteEp = tvdbPriorSeasonsCount + episode;
+    else if (priorSeasonsEpisodeCount !== undefined) absoluteEp = priorSeasonsEpisodeCount + episode;
+    else absoluteEp = episode;
+
+    const query = stripDiacritics(`${queryTitle} E${absoluteEp.toString().padStart(2, '0')}`);
+    return withSubBuffer(`Absolute fallback: "${query}"`, async () => {
+      slog(`🔢 Query: "${query}"`);
+      const params: Record<string, string> = {
+        apikey: this.apiKey, extended: '1', t: 'search', q: query, cat: '5000', indexers: indexerNames.join(','),
+      };
+      const results = await this.doSearch(params);
+
+      const stripAbsEp = (str: string) => str.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ');
+      const seasonOk = (resultTitle: string): boolean => {
+        const seasonTokens = extractSeasonTokens(resultTitle);
+        return seasonTokens.length === 0 || seasonTokens.includes(season);
+      };
+      const filtered = results.filter(r =>
+        isTextSearchMatch(filterTitle, stripAbsEp(r.title), year, country, undefined, titleYear)
+        && seasonOk(r.title)
+      );
+      if (results.length !== filtered.length) {
+        slog(`   🎯 Absolute filter: ${results.length} → ${filtered.length}`);
+      }
+      return filtered;
+    });
   }
 
   private async doSearch(params: Record<string, string>, paginationOverride?: { enabled: boolean; additionalPages: number }): Promise<(NZBSearchResult & { indexerName: string })[]> {
