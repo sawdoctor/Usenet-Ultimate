@@ -196,7 +196,11 @@ export class EasynewsSearcher {
       tasks.push(withSubBuffer(`TV text search [EasyNews] "${epQuery}"`, async () => {
         slog(`🔍 [EasyNews] Query ${this.timeoutLabel()}: "${epQuery}"`);
         const r = await this.search(epQuery);
-        return { kind: 'episode' as const, jobTitle: t, results: r };
+        const f = r.filter(x => isTextSearchMatch(t, x.title, year, country, parallelAltEnabled ? undefined : additionalTitles, titleYear));
+        if (r.length !== f.length) {
+          slog(`   🎯 [EasyNews] Title filter: ${r.length} → ${f.length}`);
+        }
+        return { kind: 'episode' as const, jobTitle: t, results: f };
       }));
     }
 
@@ -207,7 +211,12 @@ export class EasynewsSearcher {
         tasks.push(withSubBuffer(`Season pack [EasyNews]: ${packQuery}`, async () => {
           slog(`🔍 [EasyNews] Query: "${packQuery}"`);
           const r = await this.search(packQuery, spAdditionalPages);
-          return { kind: 'pack' as const, jobTitle: t, results: r };
+          const matched = r.filter(x => isTextSearchMatch(t, x.title, year, country, parallelAltEnabled ? undefined : additionalTitles, titleYear));
+          const tagged = tagSeasonPack(matched, season, episodesInSeason);
+          if (r.length !== tagged.length) {
+            slog(`   📦 [EasyNews] Pack filter: ${r.length} → ${tagged.length}`);
+          }
+          return { kind: 'pack' as const, jobTitle: t, results: tagged };
         }));
       }
     }
@@ -217,7 +226,15 @@ export class EasynewsSearcher {
       tasks.push(withSubBuffer(`Multi-season fanout [EasyNews]: ${fanoutQuery}`, async () => {
         slog(`🔍 [EasyNews] Query: "${fanoutQuery}"`);
         const r = await this.search(fanoutQuery, seriesPackPages);
-        return { kind: 'fanout' as const, jobTitle: title, results: r };
+        const titleMatched = r.filter(x => isTextSearchMatch(title, x.title, year, country, additionalTitles, titleYear));
+        const fanoutPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
+        if (r.length !== fanoutPacks.length) {
+          slog(`   📦 [EasyNews] Multi-season fanout filter: ${r.length} → ${fanoutPacks.length}`);
+        }
+        if (fanoutPacks.length > 0) {
+          slog(`   📦 [EasyNews] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+        }
+        return { kind: 'fanout' as const, jobTitle: title, results: fanoutPacks };
       }));
     }
 
@@ -234,55 +251,25 @@ export class EasynewsSearcher {
 
     const jobResults = await Promise.all(tasks);
 
-    // Episodes-beat-packs dedup: collect filtered episodes first, build hash
-    // set, then add packs/fanout/seriesKw whose hash is not already seen.
-    const episodes: (NZBSearchResult & { indexerName: string })[] = [];
+    // Cross-task hash dedup. Each task already did its own per-job filtering
+    // and tagging inside its sub-buffer; this loop only enforces "episodes
+    // beat packs" ordering and drops duplicates by easynewsMeta.hash. Silent
+    // (no slog) because everything that needed logging happened inside each
+    // task's sub-buffer.
+    let filtered: (NZBSearchResult & { indexerName: string })[] = [];
+    const seen = new Set<string>();
     for (const j of jobResults) {
       if (j.kind !== 'episode') continue;
-      const f = j.results.filter(x => isTextSearchMatch(j.jobTitle, x.title, year, country, parallelAltEnabled ? undefined : additionalTitles, titleYear));
-      if (j.results.length !== f.length) {
-        slog(`   🎯 [EasyNews] "${j.jobTitle}" episode filter: ${j.results.length} → ${f.length}`);
+      for (const r of j.results) {
+        const h = r.easynewsMeta!.hash;
+        if (!seen.has(h)) { seen.add(h); filtered.push(r); }
       }
-      episodes.push(...f);
     }
-
-    let filtered: (NZBSearchResult & { indexerName: string })[] = [...episodes];
-    const seen = new Set(filtered.map(r => r.easynewsMeta!.hash));
-
     for (const j of jobResults) {
       if (j.kind === 'episode') continue;
-      let matched: (NZBSearchResult & { indexerName: string })[];
-      if (j.kind === 'pack') {
-        matched = j.results
-          .filter(x => isTextSearchMatch(j.jobTitle, x.title, year, country, parallelAltEnabled ? undefined : additionalTitles, titleYear))
-          .filter(x => !seen.has(x.easynewsMeta!.hash));
-        const tagged = tagSeasonPack(matched, season, episodesInSeason);
-        if (j.results.length !== tagged.length) {
-          slog(`   📦 [EasyNews] "${j.jobTitle}" pack filter: ${j.results.length} → ${tagged.length}`);
-        }
-        for (const r of tagged) {
-          const h = r.easynewsMeta!.hash;
-          if (!seen.has(h)) { seen.add(h); filtered.push(r); }
-        }
-      } else if (j.kind === 'fanout') {
-        const dedup = j.results.filter(x => !seen.has(x.easynewsMeta!.hash));
-        const titleMatched = dedup.filter(x => isTextSearchMatch(title, x.title, year, country, additionalTitles, titleYear));
-        const fanoutPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
-        if (j.results.length !== fanoutPacks.length) {
-          slog(`   📦 [EasyNews] Multi-season fanout filter: ${j.results.length} → ${fanoutPacks.length}`);
-        }
-        if (fanoutPacks.length > 0) {
-          slog(`   📦 [EasyNews] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
-        }
-        for (const r of fanoutPacks) {
-          const h = r.easynewsMeta!.hash;
-          if (!seen.has(h)) { seen.add(h); filtered.push(r); }
-        }
-      } else if (j.kind === 'seriesKw') {
-        for (const r of j.results) {
-          const h = r.easynewsMeta!.hash;
-          if (!seen.has(h)) { seen.add(h); filtered.push(r); }
-        }
+      for (const r of j.results) {
+        const h = r.easynewsMeta!.hash;
+        if (!seen.has(h)) { seen.add(h); filtered.push(r); }
       }
     }
 

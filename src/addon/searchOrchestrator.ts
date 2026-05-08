@@ -351,9 +351,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true
       && !!additionalTitles?.length
       && !isAnime;
-    if (parallelAltEnabled) {
-      console.log(`🔀 Parallel alt-title search enabled — querying [${[title, ...additionalTitles!].map(t => `"${t}"`).join(', ')}] concurrently across ${effectiveIndexers.length} indexer(s)`);
-    }
     const altSearchPromises = parallelAltEnabled
       ? effectiveIndexers.flatMap(indexer => additionalTitles!.map(async (altTitle) => {
           const startTime = Date.now();
@@ -408,8 +405,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         // whose releases are dated rather than SxxExx-numbered are reachable.
         // Falls back to seasonal SxxExx when no aired date is known.
         const useDateScheme = type === 'series' && typeof episodeAired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(episodeAired);
-        const fmtSuffix = useDateScheme ? `aired ${episodeAired}` : 'SxxExx';
-        console.log(`🎤 0 results for "${title}"; trying TVDB aliases (${fmtSuffix}): [${searchAliases.map(a => `"${a}"`).join(', ')}]`);
         const aliasPromises = retryIndexers.map(async (indexer) => {
           const { result, lines } = await withBuffer(async (): Promise<any[]> => {
             const subResults = await Promise.all(searchAliases!.map(alias =>
@@ -472,13 +467,10 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         let absoluteEp: number;
         if (typeof absoluteEpisodeNumber === 'number') {
           absoluteEp = absoluteEpisodeNumber;
-          console.log(`🔢 Absolute episode (TVDB canonical): "${title}" S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} → E${absoluteEp}`);
         } else if (typeof tvdbPriorSeasonsCount === 'number') {
           absoluteEp = tvdbPriorSeasonsCount + episode;
-          console.log(`🔢 Absolute episode (TVDB cumulative): "${title}" S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} → E${absoluteEp} (TVDB prior: ${tvdbPriorSeasonsCount} + ${episode})`);
         } else if (priorSeasonsEpisodeCount !== undefined) {
           absoluteEp = priorSeasonsEpisodeCount + episode;
-          console.log(`🔢 Absolute episode (Cinemeta cumulative): "${title}" S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} → E${absoluteEp} (Cinemeta prior: ${priorSeasonsEpisodeCount} + ${episode})`);
         } else {
           console.warn(`⚠️  Absolute episode fallback: priorSeasonsEpisodeCount unavailable (Cinemeta gap), using per-season E${episode}`);
           absoluteEp = episode;
@@ -489,7 +481,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         const titlesToRetry = (parallelAltEnabled && additionalTitles?.length)
           ? [title, ...additionalTitles]
           : [title];
-        console.log(`🔍 Absolute episode fallback: retrying ${retryIndexers.length} indexer(s) with E${absoluteEp}${titlesToRetry.length > 1 ? ` × ${titlesToRetry.length} title(s)` : ''}`);
         const fallbackPromises = retryIndexers.map(async (indexer) => {
           const { result, lines } = await withBuffer(async (): Promise<any[]> => {
             const subResults = await Promise.all(titlesToRetry.map(t =>
@@ -525,7 +516,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         const fallbackResults = await Promise.all(fallbackPromises);
         for (const r of fallbackResults) accumulate(r.indexerName, r.lines);
         results = fallbackResults.flatMap(r => r.result);
-        console.log(`   📦 Absolute episode fallback returned ${results.length} results`);
       }
     }
 
@@ -534,13 +524,8 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     // Skipped entirely in parallel-alt mode — those alts already fired upfront.
     if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0 && !parallelAltEnabled) {
       const altIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
-      const skipped = enabledIndexers.length - altIndexers.length;
-      if (skipped > 0) {
-        console.log(`⏱️  Skipping alt-title retry for ${skipped} indexer(s) — prior timeout: ${[...timedOutIndexers].map(n => `"${n}"`).join(', ')}`);
-      }
       for (const altTitle of additionalTitles) {
         if (altIndexers.length === 0) break;
-        console.log(`🔄 Retrying with alternative title for ${altIndexers.length} indexer(s): "${altTitle}"`);
         const altPromises = altIndexers.map(async (indexer) => {
           const { result, lines } = await withBuffer(async (): Promise<any[]> => {
             return withSubBuffer(`Alt-title retry: "${altTitle}"`, async () => {
@@ -572,7 +557,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         const altResultsList = await Promise.all(altPromises);
         for (const r of altResultsList) accumulate(r.indexerName, r.lines);
         let altResults = altResultsList.flatMap(r => r.result);
-        console.log(`   📦 Alt-title retry returned ${altResults.length} results`);
 
         // Absolute-episode fallback for the alt title — same rationale as the
         // primary-title fallback above. If the alt-title SxxExx came back
@@ -600,7 +584,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           }
           const absoluteAltIndexers = altIndexers.filter(i => !timedOutIndexers.has(i.name));
           if (absoluteAltIndexers.length > 0) {
-            console.log(`🔍 Absolute episode fallback (alt title "${altTitle}"): retrying ${absoluteAltIndexers.length} indexer(s) with E${absoluteEp}`);
             const absPromises = absoluteAltIndexers.map(async (indexer) => {
               const { result, lines } = await withBuffer(async (): Promise<any[]> => {
                 return withSubBuffer(`Alt-title absolute fallback: "${altTitle} E${absoluteEp}"`, async () => {
@@ -630,7 +613,6 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
             const absResultsList = await Promise.all(absPromises);
             for (const r of absResultsList) accumulate(r.indexerName, r.lines);
             altResults = absResultsList.flatMap(r => r.result);
-            console.log(`   📦 Absolute episode fallback (alt title) returned ${altResults.length} results`);
           }
         }
 
@@ -678,8 +660,6 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
       } else if (type === 'series' && season !== undefined && episode !== undefined) {
         r = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, searchAliases, episodeAired);
       }
-      const responseTime = Date.now() - easynewsStartTime;
-      slog(`📰 EasyNews: ${r.length} results in ${responseTime}ms`);
       return r;
     });
     flushBuffer(lines, 'EasyNews');
