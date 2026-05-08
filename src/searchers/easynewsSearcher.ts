@@ -354,7 +354,7 @@ export class EasynewsSearcher {
           if (this.timedOut) return Promise.resolve([] as (NZBSearchResult & { indexerName: string })[]);
           const absQuery = `${t} E${absoluteEp.toString().padStart(2, '0')}`;
           return withSubBuffer(`Absolute fallback: "${absQuery}"`, async () => {
-            slog(`🔢 Query: "${absQuery}"`);
+            slog(`🔍 Query: "${absQuery}"`);
             const r = await this.search(absQuery);
             const f = r.filter(x => isTextSearchMatch(t, stripAbsEp(x.title), year, country, undefined, titleYear) && seasonOk(x.title));
             if (r.length !== f.length) slog(`   🔢 Absolute filter: ${r.length} → ${f.length}`);
@@ -368,7 +368,7 @@ export class EasynewsSearcher {
           if (this.timedOut) break;
           const absQuery = `${candTitle} E${absoluteEp.toString().padStart(2, '0')}`;
           const absFiltered = await withSubBuffer(`Absolute fallback: "${absQuery}"`, async () => {
-            slog(`🔢 Query: "${absQuery}"`);
+            slog(`🔍 Query: "${absQuery}"`);
             const absResults = await this.search(absQuery);
             const f = absResults.filter(r => isTextSearchMatch(candTitle, stripAbsEp(r.title), year, country, undefined, titleYear) && seasonOk(r.title));
             if (absResults.length !== f.length) slog(`   🔢 Absolute filter: ${absResults.length} → ${f.length}`);
