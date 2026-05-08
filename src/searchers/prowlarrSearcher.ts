@@ -496,7 +496,7 @@ export class ProwlarrSearcher {
 
     const query = stripDiacritics(`${queryTitle} E${absoluteEp.toString().padStart(2, '0')}`);
     return withSubBuffer(`Absolute fallback: "${query}"`, async () => {
-      slog(`🔢 Query: "${query}"`);
+      slog(`🔍 Query: "${query}"`);
       const results = await this.doAggregateSearch(indexerIds, 'search', query, ['5000']);
 
       const stripAbsEp = (str: string) => str.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ');

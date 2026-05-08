@@ -7,7 +7,7 @@
 
 import { config } from '../config/index.js';
 import { UsenetSearcher } from '../parsers/usenetSearcher.js';
-import { withBuffer, flushBuffer, withSubBuffer, slog } from '../parsers/searchLogger.js';
+import { withBuffer, flushBuffer, withSubBuffer, slog, type LogEntry } from '../parsers/searchLogger.js';
 import { trackQuery } from '../statsTracker.js';
 import { resolveExternalId } from '../idResolver.js';
 import { ProwlarrSearcher } from '../searchers/prowlarrSearcher.js';
@@ -272,6 +272,18 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     // skip them and avoid stacking a second timeout wait on an already-slow backend.
     const timedOutIndexers = new Set<string>();
 
+    // Per-indexer log accumulator. Each phase (main pass, parallel-alt, alias
+    // fallback, absolute fallback, alt-title retry) appends its lines into this
+    // map keyed by indexer name. A single flush at the end of the Newznab branch
+    // produces ONE `═══ <indexer> ═══` cluster per indexer containing every phase
+    // that fired, matching the single-cluster shape used by Prowlarr/NZBHydra/EasyNews.
+    const indexerLines = new Map<string, LogEntry[]>();
+    const accumulate = (name: string, lines: LogEntry[]) => {
+      const existing = indexerLines.get(name) ?? [];
+      existing.push(...lines);
+      indexerLines.set(name, existing);
+    };
+
     // Search across all enabled indexers, each with its own methods and resolved IDs
     const searchPromises = effectiveIndexers
       .map(async (indexer) => {
@@ -366,14 +378,14 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
               return [];
             }
           });
-          return { result, lines };
+          return { result, lines, indexerName: indexer.name };
         }))
       : [];
 
     const mainResults = await Promise.all(searchPromises);
-    for (const r of mainResults) flushBuffer(r.lines, r.indexerName);
+    for (const r of mainResults) accumulate(r.indexerName, r.lines);
     const altResults = await Promise.all(altSearchPromises);
-    for (const r of altResults) flushBuffer(r.lines);
+    for (const r of altResults) accumulate(r.indexerName, r.lines);
 
     let results = [...mainResults.flatMap(r => r.result), ...altResults.flatMap(r => r.result)];
 
@@ -398,33 +410,42 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         const useDateScheme = type === 'series' && typeof episodeAired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(episodeAired);
         const fmtSuffix = useDateScheme ? `aired ${episodeAired}` : 'SxxExx';
         console.log(`🎤 0 results for "${title}"; trying TVDB aliases (${fmtSuffix}): [${searchAliases.map(a => `"${a}"`).join(', ')}]`);
-        const aliasPromises = retryIndexers.flatMap(indexer => searchAliases!.map(async (alias) => {
-          const startTime = Date.now();
-          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
-          try {
-            let fbResults: any[] = [];
-            if (type === 'movie') {
-              fbResults = await searcher.searchMovie(imdbId, alias, year, country, undefined, 'text', undefined, titleYear);
-            } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              const tvOptions = useDateScheme
-                ? { numberingScheme: 'date' as const, airedDate: episodeAired }
-                : undefined;
-              fbResults = await searcher.searchTVShow(imdbId, alias, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear, tvOptions);
-            }
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, true, responseTime, fbResults.length);
-            return fbResults.map(r => ({ ...r, indexerName: indexer.name }));
-          } catch (error) {
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-            console.error(`❌ Error in alias fallback for ${indexer.name} ("${alias}"):`, error);
-            return [];
-          }
-        }));
+        const aliasPromises = retryIndexers.map(async (indexer) => {
+          const { result, lines } = await withBuffer(async (): Promise<any[]> => {
+            const subResults = await Promise.all(searchAliases!.map(alias =>
+              withSubBuffer(`Alias fallback: "${alias}"`, async () => {
+                const startTime = Date.now();
+                const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+                try {
+                  let fbResults: any[] = [];
+                  if (type === 'movie') {
+                    fbResults = await searcher.searchMovie(imdbId, alias, year, country, undefined, 'text', undefined, titleYear);
+                  } else if (type === 'series' && season !== undefined && episode !== undefined) {
+                    const tvOptions = useDateScheme
+                      ? { numberingScheme: 'date' as const, airedDate: episodeAired }
+                      : undefined;
+                    fbResults = await searcher.searchTVShow(imdbId, alias, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear, tvOptions);
+                  }
+                  if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                  const responseTime = Date.now() - startTime;
+                  trackQuery(indexer.name, true, responseTime, fbResults.length);
+                  return fbResults.map(r => ({ ...r, indexerName: indexer.name }));
+                } catch (error) {
+                  if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                  const responseTime = Date.now() - startTime;
+                  trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+                  slog(`❌ Error in alias fallback for ${indexer.name} ("${alias}"): ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  return [];
+                }
+              })
+            ));
+            return subResults.flat();
+          });
+          return { result, lines, indexerName: indexer.name };
+        });
         const aliasResults = await Promise.all(aliasPromises);
-        results = aliasResults.flat();
+        for (const r of aliasResults) accumulate(r.indexerName, r.lines);
+        results = aliasResults.flatMap(r => r.result);
       }
     }
 
@@ -468,34 +489,43 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         const titlesToRetry = (parallelAltEnabled && additionalTitles?.length)
           ? [title, ...additionalTitles]
           : [title];
-        console.log(`🔢 Absolute episode fallback: retrying ${retryIndexers.length} indexer(s) with E${absoluteEp}${titlesToRetry.length > 1 ? ` × ${titlesToRetry.length} title(s)` : ''}`);
-        const fallbackPromises = retryIndexers.flatMap(indexer => titlesToRetry.map(async (t) => {
-          const startTime = Date.now();
-          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
-          try {
-            // Pass additionalTitles only for primary pass — alt passes filter
-            // strictly against the alt to avoid loose cross-title matches.
-            const altsForFilter = t === title ? additionalTitles : undefined;
-            const fbResults = await searcher.searchTVShow(
-              imdbId, t, season, episode, episodesInSeason, year, country,
-              undefined, 'text', altsForFilter, titleYear,
-              { numberingScheme: 'absolute', absoluteEp }
-            );
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, true, responseTime, fbResults.length);
-            return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
-          } catch (error) {
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-            console.error(`❌ Error in absolute episode fallback for ${indexer.name} ("${t}"):`, error);
-            return [];
-          }
-        }));
+        console.log(`🔍 Absolute episode fallback: retrying ${retryIndexers.length} indexer(s) with E${absoluteEp}${titlesToRetry.length > 1 ? ` × ${titlesToRetry.length} title(s)` : ''}`);
+        const fallbackPromises = retryIndexers.map(async (indexer) => {
+          const { result, lines } = await withBuffer(async (): Promise<any[]> => {
+            const subResults = await Promise.all(titlesToRetry.map(t =>
+              withSubBuffer(`Absolute fallback: "${t} E${absoluteEp}"`, async () => {
+                const startTime = Date.now();
+                const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+                try {
+                  // Pass additionalTitles only for primary pass — alt passes filter
+                  // strictly against the alt to avoid loose cross-title matches.
+                  const altsForFilter = t === title ? additionalTitles : undefined;
+                  const fbResults = await searcher.searchTVShow(
+                    imdbId, t, season, episode, episodesInSeason, year, country,
+                    undefined, 'text', altsForFilter, titleYear,
+                    { numberingScheme: 'absolute', absoluteEp }
+                  );
+                  if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                  const responseTime = Date.now() - startTime;
+                  trackQuery(indexer.name, true, responseTime, fbResults.length);
+                  return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
+                } catch (error) {
+                  if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                  const responseTime = Date.now() - startTime;
+                  trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+                  slog(`❌ Error in absolute episode fallback for ${indexer.name} ("${t}"): ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  return [];
+                }
+              })
+            ));
+            return subResults.flat();
+          });
+          return { result, lines, indexerName: indexer.name };
+        });
         const fallbackResults = await Promise.all(fallbackPromises);
-        results = fallbackResults.flat();
-        console.log(`   🔢 Absolute episode fallback returned ${results.length} results`);
+        for (const r of fallbackResults) accumulate(r.indexerName, r.lines);
+        results = fallbackResults.flatMap(r => r.result);
+        console.log(`   📦 Absolute episode fallback returned ${results.length} results`);
       }
     }
 
@@ -512,30 +542,37 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         if (altIndexers.length === 0) break;
         console.log(`🔄 Retrying with alternative title for ${altIndexers.length} indexer(s): "${altTitle}"`);
         const altPromises = altIndexers.map(async (indexer) => {
-          const startTime = Date.now();
-          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
-          try {
-            let altResults: any[] = [];
-            if (type === 'movie') {
-              altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', undefined, titleYear);
-            } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear);
-            }
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, true, responseTime, altResults.length);
-            return altResults.map(result => ({ ...result, indexerName: indexer.name }));
-          } catch (error) {
-            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-            const responseTime = Date.now() - startTime;
-            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-            console.error(`❌ Error in alt-title retry for ${indexer.name}:`, error);
-            return [];
-          }
+          const { result, lines } = await withBuffer(async (): Promise<any[]> => {
+            return withSubBuffer(`Alt-title retry: "${altTitle}"`, async () => {
+              const startTime = Date.now();
+              const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+              try {
+                let r: any[] = [];
+                if (type === 'movie') {
+                  r = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', undefined, titleYear);
+                } else if (type === 'series' && season !== undefined && episode !== undefined) {
+                  r = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear);
+                }
+                if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                const responseTime = Date.now() - startTime;
+                trackQuery(indexer.name, true, responseTime, r.length);
+                return r.map(result => ({ ...result, indexerName: indexer.name }));
+              } catch (error) {
+                if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                const responseTime = Date.now() - startTime;
+                trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+                slog(`❌ Error in alt-title retry for ${indexer.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                return [];
+              }
+            });
+          });
+          return { result, lines, indexerName: indexer.name };
         });
 
-        let altResults = (await Promise.all(altPromises)).flat();
-        console.log(`   🎯 Alt-title retry returned ${altResults.length} results`);
+        const altResultsList = await Promise.all(altPromises);
+        for (const r of altResultsList) accumulate(r.indexerName, r.lines);
+        let altResults = altResultsList.flatMap(r => r.result);
+        console.log(`   📦 Alt-title retry returned ${altResults.length} results`);
 
         // Absolute-episode fallback for the alt title — same rationale as the
         // primary-title fallback above. If the alt-title SxxExx came back
@@ -563,30 +600,37 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           }
           const absoluteAltIndexers = altIndexers.filter(i => !timedOutIndexers.has(i.name));
           if (absoluteAltIndexers.length > 0) {
-            console.log(`🔢 Absolute episode fallback (alt title "${altTitle}"): retrying ${absoluteAltIndexers.length} indexer(s) with E${absoluteEp}`);
+            console.log(`🔍 Absolute episode fallback (alt title "${altTitle}"): retrying ${absoluteAltIndexers.length} indexer(s) with E${absoluteEp}`);
             const absPromises = absoluteAltIndexers.map(async (indexer) => {
-              const startTime = Date.now();
-              const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
-              try {
-                const fbResults = await searcher.searchTVShow(
-                  imdbId, altTitle, season, episode, episodesInSeason, year, country,
-                  undefined, 'text', undefined, titleYear,
-                  { numberingScheme: 'absolute', absoluteEp }
-                );
-                if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-                const responseTime = Date.now() - startTime;
-                trackQuery(indexer.name, true, responseTime, fbResults.length);
-                return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
-              } catch (error) {
-                if (searcher.timedOut) timedOutIndexers.add(indexer.name);
-                const responseTime = Date.now() - startTime;
-                trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-                console.error(`❌ Error in absolute episode fallback (alt title) for ${indexer.name}:`, error);
-                return [];
-              }
+              const { result, lines } = await withBuffer(async (): Promise<any[]> => {
+                return withSubBuffer(`Alt-title absolute fallback: "${altTitle} E${absoluteEp}"`, async () => {
+                  const startTime = Date.now();
+                  const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+                  try {
+                    const fbResults = await searcher.searchTVShow(
+                      imdbId, altTitle, season, episode, episodesInSeason, year, country,
+                      undefined, 'text', undefined, titleYear,
+                      { numberingScheme: 'absolute', absoluteEp }
+                    );
+                    if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                    const responseTime = Date.now() - startTime;
+                    trackQuery(indexer.name, true, responseTime, fbResults.length);
+                    return fbResults.map(result => ({ ...result, indexerName: indexer.name }));
+                  } catch (error) {
+                    if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                    const responseTime = Date.now() - startTime;
+                    trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+                    slog(`❌ Error in absolute episode fallback (alt title) for ${indexer.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    return [];
+                  }
+                });
+              });
+              return { result, lines, indexerName: indexer.name };
             });
-            altResults = (await Promise.all(absPromises)).flat();
-            console.log(`   🔢 Absolute episode fallback (alt title) returned ${altResults.length} results`);
+            const absResultsList = await Promise.all(absPromises);
+            for (const r of absResultsList) accumulate(r.indexerName, r.lines);
+            altResults = absResultsList.flatMap(r => r.result);
+            console.log(`   📦 Absolute episode fallback (alt title) returned ${altResults.length} results`);
           }
         }
 
@@ -596,6 +640,12 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         }
       }
     }
+
+    // Single end-of-search flush per indexer: every phase that fired for an
+    // indexer (main pass + parallel-alt + alias + absolute + alt-title retry)
+    // accumulated into one buffer and now renders as ONE `═══ <indexer> ═══`
+    // cluster, matching Prowlarr/NZBHydra/EasyNews single-cluster shape.
+    for (const [name, lines] of indexerLines) flushBuffer(lines, name);
 
     return results;
   }

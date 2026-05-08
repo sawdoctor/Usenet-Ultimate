@@ -498,7 +498,7 @@ export class NzbhydraSearcher {
 
     const query = stripDiacritics(`${queryTitle} E${absoluteEp.toString().padStart(2, '0')}`);
     return withSubBuffer(`Absolute fallback: "${query}"`, async () => {
-      slog(`🔢 Query: "${query}"`);
+      slog(`🔍 Query: "${query}"`);
       const params: Record<string, string> = {
         apikey: this.apiKey, extended: '1', t: 'search', q: query, cat: '5000', indexers: indexerNames.join(','),
       };
