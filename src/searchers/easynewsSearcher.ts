@@ -91,7 +91,10 @@ export class EasynewsSearcher {
           const r = await this.search(q);
           const f = r.filter(x => isTextSearchMatch(t, x.title, year, country, undefined, titleYear));
           if (r.length !== f.length) {
-            slog(`   🎯 Title filter: ${r.length} → ${f.length}`);
+            const kept = new Set(f);
+            const removed = r.filter(x => !kept.has(x));
+            slog(`   📦 Title filter: ${r.length} → ${f.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(x => slog(`      ✂️  ${x.title}`));
           }
           return f;
         });
@@ -105,7 +108,7 @@ export class EasynewsSearcher {
         const before = results.length;
         const f = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         if (before !== f.length) {
-          slog(`   🎯 Title filter: ${before} → ${f.length}`);
+          slog(`   📦 Title filter: ${before} → ${f.length}`);
           results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .forEach(r => slog(`      ✂️  ${r.title}`));
         }
@@ -124,7 +127,12 @@ export class EasynewsSearcher {
           slog(`🔄 Query: "${altQuery}"`);
           const altResults = await this.search(altQuery);
           const f = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          slog(`   🎯 Alt-title filter: ${altResults.length} → ${f.length}`);
+          if (altResults.length !== f.length) {
+            const kept = new Set(f);
+            const removed = altResults.filter(x => !kept.has(x));
+            slog(`   📦 Alt-title filter: ${altResults.length} → ${f.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(x => slog(`      ✂️  ${x.title}`));
+          }
           return f;
         });
         if (altFiltered.length > 0) {
@@ -142,7 +150,12 @@ export class EasynewsSearcher {
           slog(`🔍 Query: "${q}"`);
           const r = await this.search(q);
           const f = r.filter(x => isTextSearchMatch(alias, x.title, year, country, undefined, titleYear));
-          if (r.length !== f.length) slog(`   🎯 Alias "${alias}" filter: ${r.length} → ${f.length}`);
+          if (r.length !== f.length) {
+            const kept = new Set(f);
+            const removed = r.filter(x => !kept.has(x));
+            slog(`   📦 Alias "${alias}" filter: ${r.length} → ${f.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(x => slog(`      ✂️  ${x.title}`));
+          }
           return f;
         });
       });
@@ -198,7 +211,10 @@ export class EasynewsSearcher {
         const r = await this.search(epQuery);
         const f = r.filter(x => isTextSearchMatch(t, x.title, year, country, parallelAltEnabled ? undefined : additionalTitles, titleYear));
         if (r.length !== f.length) {
-          slog(`   🎯 [EasyNews] Title filter: ${r.length} → ${f.length}`);
+          const kept = new Set(f);
+          const removed = r.filter(x => !kept.has(x));
+          slog(`   📦 [EasyNews] Title filter: ${r.length} → ${f.length} (removed ${removed.length} mismatches)`);
+          removed.forEach(x => slog(`      ✂️  ${x.title}`));
         }
         return { kind: 'episode' as const, jobTitle: t, results: f };
       }));
@@ -214,7 +230,10 @@ export class EasynewsSearcher {
           const matched = r.filter(x => isTextSearchMatch(t, x.title, year, country, parallelAltEnabled ? undefined : additionalTitles, titleYear));
           const tagged = tagSeasonPack(matched, season, episodesInSeason);
           if (r.length !== tagged.length) {
-            slog(`   📦 [EasyNews] Pack filter: ${r.length} → ${tagged.length}`);
+            const keptHashes = new Set(tagged.map(p => p.easynewsMeta!.hash));
+            const removed = r.filter(x => !keptHashes.has(x.easynewsMeta!.hash));
+            slog(`   📦 [EasyNews] Pack filter: ${r.length} → ${tagged.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(x => slog(`      ✂️  ${x.title}`));
           }
           return { kind: 'pack' as const, jobTitle: t, results: tagged };
         }));
@@ -229,7 +248,10 @@ export class EasynewsSearcher {
         const titleMatched = r.filter(x => isTextSearchMatch(title, x.title, year, country, additionalTitles, titleYear));
         const fanoutPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
         if (r.length !== fanoutPacks.length) {
-          slog(`   📦 [EasyNews] Multi-season fanout filter: ${r.length} → ${fanoutPacks.length}`);
+          const keptHashes = new Set(fanoutPacks.map(p => p.easynewsMeta!.hash));
+          const removed = r.filter(x => !keptHashes.has(x.easynewsMeta!.hash));
+          slog(`   📦 [EasyNews] Multi-season fanout filter: ${r.length} → ${fanoutPacks.length} (removed ${removed.length} mismatches)`);
+          removed.forEach(x => slog(`      ✂️  ${x.title}`));
         }
         if (fanoutPacks.length > 0) {
           slog(`   📦 [EasyNews] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
@@ -286,7 +308,12 @@ export class EasynewsSearcher {
           slog(`🔄 [EasyNews] Query: "${altQuery}"`);
           const altResults = await this.search(altQuery);
           const f = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          slog(`   🎯 [EasyNews] Alt-title filter: ${altResults.length} → ${f.length}`);
+          if (altResults.length !== f.length) {
+            const kept = new Set(f);
+            const removed = altResults.filter(x => !kept.has(x));
+            slog(`   📦 [EasyNews] Alt-title filter: ${altResults.length} → ${f.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(x => slog(`      ✂️  ${x.title}`));
+          }
           return f;
         });
         if (altFiltered.length > 0) {
@@ -301,7 +328,10 @@ export class EasynewsSearcher {
                 .filter(r => !existingHashes.has(r.easynewsMeta!.hash));
               const tagged = tagSeasonPack(titleMatched, season, episodesInSeason);
               if (altPackResults.length !== tagged.length) {
-                slog(`   📦 [EasyNews] Alt-title pack filter: ${altPackResults.length} → ${tagged.length}`);
+                const keptHashes = new Set(tagged.map(p => p.easynewsMeta!.hash));
+                const removed = altPackResults.filter(x => !keptHashes.has(x.easynewsMeta!.hash));
+                slog(`   📦 [EasyNews] Alt-title pack filter: ${altPackResults.length} → ${tagged.length} (removed ${removed.length} mismatches)`);
+                removed.forEach(x => slog(`      ✂️  ${x.title}`));
               }
               if (tagged.length > 0) slog(`   📦 [EasyNews] Found ${tagged.length} season pack(s) (alt-title)`);
               return tagged;
@@ -344,7 +374,12 @@ export class EasynewsSearcher {
             slog(`🔍 Query: "${absQuery}"`);
             const r = await this.search(absQuery);
             const f = r.filter(x => isTextSearchMatch(t, stripAbsEp(x.title), year, country, undefined, titleYear) && seasonOk(x.title));
-            if (r.length !== f.length) slog(`   🔢 Absolute filter: ${r.length} → ${f.length}`);
+            if (r.length !== f.length) {
+              const kept = new Set(f);
+              const removed = r.filter(x => !kept.has(x));
+              slog(`   🔢 Absolute filter: ${r.length} → ${f.length} (removed ${removed.length} mismatches)`);
+              removed.forEach(x => slog(`      ✂️  ${x.title}`));
+            }
             return f;
           });
         }));
@@ -358,7 +393,12 @@ export class EasynewsSearcher {
             slog(`🔍 Query: "${absQuery}"`);
             const absResults = await this.search(absQuery);
             const f = absResults.filter(r => isTextSearchMatch(candTitle, stripAbsEp(r.title), year, country, undefined, titleYear) && seasonOk(r.title));
-            if (absResults.length !== f.length) slog(`   🔢 Absolute filter: ${absResults.length} → ${f.length}`);
+            if (absResults.length !== f.length) {
+              const kept = new Set(f);
+              const removed = absResults.filter(x => !kept.has(x));
+              slog(`   🔢 Absolute filter: ${absResults.length} → ${f.length} (removed ${removed.length} mismatches)`);
+              removed.forEach(x => slog(`      ✂️  ${x.title}`));
+            }
             return f;
           });
           if (absFiltered.length > 0) {
@@ -391,7 +431,10 @@ export class EasynewsSearcher {
           const r = await this.search(q);
           const dateFiltered = dateOk ? r.filter(x => dateOk!(x.title)) : r;
           if (dateOk && r.length !== dateFiltered.length) {
-            slog(`   📅 Date filter: ${r.length} → ${dateFiltered.length}`);
+            const keptDate = new Set(dateFiltered);
+            const removedDate = r.filter(x => !keptDate.has(x));
+            slog(`   📅 Date filter: ${r.length} → ${dateFiltered.length} (removed ${removedDate.length} wrong date${removedDate.length === 1 ? '' : 's'})`);
+            removedDate.forEach(x => slog(`      ✂️  ${x.title}`));
           }
           // Daily/talk-show releases (date-scheme) carry the guest name
           // after the air date, so the extracted title is "Show Guest"
@@ -408,7 +451,12 @@ export class EasynewsSearcher {
           } else {
             f = dateFiltered.filter(x => isTextSearchMatch(alias, x.title, year, country, undefined, titleYear));
           }
-          if (dateFiltered.length !== f.length) slog(`   🎯 Alias "${alias}" filter: ${dateFiltered.length} → ${f.length}`);
+          if (dateFiltered.length !== f.length) {
+            const kept = new Set(f);
+            const removed = dateFiltered.filter(x => !kept.has(x));
+            slog(`   📦 Alias "${alias}" filter: ${dateFiltered.length} → ${f.length} (removed ${removed.length} mismatches)`);
+            removed.forEach(x => slog(`      ✂️  ${x.title}`));
+          }
           return f;
         });
       });
