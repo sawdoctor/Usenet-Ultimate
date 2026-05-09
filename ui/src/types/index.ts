@@ -247,6 +247,7 @@ export interface FiltersState {
   maxStreams: number | undefined;
   maxStreamsPerResolution: number | undefined;
   maxStreamsPerQuality: number | undefined;
+  maxSeasonPacks: number | undefined;
   resolutionPriority: string[];
   videoPriority: string[];
   encodePriority: string[];
@@ -256,6 +257,7 @@ export interface FiltersState {
   editionPriority: string[];
   preferNonStandardEdition?: boolean;
   preferSeasonPacks?: boolean;
+  preferLibraryResults?: boolean;
   enableRemakeFiltering?: boolean;
   allowMultiEpisodeFiles?: boolean;
   rules?: RulesBlock;

@@ -164,6 +164,7 @@ export const DEFAULT_FILTERS = {
   maxStreams: undefined as number | undefined,
   maxStreamsPerResolution: undefined as number | undefined,
   maxStreamsPerQuality: undefined as number | undefined,
+  maxSeasonPacks: undefined as number | undefined,
   resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'] as string[],
   videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'DCP', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'] as string[],
   encodePriority: ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'] as string[],
@@ -173,6 +174,7 @@ export const DEFAULT_FILTERS = {
   editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'] as string[],
   preferNonStandardEdition: false,
   preferSeasonPacks: false,
+  preferLibraryResults: false,
   enableRemakeFiltering: true,
   allowMultiEpisodeFiles: true,
 };

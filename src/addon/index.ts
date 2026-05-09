@@ -29,6 +29,7 @@ import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { searchLibrary } from '../nzbdav/librarySearch.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
+import { sortResults } from './sort.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
 import { isDeadNzbByUrl, isDeadNzb, getDeadCacheKey, consumeLibraryBypass } from '../nzbdav/streamCache.js';
@@ -155,14 +156,14 @@ builder.defineStreamHandler(async ({ type, id }) => {
     }
 
     // === SHARED: Filter dead NZBs from raw results ===
-    const filterDeadFromRaw = (results: any[]) => {
+    const filterDeadFromRaw = (results: any[], episodeAired?: string) => {
       if (!config.filterDeadNzbs) return results;
       const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
       const manifestKey = requestContext.getStore()?.manifestKey || '';
       let epPattern: string | undefined;
       if (type === 'series' && season !== undefined && episode !== undefined) {
         const sxxExx = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
-        const datePattern = buildDateEpisodePattern(titleInfo?.episodeAired);
+        const datePattern = buildDateEpisodePattern(episodeAired);
         epPattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
       }
       const isDead = (url: string) =>
@@ -184,7 +185,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     };
 
     // === SHARED: Trigger auto-resolve or Ultimate-Fallback if enabled ===
-    const triggerAutoResolve = (fallbackCandidates: any[] | undefined, episodesInSeason?: number) => {
+    const triggerAutoResolve = (fallbackCandidates: any[] | undefined, episodesInSeason?: number, episodeAired?: string) => {
       if (!fallbackCandidates?.length) return;
 
       const contentKey = `${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`;
@@ -194,7 +195,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       let epPattern: string | undefined;
       if (type === 'series' && season !== undefined && episode !== undefined) {
         const sxxExx = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
-        const datePattern = buildDateEpisodePattern(titleInfo?.episodeAired);
+        const datePattern = buildDateEpisodePattern(episodeAired);
         epPattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
       }
 
@@ -219,7 +220,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
     const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; now: number; runtime?: number; shortCircuited?: boolean }) => {
       // Filter dead NZBs
-      let allResults = filterDeadFromRaw(rawResults);
+      let allResults = filterDeadFromRaw(rawResults, titleMeta.episodeAired);
 
       // Apply current user filter/sort preferences (deprioritized packs appended after sort)
       allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);
@@ -262,6 +263,18 @@ builder.defineStreamHandler(async ({ type, id }) => {
           titleMeta.episodeAired,
         );
         if (hits > 0) console.log(`📚 Display-library: marked ${hits}/${allResults.length} result(s) as in-library`);
+      }
+
+      // Re-sort when preferLibraryResults is on. The inLibrary flag is mutated
+      // by markLibraryHits during health checks AND the displayLibraryInResults
+      // block above, both of which run AFTER applyUserFilters' initial sort.
+      // On a fresh search the flag isn't visible to the first sort pass; the
+      // re-sort here applies it. On cache-hit the rawResults already carry the
+      // flag (set last run), so the initial sort already saw it and this pass
+      // is effectively a no-op.
+      const filterCfg = (titleMeta.type === 'movie' ? config.movieFilters : config.tvFilters) ?? config.filters;
+      if (filterCfg?.preferLibraryResults) {
+        allResults = sortResults(allResults, filterCfg, titleMeta.now, titleMeta.runtime);
       }
 
       // Auto-queue to NZBDav if enabled (skipped when Ultimate-Fallback manages this)
@@ -312,7 +325,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
           createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString(), cached._meta.episodesInSeason);
         }
 
-        triggerAutoResolve(fallbackCandidates, cached._meta.episodesInSeason);
+        triggerAutoResolve(fallbackCandidates, cached._meta.episodesInSeason, cached._meta.episodeAired);
         return { streams };
       }
     }
@@ -486,7 +499,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString(), titleInfo.episodesInSeason);
     }
 
-    triggerAutoResolve(fallbackCandidates, titleInfo.episodesInSeason);
+    triggerAutoResolve(fallbackCandidates, titleInfo.episodesInSeason, titleInfo.episodeAired);
 
     return { streams };
   } catch (error) {

@@ -62,6 +62,10 @@ export async function markLibraryHits(
       }
       if (result) {
         healthResults.set(r.link, { status: 'verified', message: 'Library', playable: true });
+        // Local flag consumed by sortResults' preferLibraryResults tier-zero
+        // comparator. Mutating the result here keeps the sort phase from needing
+        // to thread the healthResults Map through its signature.
+        r.inLibrary = true;
         hits++;
       }
     } catch {

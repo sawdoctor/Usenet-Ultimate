@@ -37,6 +37,25 @@ export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig
     console.log(`🎯 Limited to ${filterConfig.maxStreamsPerQuality} per quality (${results.length} remaining)`);
   }
 
+  // Apply max season pack limit if configured. Walks the already-sorted list,
+  // counts season packs, and drops any pack beyond the cap so the highest-priority
+  // packs survive. Non-pack results pass through unconditionally. Yearless packs
+  // tagged `_deprioritized` (by applyRemakeFilter) are also exempt — they ride at
+  // the bottom of the list and shouldn't evict prioritized packs from the cap.
+  if (filterConfig?.maxSeasonPacks != null && filterConfig.maxSeasonPacks > 0) {
+    const cap = filterConfig.maxSeasonPacks;
+    let packCount = 0;
+    const before = results.length;
+    results = results.filter(r => {
+      if (!r.isSeasonPack || r._deprioritized) return true;
+      packCount++;
+      return packCount <= cap;
+    });
+    if (results.length < before) {
+      console.log(`🎯 Limited to ${cap} season packs (${results.length} remaining)`);
+    }
+  }
+
   // Apply max total streams limit if configured
   if (filterConfig?.maxStreams != null) {
     results = results.slice(0, filterConfig.maxStreams);

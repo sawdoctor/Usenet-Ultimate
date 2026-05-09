@@ -26,6 +26,7 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
   const editionPriority = filterConfig?.editionPriority || ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'];
   const preferNonStandardEdition = filterConfig?.preferNonStandardEdition || false;
   const preferSeasonPacks = filterConfig?.preferSeasonPacks === true;
+  const preferLibraryResults = filterConfig?.preferLibraryResults === true;
 
   // Pre-compute age/bitrate values for efficient sorting (avoids Date.parse per comparison)
   const sortNow = now ?? Date.now();
@@ -34,6 +35,14 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
 
   const sorted = [...allResults];
   sorted.sort((a, b) => {
+    // Tier-zero library preference: results flagged in-library by markLibraryHits
+    // sort above the rest. Falls through to subsequent tiers when both sides
+    // share the flag (or neither carries it). The library-short-circuit case
+    // is unaffected: every result has the flag (or none do) so the comparator
+    // returns 0 and existing sort keys take over.
+    if (preferLibraryResults && a.inLibrary !== b.inLibrary) {
+      return a.inLibrary ? -1 : 1;
+    }
     // Tier-zero pack preference: place packs above non-packs, then fall through
     // to the user's configured sortOrder for secondary ordering within each group.
     if (preferSeasonPacks && a.isSeasonPack !== b.isSeasonPack) {

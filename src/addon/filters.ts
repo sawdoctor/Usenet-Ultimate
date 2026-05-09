@@ -41,6 +41,11 @@ export function applyRemakeFilter(allResults: any[], hasRemake?: boolean, episod
     if (r.isSeasonPack) {
       const parsedYear = parseYear(r.title);
       if (!parsedYear) {
+        // Tag so the maxSeasonPacks cap can exempt these from its count.
+        // They already ride at the bottom of the list; they shouldn't evict
+        // a year-correct pack just because they sit in the same isSeasonPack
+        // bucket.
+        r._deprioritized = true;
         deprioritizedPacks.push(r);
         deprioritizedTitles.push(r.title);
         return false;

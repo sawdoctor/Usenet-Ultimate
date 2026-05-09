@@ -295,6 +295,7 @@ export interface FilterConfig {
   maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)
   maxStreamsPerQuality?: number;             // Max streams per video source quality level (undefined = unlimited)
+  maxSeasonPacks?: number;                   // TV-only. Max season packs in results (undefined = unlimited). Excludes deprioritized yearless packs from the count.
   resolutionPriority?: string[];             // Resolution priority order for sorting
   videoPriority?: string[];                  // Video source priority order for sorting
   encodePriority?: string[];                 // Video encode priority order for sorting
@@ -304,6 +305,7 @@ export interface FilterConfig {
   editionPriority?: string[];                // Edition priority order for sorting (Extended, DC, etc)
   preferNonStandardEdition?: boolean;        // Prioritize all enabled non-standard editions equally over Standard
   preferSeasonPacks?: boolean;               // TV-only. Sort season packs above non-packs; secondary sort still applies within each group.
+  preferLibraryResults?: boolean;            // Sort indexer/EasyNews results flagged as in-library above the rest. Library short-circuit case is unaffected (all results are library).
   enableRemakeFiltering?: boolean;           // TV-only. Cross-reference TVDB to filter wrong-version results for shows with remakes. Default true. Env: ENABLE_REMAKE_DETECTION.
   allowMultiEpisodeFiles?: boolean;          // TV-only. Allow multi-episode files (e.g. S01E01E02.mkv). Default true. Env: ALLOW_MULTI_EPISODE_FILES.
   rules?: {

@@ -136,6 +136,7 @@ const STREAM_LIMIT_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldC
   { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
   { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
   { key: 'maxStreamsPerQuality', config: { label: 'Max Streams Per Quality', description: 'Limit streams per source quality (BluRay, WEB-DL, etc.)', defaultValue: 10, step: 1, min: 1 } },
+  { key: 'maxSeasonPacks', config: { label: 'Max Series / Season Packs', description: 'Limits the number of season packs, in priority order, in the results list.', defaultValue: 5, step: 1, min: 1 } },
 ];
 
 const SORT_DIRECTION_LABELS: Record<string, Record<string, string>> = {
@@ -388,14 +389,16 @@ export default function FiltersOverlay({
             {/* Max Streams */}
             <div className="bg-slate-800/30 rounded-lg border border-slate-700/20 p-3 space-y-4">
               <div className="text-xs font-medium text-slate-400">Max Streams</div>
-              {STREAM_LIMIT_FIELDS.map(({ key, config }) => (
-                <StreamFilterField
-                  key={key}
-                  config={config}
-                  value={activeFilters[key] as number | undefined}
-                  onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
-                />
-              ))}
+              {STREAM_LIMIT_FIELDS
+                .filter(({ key }) => key !== 'maxSeasonPacks' || filterTab !== 'movie')
+                .map(({ key, config }) => (
+                  <StreamFilterField
+                    key={key}
+                    config={config}
+                    value={activeFilters[key] as number | undefined}
+                    onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+                  />
+                ))}
             </div>
 
             {/* TV-only result filters (hidden on Movies tab) */}
@@ -464,12 +467,12 @@ export default function FiltersOverlay({
               <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
                 <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
                   <div>
-                    <div className="text-sm font-medium text-slate-300">Prefer Season Packs</div>
-                    <div className="text-xs text-slate-500 mt-0.5">Sort season packs to the top of the results list in priority order.</div>
-                    <div className="text-xs text-slate-500 italic mt-1">Note: season packs deprioritized by Remake Detection remain at the end of the results list.</div>
+                    <div className="text-sm font-medium text-slate-300">Prefer Series / Season Packs</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Sort series / season packs to the top of the results list in priority order.</div>
+                    <div className="text-xs text-slate-500 italic mt-1">Note: series / season packs deprioritized by Remake Detection remain at the end of the results list.</div>
                   </div>
                   <button
-                    aria-label="Prefer Season Packs"
+                    aria-label="Prefer Series / Season Packs"
                     aria-pressed={preferPacks}
                     onClick={() => updateActiveFilters(prev => ({ ...prev, preferSeasonPacks: !(prev.preferSeasonPacks ?? false) }))}
                     className={clsx(
@@ -480,6 +483,35 @@ export default function FiltersOverlay({
                     <div className={clsx(
                       "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
                       preferPacks ? "left-5" : "left-1"
+                    )} />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Prefer Library Results (rendered on all tabs since the library covers both content types) */}
+          {(() => {
+            const preferLibrary = activeFilters.preferLibraryResults ?? false;
+            return (
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                  <div>
+                    <div className="text-sm font-medium text-slate-300">Prefer Library Results</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Sort indexer results that are already in your WebDAV library to the top of the list in priority order. Requires Display Library In Results to be enabled.</div>
+                  </div>
+                  <button
+                    aria-label="Prefer Library Results"
+                    aria-pressed={preferLibrary}
+                    onClick={() => updateActiveFilters(prev => ({ ...prev, preferLibraryResults: !(prev.preferLibraryResults ?? false) }))}
+                    className={clsx(
+                      "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                      preferLibrary ? "bg-purple-500" : "bg-slate-600"
+                    )}
+                  >
+                    <div className={clsx(
+                      "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                      preferLibrary ? "left-5" : "left-1"
                     )} />
                   </button>
                 </div>
