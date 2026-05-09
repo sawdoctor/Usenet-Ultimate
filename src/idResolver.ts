@@ -273,10 +273,10 @@ export async function detectRemake(title: string): Promise<boolean> {
 async function findOnTvdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<{ id: number; title: string; year?: string; aliases?: string[] } | null> {
+): Promise<{ id: number; title: string; year?: string; aliases?: string[]; nativeTitle?: string } | null> {
   const tvdbType = type === 'movie' ? 'movie' : 'series';
 
-  const doSearch = async (token: string): Promise<{ id: number; title: string; year?: string; aliases?: string[] } | null> => {
+  const doSearch = async (token: string): Promise<{ id: number; title: string; year?: string; aliases?: string[]; nativeTitle?: string } | null> => {
     const response = await axios.get(`https://api4.thetvdb.com/v4/search/remoteid/${imdbId}`, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 5000,
@@ -300,10 +300,16 @@ async function findOnTvdb(
           // Translation 401 silently degrades to the original name; the next
           // search refreshes the token via the existing retry path.
           const preferEnglish = config.searchConfig?.tvdbPreferEnglishTitle ?? true;
+          // When force-English replaces the canonical title, retain the original
+          // (native-language) form so callers can search both translations in
+          // parallel via parallelAlternateTitleSearch. Only set when an actual
+          // substitution occurred and the two strings differ.
+          let nativeTitle: string | undefined;
           if (preferEnglish && title && originalLang && originalLang !== 'eng' && nameTranslations.includes('eng')) {
             const englishTitle = await fetchTvdbTranslation(record.id, tvdbType, 'eng', token);
-            if (englishTitle) {
+            if (englishTitle && englishTitle !== title) {
               console.log(`\u{1F310} TVDB translation: ${tvdbType} id=${record.id} "${title}" [${originalLang}] → "${englishTitle}" [eng]`);
+              nativeTitle = title;
               title = englishTitle;
             }
           }
@@ -327,7 +333,7 @@ async function findOnTvdb(
             }
           }
           console.log(`🔗 TVDB remoteid result: ${tvdbType} id=${record.id} name="${title || 'unknown'}"${year ? ` (${year})` : ''}${aliases.length ? ` aliases=${aliases.length}` : ''}`);
-          return { id: record.id, title, year, aliases: aliases.length ? aliases : undefined };
+          return { id: record.id, title, year, aliases: aliases.length ? aliases : undefined, nativeTitle };
         }
       }
     }
@@ -436,15 +442,17 @@ async function resolveTvdbId(
 export async function resolveTitleFromTvdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<{ title: string; year?: string; aliases?: string[] } | null> {
+): Promise<{ title: string; year?: string; aliases?: string[]; nativeTitle?: string } | null> {
   const titleCacheKey = `title:${imdbId}`;
   const aliasesCacheKey = `aliases:tvdb:${imdbId}`;
+  const nativeTitleCacheKey = `nativeTitle:tvdb:${imdbId}`;
   const cached = idCache.get<string>(titleCacheKey);
   if (cached) {
     const cachedYear = idCache.get<string>(`year:tvdb:${imdbId}`);
     const cachedAliases = idCache.get<string[]>(aliasesCacheKey);
+    const cachedNative = idCache.get<string>(nativeTitleCacheKey);
     console.log(`🎯 TVDB title cache hit: ${imdbId} → "${cached}"`);
-    return { title: cached, year: cachedYear, aliases: cachedAliases };
+    return { title: cached, year: cachedYear, aliases: cachedAliases, nativeTitle: cachedNative || undefined };
   }
 
   const apiKey = config.searchConfig?.tvdbApiKey;
@@ -460,6 +468,8 @@ export async function resolveTitleFromTvdb(
     }
     // Cache aliases (or empty array sentinel so we don't refetch on miss).
     idCache.set(aliasesCacheKey, result.aliases ?? []);
+    // Cache native title (empty-string sentinel for known-no-substitution).
+    idCache.set(nativeTitleCacheKey, result.nativeTitle ?? '');
 
     // Also cache the ID as a bonus
     const idCacheKey = `id:${imdbId}:tvdb`;
@@ -468,7 +478,7 @@ export async function resolveTitleFromTvdb(
     }
 
     console.log(`🎯 TVDB title resolved: ${imdbId} → "${result.title}"`);
-    return { title: result.title, year: result.year, aliases: result.aliases };
+    return { title: result.title, year: result.year, aliases: result.aliases, nativeTitle: result.nativeTitle };
   } catch (error) {
     console.warn(`⚠️  Failed to resolve TVDB title for ${imdbId}:`, (error as Error).message);
     return null;
@@ -506,7 +516,7 @@ export function clearTvdbTitleCache(): void {
   const keys = idCache.keys();
   let count = 0;
   for (const k of keys) {
-    if ((k.startsWith('title:') && !k.startsWith('title:tmdb:')) || k.startsWith('tvdb:translation:') || k.startsWith('aliases:tvdb:')) {
+    if ((k.startsWith('title:') && !k.startsWith('title:tmdb:')) || k.startsWith('tvdb:translation:') || k.startsWith('aliases:tvdb:') || k.startsWith('nativeTitle:tvdb:')) {
       idCache.del(k);
       count++;
     }

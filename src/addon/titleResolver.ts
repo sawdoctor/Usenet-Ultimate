@@ -138,9 +138,12 @@ export async function resolveTitle(
 
   // Step 4: Resolve canonical title
   // For anime: use Kitsu-IMDB title (series-level canonical name), skip TVDB/TMDB
+  // (so tvdbNativeTitle never sets for anime; native-language alts via TVDB
+  // don't apply to the anime path).
   // For non-anime: TVDB for TV, TMDB for movies
   let resolvedTitle: string | null = null;
   let tvdbAliases: string[] | undefined;
+  let tvdbNativeTitle: string | undefined;
   if (isAnime) {
     const fribb = lookupByImdbId(imdbId);
     if (fribb?.kitsu_id) {
@@ -162,6 +165,7 @@ export async function resolveTitle(
         year = tvdbTitleResult.year;
       }
       tvdbAliases = tvdbTitleResult?.aliases;
+      tvdbNativeTitle = tvdbTitleResult?.nativeTitle;
     } else {
       const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
       resolvedTitle = tmdbResult?.title ?? null;
@@ -172,8 +176,13 @@ export async function resolveTitle(
     }
   }
   // Strip parenthetical year suffix from resolved title (e.g. "Show (2003)" → "Show")
-  // TVDB/TMDB add these for disambiguation but release groups don't use them
+  // TVDB/TMDB add these for disambiguation but release groups don't use them.
+  // Same strip applies to the native-language title since the disambiguating
+  // suffix carries through TVDB's translation regardless of locale.
   let titleYear: string | undefined;
+  if (tvdbNativeTitle) {
+    tvdbNativeTitle = tvdbNativeTitle.replace(/\s*\(\d{4}\)\s*$/, '');
+  }
   if (resolvedTitle) {
     const yearMatch = resolvedTitle.match(/\s*\((\d{4})\)\s*$/);
     if (yearMatch) {
@@ -201,6 +210,14 @@ export async function resolveTitle(
   } else if (cinemetaTitle && cinemetaTitle !== title) {
     // Normal case: Cinemeta differs from resolved, keep it as fallback
     additionalTitles = [cinemetaTitle];
+  }
+  // When force-English replaced a non-English TVDB title, append the original
+  // native-language form as an additional alt. parallelAlternateTitleSearch then
+  // fans English + native concurrently; sequential alt-title retry uses native
+  // on zero-result fallback. nativeTitle is only set when an actual substitution
+  // occurred, so the !== title guard is sufficient (no normalize dedup needed).
+  if (tvdbNativeTitle && tvdbNativeTitle !== title) {
+    additionalTitles = additionalTitles ? [...additionalTitles, tvdbNativeTitle] : [tvdbNativeTitle];
   }
   if (resolvedTitle && resolvedTitle !== cinemetaTitle && title === resolvedTitle) {
     if (isAnime && additionalTitles?.length) {

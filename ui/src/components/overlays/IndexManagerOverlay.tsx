@@ -595,7 +595,7 @@ export function IndexManagerOverlay({
                       <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
                     </label>
                   </div>
-                  <div className="text-xs text-slate-500">When TVDB/TMDB and Cinemeta return different titles, query both at the same time instead of using the alt only as a zero-result fallback. Doubles indexer load for shows with title mismatches. Applies to Ultimate Text Search only.</div>
+                  <div className="text-xs text-slate-500">When alternate titles are available (Cinemeta vs TVDB/TMDB mismatch, or TVDB's native title vs its English translation when "Always Resolve TVDB Title in English" is on), query them in parallel with the primary instead of as a zero-result fallback. Doubles indexer load for shows with title mismatches. Applies to Ultimate Text Search only.</div>
                 </div>
 
                 {/* TMDB API Key */}
