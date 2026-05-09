@@ -21,6 +21,23 @@ export function buildEpisodePattern(season: number, episode: number, allowMultiE
 }
 
 /**
+ * Build a date-pattern regex for daily/talk-show episode releases. Mirrors
+ * the search-side date convention (separators `[. _-]?`, fixed digits derived
+ * from the input). Returns undefined when the input is missing or doesn't
+ * match `YYYY-MM-DD` form so callers can short the date pass without an
+ * explicit guard. Word boundaries prevent partial-token matches.
+ *
+ * Used as a Pass-2 fallback when SxxExx-based library matching returns nothing
+ * AND the search context has both an aired date and TVDB aliases (the same
+ * gate the alias-fallback search uses).
+ */
+export function buildDateEpisodePattern(episodeAired: string | undefined): string | undefined {
+  if (!episodeAired || !/^\d{4}-\d{2}-\d{2}/.test(episodeAired)) return undefined;
+  const [y, m, d] = episodeAired.slice(0, 10).split('-');
+  return `\\b${y}[. _-]?${m}[. _-]?${d}\\b`;
+}
+
+/**
  * Folder-name season filter. A folder is only worth scanning if its name
  * doesn't carry a season marker that contradicts the requested season.
  * Conservative: if the name has no season hint at all, or carries a range

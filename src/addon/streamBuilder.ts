@@ -54,6 +54,10 @@ export interface StreamBuildContext {
   season?: number;
   episode?: number;
   episodesInSeason?: number;
+  /** Aired date (YYYY-MM-DD) for daily/talk-show episodes. Packed into the
+   *  per-tile envelope so the stream handler can fall back to a date-pattern
+   *  match when SxxExx fails inside a season pack. */
+  episodeAired?: string;
   now: number;
   runtime?: number;
   /** True when Ultimate Library short-circuited indexer queries; gates the
@@ -71,7 +75,7 @@ export interface StreamBuildOutput {
  * Build Stremio Stream objects from processed search results.
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
-  const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, now, runtime, shortCircuited } = ctx;
+  const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, episodeAired, now, runtime, shortCircuited } = ctx;
   // sessionKey includes manifestKey so concurrent requests from different Stremio installations
   // don't share UF session state (avoids cross-tenant state leaks on multi-user deployments).
   const streamManifestKey = requestContext.getStore()?.manifestKey || '';
@@ -269,7 +273,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
           ...(candidateIdx >= 0 ? { idx: candidateIdx } : {}),
           ...(sessionKey ? { sk: sessionKey } : {}),
-          ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}) } : {}),
+          ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}), ...(episodeAired ? { aired: episodeAired } : {}) } : {}),
           url: nzbProxyUrl,
           title: result.title,
           indexer: result.indexerName || '',

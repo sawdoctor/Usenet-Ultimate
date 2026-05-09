@@ -24,7 +24,7 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
 import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { searchLibrary } from '../nzbdav/librarySearch.js';
@@ -159,9 +159,12 @@ builder.defineStreamHandler(async ({ type, id }) => {
       if (!config.filterDeadNzbs) return results;
       const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
       const manifestKey = requestContext.getStore()?.manifestKey || '';
-      const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
-        ? buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config))
-        : undefined;
+      let epPattern: string | undefined;
+      if (type === 'series' && season !== undefined && episode !== undefined) {
+        const sxxExx = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
+        const datePattern = buildDateEpisodePattern(titleInfo?.episodeAired);
+        epPattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
+      }
       const isDead = (url: string) =>
         (epPattern && isDeadNzb(getDeadCacheKey(url, epPattern))) || isDeadNzbByUrl(url);
       const before = results.length;
@@ -188,9 +191,12 @@ builder.defineStreamHandler(async ({ type, id }) => {
       const ufManifestKey = requestContext.getStore()?.manifestKey || '';
       const sessionKey = `${ufManifestKey}:${contentKey}`;
       const nzbdavConfig = buildNzbdavConfig();
-      const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
-        ? buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config))
-        : undefined;
+      let epPattern: string | undefined;
+      if (type === 'series' && season !== undefined && episode !== undefined) {
+        const sxxExx = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
+        const datePattern = buildDateEpisodePattern(titleInfo?.episodeAired);
+        epPattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
+      }
 
       // Ultimate-Fallback takes priority — handles health checking + nzbdav internally.
       // Guarded by streamingMode=nzbdav: UF resolves via NZBDav, so running it for other modes
@@ -211,7 +217,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     };
 
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
-    const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; now: number; runtime?: number; shortCircuited?: boolean }) => {
+    const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; now: number; runtime?: number; shortCircuited?: boolean }) => {
       // Filter dead NZBs
       let allResults = filterDeadFromRaw(rawResults);
 
@@ -228,6 +234,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         season: titleMeta.season,
         episode: titleMeta.episode,
         episodesInSeason: titleMeta.episodesInSeason,
+        episodeAired: titleMeta.episodeAired,
         preExistingHealth: healthMap.size > 0 ? healthMap : undefined,
       });
       for (const [key, val] of newHealth) healthMap.set(key, val);
@@ -252,6 +259,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
           epPattern,
           contentType,
           titleMeta.episodesInSeason,
+          titleMeta.episodeAired,
         );
         if (hits > 0) console.log(`📚 Display-library: marked ${hits}/${allResults.length} result(s) as in-library`);
       }
@@ -270,6 +278,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         season: titleMeta.season,
         episode: titleMeta.episode,
         episodesInSeason: titleMeta.episodesInSeason,
+        episodeAired: titleMeta.episodeAired,
         now: titleMeta.now,
         runtime: titleMeta.runtime,
         shortCircuited: titleMeta.shortCircuited,
@@ -280,7 +289,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // Check cache first (cacheTTL of 0 means disabled)
     if (config.cacheEnabled && config.cacheTTL > 0) {
-      const cached = cache.get<{ rawResults: any[]; deprioritizedPacks: any[]; healthMap: Record<string, any>; _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; runtime?: number } }>(cacheKey);
+      const cached = cache.get<{ rawResults: any[]; deprioritizedPacks: any[]; healthMap: Record<string, any>; _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; runtime?: number } }>(cacheKey);
       if (cached) {
         console.log(`💾 Cache hit for ${type} ${imdbId}`);
         const now = Date.now();
@@ -289,7 +298,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         const healthMap = new Map<string, any>(Object.entries(cached.healthMap || {}));
         const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
           cached.rawResults, cached.deprioritizedPacks || [], healthMap,
-          { type, season, episode, episodesInSeason: cached._meta.episodesInSeason, now, runtime: cached._meta.runtime }
+          { type, season, episode, episodesInSeason: cached._meta.episodesInSeason, episodeAired: cached._meta.episodeAired, now, runtime: cached._meta.runtime }
         );
 
         // Update cache with new health results
@@ -454,7 +463,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const healthMap = new Map<string, any>();
     const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
       rawResults, deprioritizedPacks, healthMap,
-      { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, now, runtime: titleInfo.runtime, shortCircuited }
+      { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, episodeAired: titleInfo.episodeAired, now, runtime: titleInfo.runtime, shortCircuited }
     );
 
     // Cache raw results + deprioritized packs + health map (filters/sorts reapply on cache hits).
@@ -466,7 +475,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         rawResults,
         deprioritizedPacks,
         healthMap: Object.fromEntries(healthMap),
-        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, runtime: titleInfo.runtime },
+        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, episodeAired: titleInfo.episodeAired, runtime: titleInfo.runtime },
       }, config.cacheTTL);
     } else if (skipEmptyCache && config.cacheEnabled && config.cacheTTL > 0) {
       console.log(`⏭️  Skipping cache write — 0 results for ${type} ${imdbId}`);

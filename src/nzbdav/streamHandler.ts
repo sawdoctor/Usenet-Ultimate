@@ -16,7 +16,7 @@ import { waitForVideoFile, checkNzbLibrary, videoPathExists } from './videoDisco
 import { searchLibrary } from './librarySearch.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken, markVideoPathBroken, clearVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
-import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
+import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildDateEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
 import { encodeTileEnvelope, incrementRedirectCounter, parseTilePayload } from './redirectHelpers.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
@@ -630,17 +630,24 @@ export async function handleStream(
 
   const streamStartTime = Date.now();
 
-  // Build episode pattern for season pack file selection (e.g. "S02E05")
+  // Build episode pattern for season pack file selection (e.g. "S02E05").
+  // When the tile envelope carries an aired-date (daily/talk shows), append
+  // a date-pattern alternation so the file picker matches either SxxExx or
+  // YYYY.MM.DD-named files inside the pack. Restricted to a single show's
+  // pack so the cross-show false-positive risk that gates the library scan's
+  // two-pass approach doesn't apply here.
   let episodePattern: string | undefined;
   const epcountParam = tPackEpcount ?? (req.query.epcount as string | undefined);
   const episodesInSeason = epcountParam ? parseInt(epcountParam, 10) : undefined;
   const isSeasonPackRequest = (tPackSp ?? req.query.sp) === '1';
   if (seasonParam && episodeParam) {
-    episodePattern = buildEpisodePattern(
+    const sxxExx = buildEpisodePattern(
       parseInt(seasonParam, 10),
       parseInt(episodeParam, 10),
       getTvAllowMultiEpisode(globalConfig),
     );
+    const datePattern = buildDateEpisodePattern(payload.aired);
+    episodePattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
   }
 
   // Build the list of candidates to try (primary first, then fallbacks).

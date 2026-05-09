@@ -61,6 +61,9 @@ export type TilePayload = {
   episode?: number;
   seasonpack?: 1;
   epcount?: number;
+  /** Aired date (YYYY-MM-DD) for daily/talk-show episodes; enables a date-pattern
+   *  fallback when SxxExx fails to locate the right file inside a season pack. */
+  aired?: string;
 };
 
 /** Single trust-boundary validator. `req.query.t` is user-controllable;
@@ -85,6 +88,7 @@ export function parseTilePayload(t: string | undefined): TilePayload {
     episode: isNum(raw.episode) ? raw.episode : undefined,
     seasonpack: raw.seasonpack === 1 ? 1 : undefined,
     epcount: isNum(raw.epcount) ? raw.epcount : undefined,
+    aired: typeof raw.aired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw.aired) ? raw.aired.slice(0, 10) : undefined,
   };
 }
 

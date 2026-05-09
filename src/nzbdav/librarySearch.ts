@@ -24,7 +24,7 @@ import {
   parseQuality, parseCodec, parseSource, parseAudioTag, parseVisualTag,
   parseEdition, parseReleaseGroup, parseLanguage, formatBytes,
 } from '../parsers/metadataParsers.js';
-import { buildEpisodePattern, folderCouldContainSeason } from './utils.js';
+import { buildEpisodePattern, buildDateEpisodePattern, folderCouldContainSeason } from './utils.js';
 import { isTextSearchMatch } from '../parsers/titleMatching.js';
 import type { SearchContext } from '../addon/searchOrchestrator.js';
 import type { NZBDavConfig } from './types.js';
@@ -181,9 +181,63 @@ export async function searchLibrary(
     }
   }
 
-  return scanned
+  const pass1Results = scanned
     .filter((s): s is { entry: FileStat; video: { path: string; size: number } } => s.video !== null)
     .map(({ entry, video }) => buildLibraryResult(video, entry.basename));
+
+  // Pass 2: alias-title + date-pattern fallback. Mirrors the search-side
+  // alias-fallback (orchestrator's date-numbered alias retry) so library
+  // matching covers daily/talk-show files named by alias + air date instead
+  // of canonical title + SxxExx. Gated on Pass 1 returning zero AND the same
+  // conditions the search alias fallback uses (TVDB-supplied air date and
+  // a non-empty alias list), so regular shows with an aired date that already
+  // matched via SxxExx see no behavior change.
+  const datePattern = buildDateEpisodePattern(ctx.episodeAired);
+  if (
+    ctx.type === 'series'
+    && pass1Results.length === 0
+    && datePattern
+    && ctx.searchAliases?.length
+  ) {
+    const aliasMatches: { entry: FileStat; alias: string }[] = [];
+    const aliasMatchedPaths = new Set<string>();
+    for (const alias of ctx.searchAliases) {
+      for (const dirs of dirsByRoot) {
+        for (const d of dirs) {
+          if (d.type !== 'directory') continue;
+          if (aliasMatchedPaths.has(d.filename)) continue;
+          if (!isTextSearchMatch(alias, d.basename, ctx.year, ctx.country, undefined, ctx.titleYear)) continue;
+          // Same season pre-filter as Pass 1: reject folders whose name carries
+          // a season marker that contradicts the requested season.
+          if (ctx.season != null && !folderCouldContainSeason(d.basename, ctx.season)) continue;
+          aliasMatches.push({ entry: d, alias });
+          aliasMatchedPaths.add(d.filename);
+        }
+      }
+    }
+    if (aliasMatches.length > 0) {
+      const aliasScanned = await Promise.all(aliasMatches.map(async ({ entry, alias }) => {
+        if (Date.now() - start >= SCAN_BUDGET_MS) return { entry, alias, video: null as { path: string; size: number } | null };
+        try {
+          const video = await findVideoFile(client, entry.filename, 0, datePattern, ctx.episodesInSeason, true);
+          return { entry, alias, video };
+        } catch {
+          return { entry, alias, video: null };
+        }
+      }));
+      const datedHits = aliasScanned.filter((s): s is { entry: FileStat; alias: string; video: { path: string; size: number } } => s.video !== null);
+      if (datedHits.length > 0) {
+        const aliasList = ctx.searchAliases.map(a => `"${a}"`).join(', ');
+        console.log(`📚 [date] Alias-fallback library hits for ${aliasList} (aired ${ctx.episodeAired}): ${datedHits.length}`);
+        for (const { entry, video } of datedHits) {
+          console.log(`   📚 [date] ✓  ${formatBytes(video.size ?? 0)}  ${entry.basename}`);
+        }
+        return datedHits.map(({ entry, video }) => buildLibraryResult(video, entry.basename));
+      }
+    }
+  }
+
+  return pass1Results;
 }
 
 function buildLibraryResult(file: { path: string; size: number }, releaseTitle: string): RawResult {

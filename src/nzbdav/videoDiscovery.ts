@@ -88,7 +88,14 @@ export async function findVideoFile(
         // terminal E{digits} literal. Chain-aware patterns use E\\d+ (literal backslash-d)
         // in the non-capturing group body, so the regex skips those and matches the final number.
         const epMatch = episodePattern.match(/E(\d+)/i);
-        if (epMatch) {
+        if (!epMatch) {
+          // Pattern provided but not SxxExx-shaped (e.g. a date-pattern fallback used for
+          // daily/talk shows). Without a target E-number we can't run the SxxExx alternative
+          // matchers below, and falling through to the largest-video default would return a
+          // wrong-date file from a same-show alias folder. Strict callers (library scan)
+          // treat that as a miss; non-strict callers keep the legacy largest-video behavior.
+          if (strictEpisodeMatch) return null;
+        } else {
           const targetEp = parseInt(epMatch[1], 10);
 
           // Try alternative episode patterns (e.g. "3x01", ".E01.", "Episode 1")

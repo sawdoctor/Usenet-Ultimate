@@ -17,6 +17,8 @@ import { buildStreamFilename } from '../parsers/metadataParsers.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
+import { buildEpisodePattern, buildDateEpisodePattern } from '../nzbdav/utils.js';
+import { getTvAllowMultiEpisode } from '../config/accessors.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
 
 // Internal self-requests (auto-queue) hit localhost directly to avoid
@@ -38,15 +40,26 @@ export async function markLibraryHits(
   episodePattern: string | undefined,
   contentType: 'movie' | 'series',
   episodesInSeason: number | undefined,
+  episodeAired?: string,
 ): Promise<number> {
   const unchecked = candidates.filter(r => !healthResults.has(r.link));
   if (unchecked.length === 0) return 0;
+  // Pass 2 fallback: daily/talk-show files in the library are date-named, so
+  // SxxExx-only matching misses them. When the search context carries an
+  // aired date, fall back to a date-pattern check after Pass 1 returns null.
+  // Mirrors the search-side alias-fallback gate.
+  const datePattern = buildDateEpisodePattern(episodeAired);
   let hits = 0;
   await Promise.all(unchecked.map(async (r) => {
     try {
-      const result = await checkNzbLibrary(
+      let result = await checkNzbLibrary(
         r.title, nzbdavConfig, episodePattern, contentType, episodesInSeason, '', true,
       );
+      if (!result && datePattern) {
+        result = await checkNzbLibrary(
+          r.title, nzbdavConfig, datePattern, contentType, episodesInSeason, '', true,
+        );
+      }
       if (result) {
         healthResults.set(r.link, { status: 'verified', message: 'Library', playable: true });
         hits++;
@@ -65,6 +78,7 @@ export interface HealthCheckContext {
   season?: number;
   episode?: number;
   episodesInSeason?: number;
+  episodeAired?: string;
   preExistingHealth?: Map<string, HealthCheckResult>;
 }
 
@@ -190,9 +204,7 @@ export async function coordinateHealthChecks(
       scanUncategorized: config.searchConfig?.librarySearchScanUncategorized ?? true,
     };
     if (ctx.season !== undefined && ctx.episode !== undefined) {
-      const s = ctx.season.toString().padStart(2, '0');
-      const e = ctx.episode.toString().padStart(2, '0');
-      libraryEpisodePattern = `S${s}[. _-]?E${e}`;
+      libraryEpisodePattern = buildEpisodePattern(ctx.season, ctx.episode, getTvAllowMultiEpisode(config));
     }
   }
 
@@ -208,6 +220,7 @@ export async function coordinateHealthChecks(
       libraryEpisodePattern,
       libraryContentType,
       ctx.episodesInSeason,
+      ctx.episodeAired,
     );
   }
 
