@@ -2,7 +2,7 @@
 //   Install Manager — manage multiple Stremio manifest installations (add, rename, regenerate, delete)
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Download, Copy, ExternalLink, XCircle, Plus, RefreshCw, Trash2, X, Check, Pencil, Cast } from 'lucide-react';
+import { Download, Copy, ExternalLink, XCircle, Plus, RefreshCw, Trash2, X, Check, Pencil, Cast, Coffee } from 'lucide-react';
 import clsx from 'clsx';
 import type { Manifest, ApiFetch } from '../types';
 
@@ -117,6 +117,7 @@ export function InstallTab({ manifests, setManifests, hasIndexers, apiFetch }: I
             <p className="text-slate-300">Configure indexers before installation</p>
           </div>
           <DiscordLink />
+          <KofiLink />
         </div>
       </div>
     );
@@ -212,6 +213,7 @@ export function InstallTab({ manifests, setManifests, hasIndexers, apiFetch }: I
         </div>
 
         <DiscordLink />
+        <KofiLink />
       </div>
     </div>
 
@@ -439,6 +441,28 @@ function DiscordLink() {
         <p className="text-xs text-slate-400">Get help, share feedback, and connect with the community</p>
       </div>
       <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-[#5865F2] transition-colors shrink-0" />
+    </a>
+  );
+}
+
+// ── Ko-fi Link ───────────────────────────────────────────────────────
+
+function KofiLink() {
+  return (
+    <a
+      href="https://ko-fi.com/dsmart33"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex items-center gap-4 p-4 rounded-lg bg-[#F97316]/10 border border-[#F97316]/30 hover:bg-[#F97316]/20 hover:border-[#F97316]/50 transition-all"
+    >
+      <div className="w-10 h-10 rounded-xl bg-[#F97316] flex items-center justify-center shadow-lg shadow-[#F97316]/20 shrink-0">
+        <Coffee className="w-5 h-5 text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h4 className="text-sm font-semibold text-[#F97316] group-hover:text-[#FB923C] transition-colors">Support Development</h4>
+        <p className="text-xs text-slate-400">Send a tip if you find Usenet Ultimate useful</p>
+      </div>
+      <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-[#F97316] transition-colors shrink-0" />
     </a>
   );
 }
