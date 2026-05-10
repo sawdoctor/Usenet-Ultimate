@@ -71,8 +71,9 @@ export default function HealthChecksOverlay({
               <p className="text-xs text-slate-500 mt-2 ml-8">Verify NZB availability before displaying streams</p>
             </div>
 
+            <div className={clsx("space-y-6 transition-opacity", !healthChecks.enabled && "opacity-40 pointer-events-none")}>
             {/* Health Check Options */}
-            <div className={clsx("p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-4 transition-opacity", !healthChecks.enabled && "opacity-40 pointer-events-none")}>
+            <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-4">
               <h4 className="text-sm font-semibold text-slate-300">Health Check Options</h4>
 
               {/* Archive Inspection toggle */}
@@ -470,6 +471,7 @@ export default function HealthChecksOverlay({
               >
                 Reset to Default
               </button>
+            </div>
             </div>
           </div>
         </div>
