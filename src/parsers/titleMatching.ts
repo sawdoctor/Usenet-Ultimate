@@ -96,6 +96,18 @@ const COUNTRY_CODES: Record<string, string[]> = {
 /** Get all known country codes as a set (for quick lookup) */
 const ALL_COUNTRY_CODES = new Set(Object.values(COUNTRY_CODES).flat());
 
+/** When the expected title is longer than the extracted title and the trailing
+ *  characters are pure digits, decide whether those digits are the release's
+ *  own year (legitimate "year-as-title", e.g. expected ends in the same year
+ *  the release file is tagged with) or a sequel marker the release doesn't
+ *  carry (false match: extracted is the parent film, expected is the sequel).
+ *  Returns true only for the year-as-title case; callers should reject the
+ *  match when this returns false. */
+function tailIsReleaseYear(missing: string, parsedReleaseYear: string | undefined): boolean {
+  if (!/^\d+$/.test(missing) || !parsedReleaseYear) return false;
+  return missing === parsedReleaseYear || parsedReleaseYear.endsWith(missing);
+}
+
 // --- Text search matching ---
 
 /** Check if a release title matches the expected media title for text search.
@@ -177,13 +189,14 @@ function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, ye
   const extracted = extractTitleFromRelease(releaseTitle);
   const normExpected = normalizeTitle(expectedTitle);
   const normExtracted = normalizeTitle(extracted);
+  // Hoisted so the loose-match paths can reuse it for the sequel-vs-year check.
+  const parsedReleaseYear = parseYear(releaseTitle);
 
   // Year validation: reject if the parsed year doesn't match any accepted year (±1 tolerance each).
   // When titleYear is available (extracted from TVDB title suffix), accept releases matching either year.
   if (year || titleYear) {
-    const parsedYear = parseYear(releaseTitle);
-    if (parsedYear && !expectedTitle.includes(parsedYear)) {
-      const p = parseInt(parsedYear, 10);
+    if (parsedReleaseYear && !expectedTitle.includes(parsedReleaseYear)) {
+      const p = parseInt(parsedReleaseYear, 10);
       const yearOk = year ? Math.abs(p - parseInt(year, 10)) <= 1 : false;
       const titleYearOk = titleYear ? Math.abs(p - parseInt(titleYear, 10)) <= 1 : false;
       if (!yearOk && !titleYearOk) {
@@ -229,15 +242,21 @@ function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, ye
   // This handles cases where the extractor cuts the title slightly short.
   const lenDiff = Math.abs(normExpected.length - normStripped.length);
   if (lenDiff <= 3 && normExpected.startsWith(normStripped)) {
-    return true;
+    const missing = normExpected.substring(normStripped.length);
+    // Accept non-digit tails outright; for digit tails, only accept when those digits
+    // are the release's own year. A bare sequel number on the expected title that the
+    // release lacks falls through, since matching the parent film would be a false hit.
+    if (!/^\d+$/.test(missing) || tailIsReleaseYear(missing, parsedReleaseYear)) {
+      return true;
+    }
   }
 
-  // Handle titles containing years (e.g. a year that is part of the title, not a release year)
-  // The extractor may have cut at a year that's actually part of the title.
-  // If extracted is a prefix of expected and the missing part is just digits, accept it.
+  // Handle titles containing years (e.g. a year that is part of the title, not a release year).
+  // The extractor may have cut at a year that's actually part of the title. Accept only when the
+  // missing digits are the release's own year; a sequel-number-only mismatch falls through.
   if (normExpected.startsWith(normStripped) && normStripped.length >= normExpected.length * 0.5) {
     const missing = normExpected.substring(normStripped.length);
-    if (/^\d+$/.test(missing)) return true;
+    if (tailIsReleaseYear(missing, parsedReleaseYear)) return true;
   }
 
   // If year is provided, try matching with year appended (some releases include year in title portion)
