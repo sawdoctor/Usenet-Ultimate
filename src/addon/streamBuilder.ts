@@ -398,12 +398,12 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     });
   }
 
-  // Ultimate Library bypass tile — appears at index 1 when Ultimate Library
-  // short-circuited indexer queries. Lets the user request indexer results on
-  // the next search of this same content without toggling the feature in the
-  // UI. When UF lobby is at index 0, bypass lands at index 1 (after UF). When
-  // UF lobby is absent, the first library result is at index 0 and bypass at
-  // index 1. The tile is NEVER added to fallbackCandidates so UF skips it.
+  // Ultimate Library bypass tile - appears at the top of the head cluster when
+  // Ultimate Library short-circuited indexer queries. Lets the user request
+  // indexer results on the next search of this same content without toggling
+  // the feature in the UI. When UF lobby is at index 0, bypass lands at index
+  // 1 (right after UF). When UF lobby is absent, bypass lands at index 0 (top
+  // of the list). The tile is NEVER added to fallbackCandidates so UF skips it.
   const ufPresent = !!(config.ultimateFallback?.enabled && config.streamingMode === 'nzbdav' && sessionKey);
   const bypassPresent = !!(shortCircuited && sessionKey && streamManifestKey);
   // User-configurable position: 'second' (current default — splice at index 1)
@@ -424,7 +424,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       }
     : null;
   if (bypassTile && !skipTileAtEnd) {
-    streams.splice(1, 0, bypassTile);
+    streams.splice(ufPresent ? 1 : 0, 0, bypassTile);
   }
 
   // ── Library delete tiles (toggle-gated, NEVER added to fallbackCandidates
