@@ -266,17 +266,25 @@ export class ProwlarrSearcher {
     const packIndexerIds = [...new Set([...textMethodIds, ...idSearchedIndexerIds])];
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
+    const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+    // Mirrors the gates inside runTitleSearchTV: SxxExx text query needs a text-method indexer,
+    // pack work needs at least one pack feature enabled (and episodesInSeason for season packs).
+    const hasAnyTextWork = textMethodIds.length > 0
+      || (packIndexerIds.length > 0 && (
+        includeMultiSeasonPacks
+        || (!!config.searchConfig?.includeSeasonPacks && !!episodesInSeason)
+      ));
 
     // Canonical text + packs flow. epIndexerIds = text-method only (canonical
     // SxxExx text query); packIndexerIds = text + ID-method (pack queries are
     // text-by-nature regardless of an indexer's primary method).
-    const canonicalTextPromise = packIndexerIds.length > 0 && title
+    const canonicalTextPromise = hasAnyTextWork && title
       ? this.runTitleSearchTV(title, title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, textMethodIds, packIndexerIds)
       : Promise.resolve([]);
 
     // Parallel-alt or anime fan-out: per-alt text+packs concurrent with canonical
     const altPromises: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
-    if ((parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length && packIndexerIds.length > 0) {
+    if ((parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length && hasAnyTextWork) {
       slog(parallelAltEnabled
         ? `🔀 Prowlarr parallel alt-title search: querying primary + ${additionalTitles.length} alt(s) concurrently`
         : `🎌 Prowlarr anime dual-title fan-out: querying primary + ${additionalTitles.length} alt(s)`);
@@ -297,8 +305,8 @@ export class ProwlarrSearcher {
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
       slog(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
     }
-    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt) {
-      const allIndexerIds = packIndexerIds.length > 0 ? packIndexerIds : [...new Set(idSearchedIndexerIds)];
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt && hasAnyTextWork) {
+      const allIndexerIds = packIndexerIds;
       if (allIndexerIds.length > 0) {
         for (const altTitle of additionalTitles) {
           slog(`🔄 Prowlarr alt-title retry: "${altTitle}"`);
@@ -308,8 +316,8 @@ export class ProwlarrSearcher {
             break;
           }
           // Per-alt absolute fallback: try absolute for this alt before moving to the next.
-          if (config.searchConfig?.absoluteEpisodeFallback !== false) {
-            const absResults = await this.runAbsoluteSearchTV(altTitle, altTitle, season, episode, year, country, titleYear, allIndexerIds, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
+          if (config.searchConfig?.absoluteEpisodeFallback !== false && textMethodIds.length > 0) {
+            const absResults = await this.runAbsoluteSearchTV(altTitle, altTitle, season, episode, year, country, titleYear, textMethodIds, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
             if (absResults.length > 0) {
               allResults = absResults;
               break;
@@ -321,7 +329,11 @@ export class ProwlarrSearcher {
 
     // Canonical absolute-episode fallback (and per-title in parallel/anime mode).
     if (allResults.length === 0 && !this.timedOut && config.searchConfig?.absoluteEpisodeFallback !== false) {
-      const allIndexerIds = packIndexerIds.length > 0 ? packIndexerIds : [...new Set(idSearchedIndexerIds)];
+      // Absolute-episode is a text-shaped query; restrict to text-method indexers (mirrors movie-path alias fallback).
+      const allIndexerIds = textMethodIds;
+      if (allIndexerIds.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping absolute-episode fallback`);
+      }
       if (allIndexerIds.length > 0) {
         const titlesToRetry = (parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length
           ? [title, ...additionalTitles]
@@ -334,7 +346,11 @@ export class ProwlarrSearcher {
 
     // Alias-title fallback: TVDB substring shortcuts (with date-numbered variant for daily/talk shows).
     if (allResults.length === 0 && !this.timedOut && config.searchConfig?.aliasTitleFallback !== false && searchAliases?.length) {
-      const allIndexerIds = packIndexerIds.length > 0 ? packIndexerIds : [...new Set(idSearchedIndexerIds)];
+      // Alias query is text-shaped; restrict to text-method indexers.
+      const allIndexerIds = textMethodIds;
+      if (allIndexerIds.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping alias-title fallback`);
+      }
       if (allIndexerIds.length > 0) {
         const useDateScheme = typeof episodeAired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(episodeAired);
         let dateOk: ((s: string) => boolean) | null = null;
@@ -462,7 +478,7 @@ export class ProwlarrSearcher {
       }));
     }
 
-    if (packIndexerIds.length > 0) {
+    if (packIndexerIds.length > 0 && includeMultiSeasonPacks) {
       const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
       tasks.push(withSubBuffer(`Series-pack keyword queries (${queryTitle})`, () => runSeriesPackQueries({
         searchFn: (q) => this.doAggregateSearch(packIndexerIds, 'search', q, ['5000'], seriesOverride),

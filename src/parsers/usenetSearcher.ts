@@ -472,7 +472,7 @@ export class UsenetSearcher {
           }));
         }
 
-        if (wantPacks && !isAbsolute && !isDate) {
+        if (includeMultiSeasonPacks) {
           const seriesPagination = buildSeriesPackPaginationMaxPages(config.searchConfig);
           tasks.push(withSubBuffer(`Series-pack keyword queries [${this.indexer.name}]`, () => runSeriesPackQueries({
             searchFn: (q) => this.search(q, '5000', seriesPagination),
@@ -727,7 +727,7 @@ export class UsenetSearcher {
       }));
     }
 
-    if (episodesInSeason) {
+    if (episodesInSeason && includeMultiSeasonPacks) {
       packTasks.push(withSubBuffer(`Series-pack keyword queries`, () => runSeriesPackQueries({
         searchFn: (q) => this.search(q, '5000', buildSeriesPackPaginationMaxPages(config.searchConfig)),
         title, season, episodesInSeason,

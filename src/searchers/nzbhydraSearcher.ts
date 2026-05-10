@@ -256,16 +256,24 @@ export class NzbhydraSearcher {
     const packIndexerNames = [...new Set([...textMethodNames, ...idSearchedNames])];
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
+    const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+    // Mirrors the gates inside runTitleSearchTV: SxxExx text query needs a text-method indexer,
+    // pack work needs at least one pack feature enabled (and episodesInSeason for season packs).
+    const hasAnyTextWork = textMethodNames.length > 0
+      || (packIndexerNames.length > 0 && (
+        includeMultiSeasonPacks
+        || (!!config.searchConfig?.includeSeasonPacks && !!episodesInSeason)
+      ));
 
     // epIndexerNames = text-method only (canonical SxxExx text query);
     // packIndexerNames = text + ID-method (pack queries are text-by-nature
     // regardless of an indexer's primary method).
-    const canonicalTextPromise = packIndexerNames.length > 0 && title
+    const canonicalTextPromise = hasAnyTextWork && title
       ? this.runTitleSearchTV(title, title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, textMethodNames, packIndexerNames)
       : Promise.resolve([] as (NZBSearchResult & { indexerName: string })[]);
 
     const altPromises: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
-    if ((parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length && packIndexerNames.length > 0) {
+    if ((parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length && hasAnyTextWork) {
       slog(parallelAltEnabled
         ? `🔀 NZBHydra parallel alt-title search: querying primary + ${additionalTitles.length} alt(s) concurrently`
         : `🎌 NZBHydra anime dual-title fan-out: querying primary + ${additionalTitles.length} alt(s)`);
@@ -285,8 +293,8 @@ export class NzbhydraSearcher {
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
       slog(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
     }
-    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt) {
-      const allNames = packIndexerNames.length > 0 ? packIndexerNames : [...new Set(idSearchedNames)];
+    if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt && hasAnyTextWork) {
+      const allNames = packIndexerNames;
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
           slog(`🔄 NZBHydra alt-title retry: "${altTitle}"`);
@@ -295,8 +303,8 @@ export class NzbhydraSearcher {
             allResults = altPackResults;
             break;
           }
-          if (config.searchConfig?.absoluteEpisodeFallback !== false) {
-            const absResults = await this.runAbsoluteSearchTV(altTitle, altTitle, season, episode, year, country, titleYear, allNames, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
+          if (config.searchConfig?.absoluteEpisodeFallback !== false && textMethodNames.length > 0) {
+            const absResults = await this.runAbsoluteSearchTV(altTitle, altTitle, season, episode, year, country, titleYear, textMethodNames, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
             if (absResults.length > 0) {
               allResults = absResults;
               break;
@@ -307,7 +315,11 @@ export class NzbhydraSearcher {
     }
 
     if (allResults.length === 0 && !this.timedOut && config.searchConfig?.absoluteEpisodeFallback !== false) {
-      const allNames = packIndexerNames.length > 0 ? packIndexerNames : [...new Set(idSearchedNames)];
+      // Absolute-episode is a text-shaped query; restrict to text-method indexers (mirrors movie-path alias fallback).
+      const allNames = textMethodNames;
+      if (allNames.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping absolute-episode fallback`);
+      }
       if (allNames.length > 0) {
         const titlesToRetry = (parallelAltEnabled || animeFanoutEnabled) && additionalTitles?.length
           ? [title, ...additionalTitles]
@@ -319,7 +331,11 @@ export class NzbhydraSearcher {
     }
 
     if (allResults.length === 0 && !this.timedOut && config.searchConfig?.aliasTitleFallback !== false && searchAliases?.length) {
-      const allNames = packIndexerNames.length > 0 ? packIndexerNames : [...new Set(idSearchedNames)];
+      // Alias query is text-shaped; restrict to text-method indexers.
+      const allNames = textMethodNames;
+      if (allNames.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping alias-title fallback`);
+      }
       if (allNames.length > 0) {
         const useDateScheme = typeof episodeAired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(episodeAired);
         let dateOk: ((s: string) => boolean) | null = null;
@@ -459,7 +475,7 @@ export class NzbhydraSearcher {
       }));
     }
 
-    if (packIndexerNames.length > 0) {
+    if (packIndexerNames.length > 0 && includeMultiSeasonPacks) {
       const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
       tasks.push(withSubBuffer(`Series-pack keyword queries (${queryTitle})`, () => runSeriesPackQueries({
         searchFn: async (q) => {

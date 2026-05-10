@@ -260,16 +260,18 @@ export class EasynewsSearcher {
       }));
     }
 
-    tasks.push(withSubBuffer(`Series-pack keyword queries [EasyNews]`, async () => {
-      const r = await runSeriesPackQueries({
-        searchFn: (q) => this.search(q, seriesPackPages),
-        title, season, episodesInSeason,
-        isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
-        searchConfig: config.searchConfig,
-        logPrefix: 'EasyNews',
-      });
-      return { kind: 'seriesKw' as const, jobTitle: title, results: r };
-    }));
+    if (includeMultiSeasonPacks) {
+      tasks.push(withSubBuffer(`Series-pack keyword queries [EasyNews]`, async () => {
+        const r = await runSeriesPackQueries({
+          searchFn: (q) => this.search(q, seriesPackPages),
+          title, season, episodesInSeason,
+          isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
+          searchConfig: config.searchConfig,
+          logPrefix: 'EasyNews',
+        });
+        return { kind: 'seriesKw' as const, jobTitle: title, results: r };
+      }));
+    }
 
     const jobResults = await Promise.all(tasks);
 
