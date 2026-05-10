@@ -102,7 +102,9 @@ export class ProwlarrSearcher {
       }
     }
 
-    const allTextIndexerIds = [...new Set([...textMethodIds, ...idSearchedIndexerIds])];
+    // Movie text queries only run against indexers that opted into 'text' via movieSearchMethod.
+    // ID-method indexers stay on their ID endpoints; pack queries below keep the union intentionally.
+    const allTextIndexerIds = [...new Set(textMethodIds)];
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
 
@@ -135,7 +137,10 @@ export class ProwlarrSearcher {
       slog(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
     }
     if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt) {
-      const allIndexerIds = allTextIndexerIds.length > 0 ? allTextIndexerIds : [...new Set(idSearchedIndexerIds)];
+      const allIndexerIds = allTextIndexerIds;
+      if (allIndexerIds.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping alt-title retry`);
+      }
       if (allIndexerIds.length > 0) {
         for (const altTitle of additionalTitles) {
           slog(`🔄 Prowlarr alt-title retry: "${altTitle}"`);
@@ -150,7 +155,10 @@ export class ProwlarrSearcher {
 
     // Alias-title fallback: TVDB substring shortcuts.
     if (allResults.length === 0 && !this.timedOut && config.searchConfig?.aliasTitleFallback !== false && searchAliases?.length) {
-      const allIndexerIds = allTextIndexerIds.length > 0 ? allTextIndexerIds : [...new Set(idSearchedIndexerIds)];
+      const allIndexerIds = allTextIndexerIds;
+      if (allIndexerIds.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping alias-title fallback`);
+      }
       if (allIndexerIds.length > 0) {
         const aliasPromises = searchAliases.map((alias) => {
           const query = stripDiacritics(year ? `${alias} ${year}` : alias);

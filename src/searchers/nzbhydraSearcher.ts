@@ -88,7 +88,9 @@ export class NzbhydraSearcher {
       idTasks.push(withSubBuffer(`movie ${method} search × ${indexerNames.length} indexer(s)`, () => this.doSearch(params)));
     }
 
-    const allTextNames = [...new Set([...textMethodNames, ...idSearchedNames])];
+    // Movie text queries only run against indexers that opted into 'text' via movieSearchMethod.
+    // ID-method indexers stay on their ID endpoints; pack queries below keep the union intentionally.
+    const allTextNames = [...new Set(textMethodNames)];
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
 
@@ -118,7 +120,10 @@ export class NzbhydraSearcher {
       slog(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
     }
     if (allResults.length === 0 && additionalTitles?.length && !this.timedOut && !skipSequentialAlt) {
-      const allNames = allTextNames.length > 0 ? allTextNames : [...new Set(idSearchedNames)];
+      const allNames = allTextNames;
+      if (allNames.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping alt-title retry`);
+      }
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
           slog(`🔄 NZBHydra alt-title retry: "${altTitle}"`);
@@ -132,7 +137,10 @@ export class NzbhydraSearcher {
     }
 
     if (allResults.length === 0 && !this.timedOut && config.searchConfig?.aliasTitleFallback !== false && searchAliases?.length) {
-      const allNames = allTextNames.length > 0 ? allTextNames : [...new Set(idSearchedNames)];
+      const allNames = allTextNames;
+      if (allNames.length === 0) {
+        slog(`⚠️  No text-method indexers, skipping alias-title fallback`);
+      }
       if (allNames.length > 0) {
         const aliasPromises = searchAliases.map((alias) => {
           const q = stripDiacritics(year ? `${alias} ${year}` : alias);
