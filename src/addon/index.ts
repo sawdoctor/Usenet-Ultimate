@@ -167,17 +167,23 @@ builder.defineStreamHandler(async ({ type, id }) => {
       const isDead = (url: string) =>
         (cachePattern && isDeadNzb(getDeadCacheKey(url, cachePattern))) || isDeadNzbByUrl(url);
       const before = results.length;
+      const removed: { title: string; indexer: string }[] = [];
       const filtered = results.filter(r => {
+        let dead: boolean;
         if (r.easynewsMeta) {
           const meta = r.easynewsMeta;
           const nzbParams = new URLSearchParams({ hash: meta.hash, filename: meta.filename, ext: meta.ext });
           if (meta.sig) nzbParams.set('sig', meta.sig);
-          return !isDead(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
+          dead = isDead(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
+        } else {
+          dead = isDead(r.link);
         }
-        return !isDead(r.link);
+        if (dead) removed.push({ title: r.title, indexer: r.indexerName || r.origin });
+        return !dead;
       });
       if (filtered.length < before) {
         console.log(`🚫 Filtered ${before - filtered.length} dead NZB(s) from results (${filtered.length} remaining)`);
+        for (const { title, indexer } of removed) console.log(`   ✂️  "${title}" [${indexer}]`);
       }
       return filtered;
     };
