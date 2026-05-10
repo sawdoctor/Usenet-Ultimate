@@ -350,6 +350,7 @@ export function UltimateFallbackOverlay({
               <div>
                 <div className="text-sm text-slate-200 font-medium">On Search</div>
                 <p className="text-xs text-slate-500">Pre-resolve Ultimate Fallback as soon as results arrive. By the time you enter the Ultimate Fallback lobby, results will have already begun processing.</p>
+                <p className="text-[11px] text-amber-400 mt-1">⚠️ Suppresses Health Checks "Auto-queue to NzbDAV" when enabled.</p>
               </div>
             </label>
           </div>

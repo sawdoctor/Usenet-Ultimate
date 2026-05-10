@@ -136,6 +136,9 @@ export default function HealthChecksOverlay({
                   <p className="text-xs text-slate-500 mt-1">
                     Automatically queue verified results to NzbDAV for caching. Uses cached NZB data from health checks to save indexer grabs. (NzbDAV streaming mode only)
                   </p>
+                  <p className="text-xs text-amber-400 mt-1">
+                    ⚠️ Suppressed when Ultimate Fallback is set to "On Search".
+                  </p>
                 </div>
                 {config?.easynewsEnabled && config?.easynewsMode === 'nzb' && (
                   <div>

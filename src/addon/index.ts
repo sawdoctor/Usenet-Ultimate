@@ -276,8 +276,13 @@ builder.defineStreamHandler(async ({ type, id }) => {
         allResults = sortResults(allResults, filterCfg, titleMeta.now, titleMeta.runtime);
       }
 
-      // Auto-queue to NZBDav if enabled (skipped when Ultimate-Fallback manages this)
-      if (!config.ultimateFallback?.enabled) {
+      // Auto-queue to NZBDav if enabled. Safe alongside Ultimate Fallback in
+      // on-tile-selection mode (UF defers submit until click). Skipped when UF
+      // is in on-results mode — UF already submits at search time and would
+      // race auto-queue on the same NZBs.
+      const ufSubmitsAtSearch = config.ultimateFallback?.enabled
+        && config.ultimateFallback.whenToResolve !== 'on-tile-selection';
+      if (!ufSubmitsAtSearch) {
         autoQueueToNzbdav(allResults, healthMap, titleMeta.type, titleMeta.season, titleMeta.episode, titleMeta.episodesInSeason);
       }
 

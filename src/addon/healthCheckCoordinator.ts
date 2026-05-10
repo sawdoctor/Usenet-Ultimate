@@ -501,8 +501,13 @@ export function autoQueueToNzbdav(
   episodesInSeason?: number,
 ): void {
   const mode = config.healthChecks?.autoQueueMode;
-  if (!config.healthChecks?.enabled || !mode || mode === 'off' || config.streamingMode !== 'nzbdav' || allResults.length === 0
-      || config.ultimateFallback?.enabled) {
+  // UF in on-results mode submits NZBs at search time itself; running auto-queue
+  // would race on the same titles (NzbDAV has had 500s on concurrent inserts).
+  // on-tile-selection defers UF's submit until click, so auto-queue is safe there.
+  const ufSubmitsAtSearch = config.ultimateFallback?.enabled
+    && config.ultimateFallback.whenToResolve !== 'on-tile-selection';
+  if (!config.healthChecks?.enabled || !mode || mode === 'off' || config.streamingMode !== 'nzbdav'
+      || allResults.length === 0 || ufSubmitsAtSearch) {
     return;
   }
 
