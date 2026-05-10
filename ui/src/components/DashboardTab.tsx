@@ -165,7 +165,12 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Power className={clsx("w-5 h-5 transition-colors", addonEnabled ? "text-green-400 group-hover:scale-110 group-active:scale-110" : "text-red-400 group-hover:scale-110 group-active:scale-110")} />
+                      <div className={clsx(
+                        "w-7 h-7 rounded-lg flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform",
+                        addonEnabled ? "bg-green-500/10 border border-green-500/20" : "bg-red-500/10 border border-red-500/20"
+                      )}>
+                        <Power className={clsx("w-4 h-4", addonEnabled ? "text-green-400" : "text-red-400")} />
+                      </div>
                       <span className="text-slate-400 text-sm">Addon</span>
                     </div>
                     <div className={clsx("text-3xl font-bold transition-colors", addonEnabled ? "text-green-400 group-hover:text-green-300 group-active:text-green-300" : "text-red-400 group-hover:text-red-300 group-active:text-red-300")}>
@@ -195,11 +200,13 @@ export function DashboardTab({
                     }}
                   >
                     {libraryEnabled && (
-                      <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5 animate-pulse" style={{ animationDuration: '4s' }} />
+                      <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5" />
                     )}
                     <div className="relative flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Database className="w-5 h-5 text-blue-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Database className="w-4 h-4 text-blue-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Index Manager</span>
                     </div>
                     <div className="relative text-3xl font-bold group-hover:text-blue-400 group-active:text-blue-400 transition-colors">
@@ -246,7 +253,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Play className="w-5 h-5 text-purple-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Play className="w-4 h-4 text-purple-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Streaming Mode</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
@@ -265,7 +274,7 @@ export function DashboardTab({
                           )}
                           {nzbdavConnectionStatus === 'connected' && (
                             <div className="flex items-center gap-1.5">
-                              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                              <div className="w-2 h-2 rounded-full bg-green-400" />
                               <span className="text-xs text-green-400">Connected</span>
                             </div>
                           )}
@@ -309,7 +318,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Database className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Database className="w-4 h-4 text-amber-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">NZB Database</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
@@ -346,7 +357,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Shield className="w-5 h-5 text-teal-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Shield className="w-4 h-4 text-teal-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Proxy</span>
                     </div>
                     {indexManager !== 'newznab' ? (
@@ -369,7 +382,7 @@ export function DashboardTab({
                             <>
                               {proxyStatus === 'connected' && (
                                 <div className="flex items-center gap-1.5">
-                                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                                  <div className="w-2 h-2 rounded-full bg-green-400" />
                                   <span className="text-xs text-green-400">Connected</span>
                                 </div>
                               )}
@@ -411,7 +424,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Zap className="w-5 h-5 text-yellow-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Zap className="w-4 h-4 text-yellow-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Search Cache TTL</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-yellow-400 group-active:text-yellow-400 transition-colors">{formatTTL(config.cacheTTL)}</div>
@@ -437,7 +452,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Globe className="w-5 h-5 text-indigo-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Globe className="w-4 h-4 text-indigo-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">User-Agent</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-indigo-400 group-active:text-indigo-400 transition-colors">
@@ -465,7 +482,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Filter className="w-5 h-5 text-purple-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Filter className="w-4 h-4 text-purple-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Filters, Rules & Sorting</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
@@ -493,7 +512,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <FastForward className="w-5 h-5 text-orange-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <FastForward className="w-4 h-4 text-orange-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Auto Play</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-orange-400 group-active:text-orange-400 transition-colors">
@@ -527,7 +548,9 @@ export function DashboardTab({
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <GripVertical className="w-4 h-4 text-slate-600" />
-                        <Monitor className="w-5 h-5 text-indigo-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                        <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                          <Monitor className="w-4 h-4 text-indigo-400" />
+                        </div>
                         <span className="text-slate-400 text-sm">Stream Display</span>
                       </div>
                       {/* Miniature Stremio-like preview */}
@@ -570,7 +593,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <ScrollText className="w-5 h-5 text-emerald-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <ScrollText className="w-4 h-4 text-emerald-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Logs</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-emerald-400 group-active:text-emerald-400 transition-colors">Live View</div>
@@ -599,7 +624,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Bot className="w-5 h-5 text-violet-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Bot className="w-4 h-4 text-violet-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Zyclops</span>
                     </div>
                     {indexManager !== 'newznab' ? (
@@ -648,7 +675,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Trophy className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Trophy className="w-4 h-4 text-amber-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Indexer Performance Metrics</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
@@ -676,7 +705,9 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Heart className="w-5 h-5 text-pink-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <div className="w-7 h-7 rounded-lg bg-pink-500/10 border border-pink-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Heart className="w-4 h-4 text-pink-400" />
+                      </div>
                       <span className="text-slate-400 text-sm">Health Checks</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-pink-400 group-active:text-pink-400 transition-colors">
@@ -727,7 +758,7 @@ export function DashboardTab({
                     }}
                   >
                     {ultimateFallback.enabled && (
-                      <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5 animate-pulse" style={{ animationDuration: '4s' }} />
+                      <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5" />
                     )}
                     <div className="relative flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />

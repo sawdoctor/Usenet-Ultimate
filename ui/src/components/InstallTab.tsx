@@ -2,7 +2,7 @@
 //   Install Manager — manage multiple Stremio manifest installations (add, rename, regenerate, delete)
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Download, Copy, ExternalLink, XCircle, Plus, RefreshCw, Trash2, X, Check, Pencil } from 'lucide-react';
+import { Download, Copy, ExternalLink, XCircle, Plus, RefreshCw, Trash2, X, Check, Pencil, Cast } from 'lucide-react';
 import clsx from 'clsx';
 import type { Manifest, ApiFetch } from '../types';
 
@@ -300,6 +300,9 @@ function InstallCard({
     <div className="rounded-lg bg-slate-800/40 border border-slate-700/20 p-4 space-y-3">
       {/* Name + activity + actions */}
       <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+          <Cast className="w-4 h-4 text-amber-400" />
+        </div>
         <div className="flex-1 min-w-0">
           {isEditing ? (
             <input
@@ -320,17 +323,17 @@ function InstallCard({
               <span className="font-semibold truncate bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent">{manifest.name}</span>
             </div>
           )}
-          <div className="flex items-center gap-3 mt-1">
-            <span className="text-[11px] text-slate-500">Created {timeAgo(manifest.createdAt)}</span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
+            <span className="text-[11px] text-slate-500 whitespace-nowrap">Created {timeAgo(manifest.createdAt)}</span>
             {manifest.lastUsedAt ? (
-              <span className="flex items-center gap-1 text-[11px]">
-                <span className={clsx("w-1.5 h-1.5 rounded-full", isActive ? "bg-green-400 animate-pulse" : "bg-slate-600")} />
+              <span className="flex items-center gap-1 text-[11px] whitespace-nowrap">
+                <span className={clsx("w-1.5 h-1.5 rounded-full", isActive ? "bg-green-400" : "bg-slate-600")} />
                 <span className={isActive ? "text-green-400/70" : "text-slate-500"}>
                   {timeAgo(manifest.lastUsedAt)}
                 </span>
               </span>
             ) : (
-              <span className="text-[11px] text-slate-600">Never used</span>
+              <span className="text-[11px] text-slate-600 whitespace-nowrap">Never used</span>
             )}
           </div>
         </div>

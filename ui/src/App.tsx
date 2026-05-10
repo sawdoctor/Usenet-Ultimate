@@ -489,7 +489,7 @@ function App() {
 
   // ── Main render ───────────────────────────────────────────────────────
   return (
-    <div className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 animate-gradient relative" style={{ padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' }}>
+    <div className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative" style={{ padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' }}>
 
       {/* Delete Confirmation Modal */}
       {ac.deleteConfirmation.show && (
@@ -995,12 +995,8 @@ function App() {
           {/* Gradient accent line */}
           <div className="h-[3px] bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600" />
 
-          {/* Ambient glow */}
-          <div className="absolute top-0 left-1/4 w-80 h-20 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute top-0 right-1/4 w-80 h-20 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
-
           {/* Brand Row */}
-          <div className="relative flex items-center px-4 md:px-6 pt-4 pb-3 bg-gradient-to-b from-slate-900/95 to-slate-900/80 backdrop-blur-xl">
+          <div className="relative flex items-center px-4 md:px-6 pt-4 pb-3 bg-gradient-to-b from-slate-900 to-slate-900/95">
             <div className="flex items-center gap-3 md:gap-4">
               {/* Icon Mark */}
               <div className="relative group">
@@ -1031,7 +1027,7 @@ function App() {
           </div>
 
           {/* Navigation Row */}
-          <div className="flex items-center justify-between px-3 md:px-5 py-2 bg-slate-900/60 backdrop-blur-sm border-b border-slate-700/50">
+          <div className="flex items-center justify-between px-3 md:px-5 py-2 bg-slate-900/90 border-b border-slate-700/50">
             <div className="flex items-center gap-1">
               {[
                 { id: 'dashboard' as Tab, icon: LayoutDashboard, label: 'Dashboard' },
