@@ -288,7 +288,8 @@ export async function ultimateFallbackFromCandidates(
   candidates: FallbackCandidate[],
   nzbdavConfig: NZBDavConfig,
   options: UltimateFallbackOptions,
-  episodePattern?: string,
+  cachePattern?: string,
+  filePattern?: string,
   contentType?: string,
   episodesInSeason?: number,
 ): Promise<void> {
@@ -355,7 +356,7 @@ export async function ultimateFallbackFromCandidates(
       .map((candidate, i) => () => {
         const probe = candidate.libraryVideoPath
           ? checkLibraryVideoPath(candidate.libraryVideoPath, candidate.size ?? 0, nzbdavConfig, `${tag} [lib #${i + 1}] `, true)
-          : checkNzbLibrary(candidate.title, nzbdavConfig, episodePattern, contentType, episodesInSeason, `${tag} [lib #${i + 1}] `, true);
+          : checkNzbLibrary(candidate.title, nzbdavConfig, filePattern, contentType, episodesInSeason, `${tag} [lib #${i + 1}] `, true);
         return probe
           .then(data => ({ candidate, index: i, data }))
           .catch(() => ({ candidate, index: i, data: null as StreamData | null }));
@@ -371,7 +372,7 @@ export async function ultimateFallbackFromCandidates(
       if (r.data === null && r.candidate.libraryVideoPath) {
         const err = new Error('Library file not servable (probe miss)');
         (err as any).isNzbdavFailure = true;
-        setDeadNzbEntry(r.candidate.nzbUrl, r.candidate.title, err, episodePattern, r.candidate.indexerName, r.candidate.size);
+        setDeadNzbEntry(r.candidate.nzbUrl, r.candidate.title, err, cachePattern, r.candidate.indexerName, r.candidate.size, r.candidate.isSeasonPack);
       }
     }
 
@@ -420,7 +421,7 @@ export async function ultimateFallbackFromCandidates(
         }
         const libElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
         console.log(`${tag} 📚 Library hit — ${hit.candidate.title} [${hit.candidate.indexerName}]`);
-        const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (cachePattern ? `:${cachePattern}` : '');
         setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);
         // Assign resolvedStreamData BEFORE sessionResolve so any awaiter observing
         // primaryResolved=true also sees resolvedStreamData populated.
@@ -463,7 +464,7 @@ export async function ultimateFallbackFromCandidates(
       resolvedTitles.add(hit.candidate.title);
       deferred.backupUrls!.add(cs.candidate.nzbUrl);
       deferred.backupStreams!.push({ nzbUrl: cs.candidate.nzbUrl, videoPath: hit.data.videoPath, title: cs.candidate.title, indexerName: cs.candidate.indexerName, candidateIndex: cs.poolIndex + 1 });
-      const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+      const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (cachePattern ? `:${cachePattern}` : '');
       setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);
       cs.nzbdavStatus = 'skipped';
       cs.containerType = hitExt || undefined;
@@ -591,7 +592,7 @@ export async function ultimateFallbackFromCandidates(
         if (cs.cancelled) { cs.nzbdavStatus = 'failed'; return null; }
 
         // Step 3: Find video file (waitForVideoFile logs the result)
-        const video = await waitForVideoFile(nzoId, cs.candidate.title, nzbdavConfig, episodePattern, contentType, episodesInSeason, logPrefix);
+        const video = await waitForVideoFile(nzoId, cs.candidate.title, nzbdavConfig, filePattern, contentType, episodesInSeason, logPrefix);
 
         // Cancel checkpoint: health check may have failed during video discovery
         if (cs.cancelled) { cs.nzbdavStatus = 'failed'; return null; }
@@ -599,11 +600,11 @@ export async function ultimateFallbackFromCandidates(
         // Step 4: Probe video is servable
         const servable = await probeVideo(nzbdavConfig, video.path, logPrefix);
         if (!servable) {
-          throw nzbdavError(`Video file not servable (probe failed): ${video.path}`);
+          throw nzbdavError(`Video file not servable (probe failed): ${video.path}`, false, true);
         }
 
         // Step 5: Write to readyCache so stream handler can deliver
-        const cacheKey = getCacheKey(cs.candidate.nzbUrl, cs.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        const cacheKey = getCacheKey(cs.candidate.nzbUrl, cs.candidate.title) + (cachePattern ? `:${cachePattern}` : '');
         const streamData: StreamData = { nzoId, videoPath: video.path, videoSize: video.size };
         setReadyCacheEntry(cacheKey, streamData, cs.candidate.indexerName);
 
@@ -615,7 +616,7 @@ export async function ultimateFallbackFromCandidates(
         if (cs.cancelled) return null;
         if (cs.nzoId) cancelJob(cs.nzoId, nzbdavConfig, 'pipeline failure').catch(() => {});
         if ((err as any)?.isNzbdavFailure) {
-          setDeadNzbEntry(cs.candidate.nzbUrl, cs.candidate.title, err as Error, episodePattern, cs.candidate.indexerName, cs.videoSize || cs.candidate.size);
+          setDeadNzbEntry(cs.candidate.nzbUrl, cs.candidate.title, err as Error, cachePattern, cs.candidate.indexerName, cs.videoSize || cs.candidate.size, cs.candidate.isSeasonPack);
           cs.nzbdavDeadWritten = true;
         }
         cs.nzbdavStatus = 'failed';
@@ -941,7 +942,7 @@ export async function ultimateFallbackFromCandidates(
         deferred.backupUrls!.add(hit.candidate.nzbUrl);
         deferred.backupStreams!.push({ nzbUrl: hit.candidate.nzbUrl, videoPath: hit.data.videoPath, title: hit.candidate.title, indexerName: hit.candidate.indexerName, candidateIndex: hit.index + 1 });
         deferred.lastVettedUrl = hit.candidate.nzbUrl;
-        const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        const cacheKey = getCacheKey(hit.candidate.nzbUrl, hit.candidate.title) + (cachePattern ? `:${cachePattern}` : '');
         setReadyCacheEntry(cacheKey, hit.data, hit.candidate.indexerName);
         backupCount++;
         libraryBackupCount++;

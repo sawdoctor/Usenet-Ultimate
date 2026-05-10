@@ -339,7 +339,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
         ...(candidateIdx >= 0 ? { idx: candidateIdx } : {}),
         ...(sessionKey ? { sk: sessionKey } : {}),
-        ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}) } : {}),
+        ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}), ...(episodeAired ? { aired: episodeAired } : {}) } : {}),
         url: result.link,
         title: result.title,
         indexer: result.indexerName || '',

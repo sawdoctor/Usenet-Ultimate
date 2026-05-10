@@ -156,18 +156,16 @@ builder.defineStreamHandler(async ({ type, id }) => {
     }
 
     // === SHARED: Filter dead NZBs from raw results ===
-    const filterDeadFromRaw = (results: any[], episodeAired?: string) => {
+    const filterDeadFromRaw = (results: any[]) => {
       if (!config.filterDeadNzbs) return results;
       const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
       const manifestKey = requestContext.getStore()?.manifestKey || '';
-      let epPattern: string | undefined;
+      let cachePattern: string | undefined;
       if (type === 'series' && season !== undefined && episode !== undefined) {
-        const sxxExx = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
-        const datePattern = buildDateEpisodePattern(episodeAired);
-        epPattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
+        cachePattern = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
       }
       const isDead = (url: string) =>
-        (epPattern && isDeadNzb(getDeadCacheKey(url, epPattern))) || isDeadNzbByUrl(url);
+        (cachePattern && isDeadNzb(getDeadCacheKey(url, cachePattern))) || isDeadNzbByUrl(url);
       const before = results.length;
       const filtered = results.filter(r => {
         if (r.easynewsMeta) {
@@ -192,11 +190,12 @@ builder.defineStreamHandler(async ({ type, id }) => {
       const ufManifestKey = requestContext.getStore()?.manifestKey || '';
       const sessionKey = `${ufManifestKey}:${contentKey}`;
       const nzbdavConfig = buildNzbdavConfig();
-      let epPattern: string | undefined;
+      let cachePattern: string | undefined;
+      let filePattern: string | undefined;
       if (type === 'series' && season !== undefined && episode !== undefined) {
-        const sxxExx = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
+        cachePattern = buildEpisodePattern(season, episode, getTvAllowMultiEpisode(config));
         const datePattern = buildDateEpisodePattern(episodeAired);
-        epPattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
+        filePattern = datePattern ? `(?:${cachePattern}|${datePattern})` : cachePattern;
       }
 
       // Ultimate-Fallback takes priority — handles health checking + nzbdav internally.
@@ -210,7 +209,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         ultimateFallbackFromCandidates(
           sessionKey, fallbackCandidates, nzbdavConfig,
           { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
-          epPattern, type, episodesInSeason,
+          cachePattern, filePattern, type, episodesInSeason,
         ).catch(err => console.error('❌ Ultimate-Fallback error:', err));
         return;
       }
@@ -220,7 +219,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
     const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; now: number; runtime?: number; shortCircuited?: boolean }) => {
       // Filter dead NZBs
-      let allResults = filterDeadFromRaw(rawResults, titleMeta.episodeAired);
+      let allResults = filterDeadFromRaw(rawResults);
 
       // Apply current user filter/sort preferences (deprioritized packs appended after sort)
       allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);

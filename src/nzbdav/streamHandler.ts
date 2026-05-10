@@ -234,7 +234,7 @@ export async function prepareStream(
       if (probeResp.status === 404 || probeResp.status === 410) {
         await probeResp.body?.cancel().catch(() => {});
         markVideoPathBroken(video.path);
-        throw nzbdavError(`Video file not servable (${probeResp.status}): ${video.path}`);
+        throw nzbdavError(`Video file not servable (${probeResp.status}): ${video.path}`, false, true);
       }
       if (probeResp.status === 206 || probeResp.status === 200) {
         probeSuccess = true;
@@ -263,7 +263,7 @@ export async function prepareStream(
   }
   if (!probeSuccess) {
     markVideoPathBroken(video.path);
-    throw nzbdavError(`Video file not servable (probe failed after ${probeAttempt} attempts): ${video.path}`);
+    throw nzbdavError(`Video file not servable (probe failed after ${probeAttempt} attempts): ${video.path}`, false, true);
   }
 
   const totalElapsed = Math.round((Date.now() - budgetStart) / 1000);
@@ -636,18 +636,19 @@ export async function handleStream(
   // YYYY.MM.DD-named files inside the pack. Restricted to a single show's
   // pack so the cross-show false-positive risk that gates the library scan's
   // two-pass approach doesn't apply here.
-  let episodePattern: string | undefined;
+  let cachePattern: string | undefined;
+  let filePattern: string | undefined;
   const epcountParam = tPackEpcount ?? (req.query.epcount as string | undefined);
   const episodesInSeason = epcountParam ? parseInt(epcountParam, 10) : undefined;
   const isSeasonPackRequest = (tPackSp ?? req.query.sp) === '1';
   if (seasonParam && episodeParam) {
-    const sxxExx = buildEpisodePattern(
+    cachePattern = buildEpisodePattern(
       parseInt(seasonParam, 10),
       parseInt(episodeParam, 10),
       getTvAllowMultiEpisode(globalConfig),
     );
     const datePattern = buildDateEpisodePattern(payload.aired);
-    episodePattern = datePattern ? `(?:${sxxExx}|${datePattern})` : sxxExx;
+    filePattern = datePattern ? `(?:${cachePattern}|${datePattern})` : cachePattern;
   }
 
   // Build the list of candidates to try (primary first, then fallbacks).
@@ -697,13 +698,15 @@ export async function handleStream(
 
       // If episode info wasn't in the request URL (individual episode stream),
       // use the group's stored episode so season pack fallbacks select the right file.
-      if (!episodePattern && group.season && group.episode) {
+      if (!cachePattern && group.season && group.episode) {
         const s = parseInt(group.season, 10).toString().padStart(2, '0');
         const e = parseInt(group.episode, 10).toString().padStart(2, '0');
         const allowMultiEp = getTvAllowMultiEpisode(globalConfig);
-        episodePattern = allowMultiEp
+        cachePattern = allowMultiEp
           ? `S${s}(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${e}|-${e})(?!\\d)`
           : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d|-\\d)`;
+        // Group envelope does not carry aired, so file pattern matches cache pattern here.
+        filePattern = cachePattern;
       }
     }
   }
@@ -737,7 +740,7 @@ export async function handleStream(
   const isFreshRequest = candidateStart === 0;
   if (isFreshRequest && candidates.length > 0 && !isUfTileRequest) {
     {
-      const dedupKey = getCacheKey(candidates[0].nzbUrl, candidates[0].title) + (episodePattern ? `:${episodePattern}` : '');
+      const dedupKey = getCacheKey(candidates[0].nzbUrl, candidates[0].title) + (cachePattern ? `:${cachePattern}` : '');
       const cached = recentDeliveries.get(dedupKey);
       if (cached
         && Date.now() - cached.timestamp < DEDUP_CACHE_TTL_MS
@@ -803,13 +806,15 @@ export async function handleStream(
       } else {
         console.log(`👑 UF fired on tile click [${sessionKey}]`);
         const ur = globalConfig.ultimateFallback;
-        const epPattern = (group.type === 'series' && group.season && group.episode)
+        const onTileCachePattern = (group.type === 'series' && group.season && group.episode)
           ? buildEpisodePattern(parseInt(group.season, 10), parseInt(group.episode, 10), getTvAllowMultiEpisode(globalConfig))
           : undefined;
+        // Group envelope does not carry aired, so file pattern matches cache pattern here.
+        const onTileFilePattern = onTileCachePattern;
         ultimateFallbackFromCandidates(
           sessionKey, group.candidates, buildNzbdavConfig(),
           { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
-          epPattern, group.type, group.episodesInSeason,
+          onTileCachePattern, onTileFilePattern, group.type, group.episodesInSeason,
         ).catch(err => console.error('❌ Ultimate-Fallback error (on-tile-selection):', err));
       }
     }
@@ -1077,8 +1082,8 @@ export async function handleStream(
     const candidate = candidates[i];
     const attemptBudgetMs = getAttemptBudgetMs(contentType, candidate.isSeasonPack);
 
-    // Skip candidates already known to be dead
-    const deadKey = getDeadCacheKey(candidate.nzbUrl, episodePattern);
+    // Skip candidates already known to be dead.
+    const deadKey = getDeadCacheKey(candidate.nzbUrl, cachePattern);
     if (isDeadNzb(deadKey) || isDeadNzbByUrl(candidate.nzbUrl)) {
       if (logDeadSkips) console.log(`\u23ED\uFE0F NZB Database (skipping dead) [${i + 1}/${maxCandidates}]: ${candidate.title}`);
       continue;
@@ -1092,9 +1097,9 @@ export async function handleStream(
     if (i > 0 && !req.socket.destroyed && redirectCount < MAX_SELF_REDIRECTS) {
       const elapsed = Date.now() - streamStartTime;
       if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
-        const pendingKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        const pendingKey = getCacheKey(candidate.nzbUrl, candidate.title) + (cachePattern ? `:${cachePattern}` : '');
         if (!streamCacheMap.has(pendingKey) && !isDeadNzb(deadKey)) {
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack).catch(() => {});
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack).catch(() => {});
         }
         // Site 2 of 6: rc and ci carried inside `t` so iOS handoff doesn't
         // truncate them. Without ci, the next request would restart at
@@ -1124,7 +1129,7 @@ export async function handleStream(
         const waitMs = Math.max(1000, EXO_PLAYER_BUDGET_MS - requestElapsed);
         let exoTimerId: ReturnType<typeof setTimeout>;
         streamData = await Promise.race([
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
             .finally(() => clearTimeout(exoTimerId)),
           new Promise<never>((_, reject) => {
             exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
@@ -1139,7 +1144,7 @@ export async function handleStream(
         if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
           let stremioTimerId: ReturnType<typeof setTimeout>;
           streamData = await Promise.race([
-            getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
+            getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
               .finally(() => clearTimeout(stremioTimerId)),
             new Promise<never>((_, reject) => {
               stremioTimerId = setTimeout(() => reject(Object.assign(new Error('Stremio timeout redirect'), { isExoTimeout: true })), stremioRemainingMs);
@@ -1147,7 +1152,7 @@ export async function handleStream(
           ]);
         } else {
           streamData = await getOrCreateStream(
-            candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack
+            candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack
           );
         }
       }
@@ -1187,12 +1192,12 @@ export async function handleStream(
       // requests for the same click hit dedup, even when fallback-chain walked
       // past the click and resolved a later candidate.
       const dedupCandidate = candidates[0] ?? candidate;
-      const dedupKey = getCacheKey(dedupCandidate.nzbUrl, dedupCandidate.title) + (episodePattern ? `:${episodePattern}` : '');
+      const dedupKey = getCacheKey(dedupCandidate.nzbUrl, dedupCandidate.title) + (cachePattern ? `:${cachePattern}` : '');
       recentDeliveries.set(dedupKey, { streamData, streamingMethod: mode, timestamp: Date.now() });
       // Also key on the resolved candidate's URL so direct second-clicks of the
       // resolved tile (different click URL) also dedup.
       if (candidate !== dedupCandidate) {
-        const resolvedKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        const resolvedKey = getCacheKey(candidate.nzbUrl, candidate.title) + (cachePattern ? `:${cachePattern}` : '');
         recentDeliveries.set(resolvedKey, { streamData, streamingMethod: mode, timestamp: Date.now() });
       }
 

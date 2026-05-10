@@ -225,7 +225,9 @@ export async function waitForVideoFile(
   }
 
   console.log(`${logPrefix}  ❌ Video file not found in WebDAV after job completed`);
-  throw nzbdavError('Video file not found in WebDAV after job completed');
+  // Episode-specific: the NZB itself downloaded fine, this episode's file just
+  // wasn't in the pack. Other episodes from the same pack may still resolve.
+  throw nzbdavError('Video file not found in WebDAV after job completed', false, true);
 }
 
 /**

@@ -254,7 +254,7 @@ loadCacheFromDisk();
 recalculateTTLExpirations();
 
 /** Injected stream preparation function (set by streamHandler to break circular dep) */
-type PrepareFn = (nzbUrl: string, title: string, config: NZBDavConfig, episodePattern?: string, contentType?: string, episodesInSeason?: number, isSeasonPack?: boolean, logPrefix?: string) => Promise<StreamData>;
+type PrepareFn = (nzbUrl: string, title: string, config: NZBDavConfig, filePattern?: string, contentType?: string, episodesInSeason?: number, isSeasonPack?: boolean, logPrefix?: string) => Promise<StreamData>;
 let prepareFn: PrepareFn | null = null;
 
 export function setPrepareFn(fn: PrepareFn): void {
@@ -274,6 +274,19 @@ export function getDeadCacheKey(nzbUrl: string, episodePattern?: string): string
   return episodePattern ? `${normalized}::${episodePattern}` : normalized;
 }
 
+/** Decide whether a dead-cache write should be URL-wide (first failure or
+ *  single-episode) or episode-specific (pack with prior success). */
+function shouldDeadBeUrlWide(nzbUrl: string, isSeasonPack?: boolean): boolean {
+  if (!isSeasonPack) return false;
+  const normalized = normalizeDeadUrl(nzbUrl);
+  for (const key of readyCache.keys()) {
+    const sepIdx = key.indexOf('::');
+    if (sepIdx === -1) continue;
+    if (key.substring(0, sepIdx) === normalized) return false;
+  }
+  return true;
+}
+
 /** Write a resolved stream directly to readyCache (used by Ultimate-Fallback to bypass getOrCreateStream). */
 export function setReadyCacheEntry(cacheKey: string, data: StreamData, indexerName?: string): void {
   const now = Date.now();
@@ -281,13 +294,24 @@ export function setReadyCacheEntry(cacheKey: string, data: StreamData, indexerNa
   saveCacheToDisk();
 }
 
-/** Write a failed NZB directly to deadNzbCache (used by Ultimate-Fallback to bypass getOrCreateStream). */
-export function setDeadNzbEntry(nzbUrl: string, title: string, error: Error, episodePattern?: string, indexerName?: string, size?: number): void {
-  const key = getDeadCacheKey(nzbUrl, episodePattern);
-  // Invariant: an episode-keyed entry must carry the flag. Otherwise the
-  // prefix-iter loop in isDeadNzbByUrl treats it as a URL-wide ban and
-  // blocks every other episode of the same NZB.
-  if (episodePattern) (error as any).isEpisodeSpecific = true;
+/** Write a failed NZB directly to deadNzbCache (used by Ultimate-Fallback to bypass
+ *  getOrCreateStream). Pack URLs whose first attempt fails the whole NZB (no healthy
+ *  entry yet, error not flagged episode-specific) get a URL-wide ban so siblings of
+ *  the dead pack stop appearing in results; everything else stays episode-specific
+ *  so per-episode failures within a proven pack do not block other episodes. */
+export function setDeadNzbEntry(
+  nzbUrl: string,
+  title: string,
+  error: Error,
+  cachePattern?: string,
+  indexerName?: string,
+  size?: number,
+  isSeasonPack?: boolean,
+): void {
+  const errEpSpecific = (error as any).isEpisodeSpecific === true;
+  const wide = !errEpSpecific && shouldDeadBeUrlWide(nzbUrl, isSeasonPack);
+  const key = wide ? getDeadCacheKey(nzbUrl) : getDeadCacheKey(nzbUrl, cachePattern);
+  if (!wide && cachePattern) (error as any).isEpisodeSpecific = true;
   const now = Date.now();
   deadNzbCache.set(key, { title, indexerName, size, error, createdAt: now, expiresAt: now + getDeadTTLMs() });
   saveCacheToDisk();
@@ -345,7 +369,8 @@ export async function getOrCreateStream(
   nzbUrl: string,
   title: string,
   config: NZBDavConfig,
-  episodePattern?: string,
+  cachePattern?: string,
+  filePattern?: string,
   contentType?: string,
   episodesInSeason?: number,
   indexerName?: string,
@@ -356,14 +381,14 @@ export async function getOrCreateStream(
 ): Promise<StreamData> {
   cleanupExpiredCache();
 
-  const cacheKey = getCacheKey(nzbUrl, title) + (episodePattern ? `:${episodePattern}` : '');
+  const cacheKey = getCacheKey(nzbUrl, title) + (cachePattern ? `:${cachePattern}` : '');
 
   // The readyCache is no longer read here. `prepareStream` runs `checkNzbLibrary`
   // first on every resolution, so the live WebDAV listing is the single source
   // of truth. The cache is still written for telemetry / UI stats.
 
   // Check dead NZB cache — known-bad NZBs are skipped instantly
-  const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
+  const deadKey = getDeadCacheKey(nzbUrl, cachePattern);
   const dead = deadNzbCache.get(deadKey);
   if (dead) {
     if (verbose) console.log(`${logPrefix}\u274C NZB Database (dead): ${title} - ${dead.error.message}`);
@@ -387,7 +412,7 @@ export async function getOrCreateStream(
   // Create new preparation task
   if (verbose) console.log(`${logPrefix}\u{1F195} Starting new stream preparation: ${title}`);
 
-  const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix);
+  const promise = prepareFn(nzbUrl, title, config, filePattern, contentType, episodesInSeason, isSeasonPack, logPrefix);
 
   // Set as pending with a TTL — if the promise hangs, the entry expires and
   // subsequent requests can retry instead of hanging forever.  When UF is
@@ -426,10 +451,16 @@ export async function getOrCreateStream(
       const deadCreatedAt = Date.now();
       const persist = !error.isTimeout || globalConfig.nzbdavCacheTimeouts !== false;
       const ttl = persist ? getDeadTTLMs() : (globalConfig.cacheTTL || 7200) * 1000;
-      // deadKey is episode-specific when episodePattern is set; tag the error
-      // so isDeadNzbByUrl's prefix-iter loop skips it as URL-wide.
-      if (episodePattern) (error as any).isEpisodeSpecific = true;
-      deadNzbCache.set(deadKey, {
+      // First-attempt pack failure of the whole NZB (no healthy entry yet, error
+      // not flagged episode-specific by its source) bans the whole URL so siblings
+      // of the dead pack drop out of results; otherwise keep the entry episode-
+      // specific so a single bad episode inside a proven pack does not block the
+      // rest. Tag the error so isDeadNzbByUrl honors the scope.
+      const errEpSpecific = (error as any).isEpisodeSpecific === true;
+      const wide = !errEpSpecific && shouldDeadBeUrlWide(nzbUrl, isSeasonPack);
+      const finalDeadKey = wide ? getDeadCacheKey(nzbUrl) : deadKey;
+      if (!wide && cachePattern) (error as any).isEpisodeSpecific = true;
+      deadNzbCache.set(finalDeadKey, {
         title,
         indexerName,
         size,
