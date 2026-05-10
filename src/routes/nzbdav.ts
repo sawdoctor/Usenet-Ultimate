@@ -58,7 +58,6 @@ export function createNzbdavRoutes(deps: NzbdavDeps): Router {
       const testUrl = new URL(url);
       const userAgent3 = config.userAgents?.nzbdavOperations || getLatestVersions().chrome;
       const nzbdavHeaders: Record<string, string> = apiKey ? { 'X-Api-Key': apiKey, 'User-Agent': userAgent3 } : { 'User-Agent': userAgent3 };
-      console.log('\u{1F4E4} Request to test NZBDav connection:', { url: testUrl.toString(), headers: apiKey ? { 'X-Api-Key': '[REDACTED]', 'User-Agent': userAgent3 } : { 'User-Agent': userAgent3 } });
       const nzbdavResponse = await fetch(testUrl.toString(), {
         headers: nzbdavHeaders,
         signal: AbortSignal.timeout(TEST_CONNECTION_TIMEOUT_MS),
@@ -78,7 +77,6 @@ export function createNzbdavRoutes(deps: NzbdavDeps): Router {
           'Authorization': 'Basic ' + Buffer.from(`${webdavUser}:${webdavPassword}`).toString('base64'),
           'User-Agent': userAgent4
         } : { 'User-Agent': userAgent4 };
-        console.log('\u{1F4E4} Request to test WebDAV connection:', { url: webdavTestUrl.toString(), method: 'PROPFIND', headers: webdavUser && webdavPassword ? { 'Authorization': 'Basic [REDACTED]', 'User-Agent': userAgent4 } : { 'User-Agent': userAgent4 } });
         const webdavResponse = await fetch(webdavTestUrl.toString(), {
           method: 'PROPFIND',
           headers: { ...webdavHeaders, 'Depth': '0' },
