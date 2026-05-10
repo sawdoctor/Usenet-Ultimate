@@ -169,9 +169,10 @@ function loadCacheFromDisk(): void {
     for (const [key, entry] of Object.entries(raw)) {
       const expiresAt = entry.expiresAt || Infinity;
       if (expiresAt > now) {
-        // Normalize Prowlarr URLs to strip volatile `link` param for stable lookups
         const sepIdx = key.indexOf('::');
-        const normalizedKey = sepIdx === -1 ? key : `${normalizeProwlarrUrl(key.substring(0, sepIdx))}::${key.substring(sepIdx + 2)}`;
+        const normalizedKey = sepIdx === -1
+          ? normalizeDeadUrl(key)
+          : `${normalizeDeadUrl(key.substring(0, sepIdx))}::${key.substring(sepIdx + 2)}`;
         readyCache.set(normalizedKey, { ...entry, createdAt: (entry as any).createdAt || now, expiresAt });
       }
     }
@@ -196,11 +197,10 @@ function loadCacheFromDisk(): void {
         (error as any).isEpisodeSpecific = fromFlag || fromKey || fromMessage;
         if (entry.title) {
           // New format — key is url or url::episodePattern, title stored in entry
-          // Normalize Prowlarr URLs to strip volatile `link` param for stable lookups
           const sepIdx = key.indexOf('::');
           const normalizedKey = sepIdx === -1
-            ? normalizeProwlarrUrl(key)
-            : `${normalizeProwlarrUrl(key.substring(0, sepIdx))}::${key.substring(sepIdx + 2)}`;
+            ? normalizeDeadUrl(key)
+            : `${normalizeDeadUrl(key.substring(0, sepIdx))}::${key.substring(sepIdx + 2)}`;
           deadNzbCache.set(normalizedKey, { title: entry.title, indexerName: entry.indexerName, size: entry.size, error, createdAt: (entry as any).createdAt || now, expiresAt });
         } else {
           // Old format — key is url::title or url::title:episodePattern, migrate
@@ -261,12 +261,16 @@ export function setPrepareFn(fn: PrepareFn): void {
   prepareFn = fn;
 }
 
+/** Build the healthy-cache key. URL canonicalized via normalizeDeadUrl for
+ *  symmetry with the dead cache and to absorb Newznab delimiter malformations. */
 export function getCacheKey(nzbUrl: string, title: string): string {
-  return `${normalizeProwlarrUrl(nzbUrl)}::${title}`;
+  return `${normalizeDeadUrl(nzbUrl)}::${title}`;
 }
 
+/** Build the dead-cache lookup key for a URL (and optional episode pattern).
+ *  URL is canonicalized via normalizeDeadUrl so writes match reads exactly. */
 export function getDeadCacheKey(nzbUrl: string, episodePattern?: string): string {
-  const normalized = normalizeProwlarrUrl(nzbUrl);
+  const normalized = normalizeDeadUrl(nzbUrl);
   return episodePattern ? `${normalized}::${episodePattern}` : normalized;
 }
 
@@ -736,7 +740,7 @@ export function isStreamCached(nzbUrl: string, title: string): boolean {
     if ((key === baseKey || key.startsWith(baseKey + ':')) && entry.expiresAt > now) return true;
   }
   // Check dead NZB cache (URL-only — if the URL itself is dead, the grab already happened)
-  const deadEntry = deadNzbCache.get(normalizeProwlarrUrl(nzbUrl));
+  const deadEntry = deadNzbCache.get(normalizeDeadUrl(nzbUrl));
   if (deadEntry && deadEntry.expiresAt > now) return true;
   return false;
 }
@@ -768,11 +772,11 @@ export function getCacheStats(): {
 
 // ── URL-only lookups (used by health check coordinator) ──────────────
 
-/** Normalize URL for dead cache comparison — handles Prowlarr volatile params
- *  and inconsistent query string delimiters (some URLs use & instead of ? after path) */
+/** Normalize URL for cache key construction (healthy and dead caches alike).
+ *  Wraps normalizeProwlarrUrl, then collapses the .nzb& malformation some
+ *  Newznab indexers emit so writes match reads exactly. */
 function normalizeDeadUrl(url: string): string {
   const normalized = normalizeProwlarrUrl(url);
-  // Some Newznab URLs store path&param=val instead of path?param=val — normalize the first & after .nzb to ?
   return normalized.replace(/\.nzb&/, '.nzb?');
 }
 
@@ -798,9 +802,11 @@ export function isDeadNzbByUrl(nzbUrl: string): boolean {
   return false;
 }
 
-/** Write a URL-only dead entry for a health-check-blocked NZB (caller must call saveCacheToDisk) */
+/** Write a URL-only dead entry for a health-check-blocked NZB. URL is canonicalized
+ *  via normalizeDeadUrl so isDeadNzbByUrl exact-match finds it. Caller must call
+ *  saveCacheToDisk. */
 export function addDeadNzbByUrl(nzbUrl: string, title: string, indexerName?: string, size?: number): void {
-  const normalized = normalizeProwlarrUrl(nzbUrl);
+  const normalized = normalizeDeadUrl(nzbUrl);
   if (deadNzbCache.has(normalized)) return;
   const createdAt = Date.now();
   const error = new Error('Health check: blocked');
