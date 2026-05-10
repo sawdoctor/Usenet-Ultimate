@@ -122,21 +122,21 @@ function StreamFilterField({ config: field, value: rawValue, onChange }: {
 
 const MIN_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
   { key: 'minFileSize', config: { label: 'Movie / Episode File Size', description: 'Filters out individual movie or episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
-  { key: 'minSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
-  { key: 'minSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Minimum total size for full season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
+  { key: 'minSeasonPackEpisodeSize', config: { label: 'Series / Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within series / season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
+  { key: 'minSeasonPackSize', config: { label: 'Series / Season Pack Total Size', description: 'Minimum total size for full series / season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
 ];
 
 const MAX_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
   { key: 'maxFileSize', config: { label: 'Movie / Episode File Size', description: 'Filters out individual movie or episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
-  { key: 'maxSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
-  { key: 'maxSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Maximum total size for full season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  { key: 'maxSeasonPackEpisodeSize', config: { label: 'Series / Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within series / season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
+  { key: 'maxSeasonPackSize', config: { label: 'Series / Season Pack Total Size', description: 'Maximum total size for full series / season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
 ];
 
 const STREAM_LIMIT_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
   { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
   { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
   { key: 'maxStreamsPerQuality', config: { label: 'Max Streams Per Quality', description: 'Limit streams per source quality (BluRay, WEB-DL, etc.)', defaultValue: 10, step: 1, min: 1 } },
-  { key: 'maxSeasonPacks', config: { label: 'Max Series / Season Packs', description: 'Limits the number of season packs, in priority order, in the results list.', defaultValue: 5, step: 1, min: 1 } },
+  { key: 'maxSeasonPacks', config: { label: 'Max Series / Season Packs', description: 'Limits the number of series / season packs, in priority order, in the results list.', defaultValue: 5, step: 1, min: 1 } },
 ];
 
 const SORT_DIRECTION_LABELS: Record<string, Record<string, string>> = {

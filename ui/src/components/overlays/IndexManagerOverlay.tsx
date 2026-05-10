@@ -936,7 +936,7 @@ export function IndexManagerOverlay({
                   </label>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Include full-season downloads in episode results (size estimated per episode for sorting).
+                  Requests an extra <code className="text-slate-400">Show Title Sxx</code> query (e.g., <code className="text-slate-400">Show Title S03</code>) per enabled indexer to catch full-season releases (size estimated per episode for sorting). Adds one query per indexer per search.
                 </p>
 
                 {includeSeasonPacks && (
