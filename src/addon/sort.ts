@@ -35,18 +35,29 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
 
   const sorted = [...allResults];
   sorted.sort((a, b) => {
-    // Tier-zero library preference: results flagged in-library by markLibraryHits
-    // sort above the rest. Falls through to subsequent tiers when both sides
-    // share the flag (or neither carries it). The library-short-circuit case
-    // is unaffected: every result has the flag (or none do) so the comparator
-    // returns 0 and existing sort keys take over.
-    if (preferLibraryResults && a.inLibrary !== b.inLibrary) {
-      return a.inLibrary ? -1 : 1;
-    }
-    // Tier-zero pack preference: place packs above non-packs, then fall through
-    // to the user's configured sortOrder for secondary ordering within each group.
+    // Tier 0: deprioritized always sorts to the bottom. Set by applyRemakeFilter
+    // for yearless season packs of remade titles. Without this guard, later
+    // tiers (library, pack, score) would hoist a deprioritized pack back up —
+    // a yearless remake pack that happens to be in the WebDAV library would
+    // get pulled to the top by the library tier on the second sort pass in
+    // addon/index.ts, defeating the whole point of remake deprioritization.
+    const aDep = a._deprioritized === true;
+    const bDep = b._deprioritized === true;
+    if (aDep !== bDep) return aDep ? 1 : -1;
+
+    // Tier 1: pack-vs-episode grouping. With both toggles on, season packs
+    // group at top and library status acts as tiebreaker WITHIN each group
+    // (library packs → non-library packs → library episodes → non-library
+    // episodes). Checked before the library tier so individual library
+    // episodes don't break the grouping by hoisting above non-library packs.
     if (preferSeasonPacks && a.isSeasonPack !== b.isSeasonPack) {
       return a.isSeasonPack ? -1 : 1;
+    }
+    // Tier 2: library preference within the pack/non-pack group above. The
+    // library-short-circuit case is unaffected: every result has the flag (or
+    // none do) so the comparator returns 0 and existing sort keys take over.
+    if (preferLibraryResults && a.inLibrary !== b.inLibrary) {
+      return a.inLibrary ? -1 : 1;
     }
     // Apply sort methods in order of priority (skip disabled methods)
     for (const method of sortOrder) {
