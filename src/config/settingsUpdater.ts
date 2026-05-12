@@ -305,6 +305,9 @@ export function updateSettings(settings: {
     if (settings.searchConfig.libraryApplyToSeries !== undefined) {
       settings.searchConfig.libraryApplyToSeries = !!settings.searchConfig.libraryApplyToSeries;
     }
+    if (settings.searchConfig.libraryRunOnCacheHit !== undefined) {
+      settings.searchConfig.libraryRunOnCacheHit = !!settings.searchConfig.libraryRunOnCacheHit;
+    }
     if (settings.searchConfig.includeMultiSeasonPacks !== undefined) {
       settings.searchConfig.includeMultiSeasonPacks = !!settings.searchConfig.includeMultiSeasonPacks;
     }

@@ -147,6 +147,7 @@ export interface SearchConfig {
   libraryApplyToMovies?: boolean;  // When false, Ultimate Library is skipped for movie requests (default true)
   libraryApplyToSeries?: boolean;  // When false, Ultimate Library is skipped for series requests (default true)
   librarySearchScanUncategorized?: boolean;  // Include `/content/uncategorized` as a second scan root so manually uploaded NZBDav content is searchable (default true)
+  libraryRunOnCacheHit?: boolean;  // When true, Ultimate Library runs on cache hits and short-circuits to UL-only results when the post-filter threshold is met. Below threshold, cached results are returned unchanged. The one-shot Skip tile bypass still wins. (default false)
   libraryDeleteAllTile?: boolean;  // Show one "Delete All Ultimate Library Results" tile near the top of the list. Two-step click-confirm. Scoped to the current request only. (default false)
   libraryDeletePerStreamTile?: boolean;  // Show a delete tile after each library result. Pack results get two tiles (delete file + delete whole pack); non-pack results get one. Two-step click-confirm. (default false)
   libraryDeleteAllPackScope?: 'episode' | 'pack';  // For series/season pack results, the "Delete All" tile deletes the per-episode file ('episode', default) or the entire release folder ('pack')

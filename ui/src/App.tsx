@@ -628,6 +628,8 @@ function App() {
           setLibraryApplyToSeries={ac.setLibraryApplyToSeries}
           librarySearchScanUncategorized={ac.librarySearchScanUncategorized}
           setLibrarySearchScanUncategorized={ac.setLibrarySearchScanUncategorized}
+          libraryRunOnCacheHit={ac.libraryRunOnCacheHit}
+          setLibraryRunOnCacheHit={ac.setLibraryRunOnCacheHit}
           displayLibraryInResults={ac.displayLibraryInResults}
           setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
           libraryDeleteAllTile={ac.libraryDeleteAllTile}

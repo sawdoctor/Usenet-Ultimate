@@ -26,8 +26,8 @@ import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
 import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
-import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
-import { searchLibrary } from '../nzbdav/librarySearch.js';
+import { indexManagerSearch, easynewsSearch, type SearchContext } from './searchOrchestrator.js';
+import { runLibraryGate } from './libraryGate.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { sortResults } from './sort.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
@@ -99,6 +99,93 @@ export function buildSearchCacheKey(manifestKey: string, type: string, id: strin
     .map(i => `${i.name}:${type === 'movie' ? (i.movieSearchMethod || ['imdb']).join('+') : (i.tvSearchMethod || ['imdb']).join('+')}`)
     .join(',');
   return `${manifestKey}:stream:${type}:${id}:${methodsFingerprint}${packsSuffix}${easynewsSuffix}${aliasFbSuffix}`;
+}
+
+/**
+ * Resolve title metadata and assemble the SearchContext used by all downstream
+ * searchers (indexer, EasyNews, library). Centralized so the fresh-search and
+ * cache-hit paths build the same searchCtx; the cache-hit path needs it when
+ * libraryRunOnCacheHit is on so the library scan has full title info.
+ *
+ * Anime via Kitsu/MAL/AniList/AniDB without IMDB mappings uses a synthetic
+ * titleInfo (no Cinemeta lookup) and only augments via TVDB when a TVDB ID is
+ * provided directly. See the inline comments in the anime branch for the
+ * Cinemeta-cumulative caveat.
+ */
+async function resolveTitleAndBuildSearchCtx(args: {
+  type: string;
+  imdbId: string;
+  season: number | undefined;
+  episode: number | undefined;
+  animeId: ReturnType<typeof parseAnimeId>;
+  animeResolved: ReturnType<typeof resolveAnimeId>;
+}): Promise<{ titleInfo: ResolvedTitleInfo; searchCtx: SearchContext }> {
+  const { type, imdbId, season, episode, animeId, animeResolved } = args;
+
+  let titleInfo: ResolvedTitleInfo;
+  if (animeResolved && !animeResolved.imdbId && animeResolved.title) {
+    titleInfo = {
+      title: animeResolved.title,
+      cinemetaTitle: animeResolved.title,
+      year: animeResolved.year,
+      country: 'Japan',
+      genres: ['Animation'],
+      isAnime: true,
+      episodesInSeason: undefined,
+      priorSeasonsEpisodeCount: undefined,
+      absoluteEpisodeNumber: undefined,
+      tvdbPriorSeasonsCount: undefined,
+      additionalTitles: undefined,
+      runtime: undefined,
+      episodeName: undefined,
+      hasRemake: undefined,
+      titleYear: undefined,
+    };
+    // Synthetic path has no imdbId, so resolveTitle's eager TVDB call doesn't
+    // fire. When animeResolved gives us a TVDB ID directly, fetch the same
+    // series data so anime via Kitsu/MAL/AniList/AniDB without IMDB mappings
+    // gets full feature parity (absolute-fallback chain, bitrate display,
+    // season-pack episode-size estimation). Cinemeta cumulative tier is
+    // structurally unavailable on this path (no imdbId to query).
+    if (animeResolved.tvdbId && season !== undefined) {
+      const tvdbIdNum = parseInt(animeResolved.tvdbId, 10);
+      if (Number.isFinite(tvdbIdNum) && tvdbIdNum > 0) {
+        const tvdbResult = await resolveEpisodeCountFromTvdbId(tvdbIdNum, season, episode);
+        if (tvdbResult) {
+          titleInfo.episodesInSeason = tvdbResult.count;
+          if (tvdbResult.runtime) titleInfo.runtime = tvdbResult.runtime;
+          if (tvdbResult.episodeName) titleInfo.episodeName = tvdbResult.episodeName;
+          if (tvdbResult.absoluteNumber) titleInfo.absoluteEpisodeNumber = tvdbResult.absoluteNumber;
+          if (tvdbResult.priorSeasonsCount !== undefined) titleInfo.tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
+        }
+      }
+    }
+  } else {
+    titleInfo = await resolveTitle(type, imdbId, season, episode);
+    if (animeId) {
+      titleInfo.isAnime = true;
+    }
+  }
+
+  const searchCtx: SearchContext = {
+    type, imdbId,
+    title: titleInfo.title,
+    year: titleInfo.year,
+    country: titleInfo.country,
+    season, episode,
+    episodesInSeason: titleInfo.episodesInSeason,
+    priorSeasonsEpisodeCount: titleInfo.priorSeasonsEpisodeCount,
+    absoluteEpisodeNumber: titleInfo.absoluteEpisodeNumber,
+    tvdbPriorSeasonsCount: titleInfo.tvdbPriorSeasonsCount,
+    additionalTitles: titleInfo.additionalTitles,
+    isAnime: titleInfo.isAnime,
+    titleYear: titleInfo.titleYear,
+    searchAliases: titleInfo.searchAliases,
+    episodeAired: titleInfo.episodeAired,
+    animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
+  };
+
+  return { titleInfo, searchCtx };
 }
 
 // Stream handler - called when user wants to watch something
@@ -318,10 +405,42 @@ builder.defineStreamHandler(async ({ type, id }) => {
       const cached = cache.get<{ rawResults: any[]; deprioritizedPacks: any[]; healthMap: Record<string, any>; _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; runtime?: number } }>(cacheKey);
       if (cached) {
         console.log(`💾 Cache hit for ${type} ${imdbId}`);
+
+        // libraryRunOnCacheHit: when on, scan the WebDAV library before serving
+        // cached results. The cached entry is never re-queried; we only short-
+        // circuit to library results when the post-filter library scan meets
+        // threshold. Below threshold, the cached entry is returned untouched.
+        // The bypass marker still wins (one-shot user action overrides standing
+        // preference). Library short-circuits skip both the cache.set update
+        // and triggerAutoResolve below because (a) the cached indexer entry is
+        // the source of truth for indexer state and must not be overwritten,
+        // and (b) library hits are already-resolved files, so UF/auto-queue
+        // would attempt to re-grab content that already exists in the library.
+        let chShortCircuit = false;
+        let chLibResults: any[] = [];
+        if (config.searchConfig?.libraryRunOnCacheHit && !libraryBypassed) {
+          const { titleInfo: chTitleInfo, searchCtx: chSearchCtx } = await resolveTitleAndBuildSearchCtx({
+            type, imdbId, season, episode, animeId, animeResolved,
+          });
+          const chGate = await runLibraryGate(chSearchCtx, chTitleInfo, buildNzbdavConfig);
+          chShortCircuit = chGate.shortCircuited;
+          chLibResults = chGate.libraryResults;
+        }
+
         const now = Date.now();
+        const healthMap = new Map<string, any>(Object.entries(cached.healthMap || {}));
+
+        if (chShortCircuit) {
+          // Library met threshold on cache hit: serve library-only results.
+          // Do NOT update the cached indexer entry, do NOT triggerAutoResolve.
+          const { streams } = await processFromRaw(
+            chLibResults, [], healthMap,
+            { type, season, episode, episodesInSeason: cached._meta.episodesInSeason, episodeAired: cached._meta.episodeAired, now, runtime: cached._meta.runtime, shortCircuited: true },
+          );
+          return { streams };
+        }
 
         // Re-apply filters, sort, health checks, and build streams with current settings
-        const healthMap = new Map<string, any>(Object.entries(cached.healthMap || {}));
         const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
           cached.rawResults, cached.deprioritizedPacks || [], healthMap,
           { type, season, episode, episodesInSeason: cached._meta.episodesInSeason, episodeAired: cached._meta.episodeAired, now, runtime: cached._meta.runtime }
@@ -354,111 +473,20 @@ builder.defineStreamHandler(async ({ type, id }) => {
     }
     console.log('═══ Title Resolution ' + '═'.repeat(42));
 
-    // === STEP 1: TITLE RESOLUTION ===
-    let titleInfo: ResolvedTitleInfo;
-    if (animeResolved && !animeResolved.imdbId && animeResolved.title) {
-      titleInfo = {
-        title: animeResolved.title,
-        cinemetaTitle: animeResolved.title,
-        year: animeResolved.year,
-        country: 'Japan',
-        genres: ['Animation'],
-        isAnime: true,
-        episodesInSeason: undefined,
-        priorSeasonsEpisodeCount: undefined,
-        absoluteEpisodeNumber: undefined,
-        tvdbPriorSeasonsCount: undefined,
-        additionalTitles: undefined,
-        runtime: undefined,
-        episodeName: undefined,
-        hasRemake: undefined,
-        titleYear: undefined,
-      };
-      // Synthetic path has no imdbId, so resolveTitle's eager TVDB call doesn't
-      // fire. When animeResolved gives us a TVDB ID directly, fetch the same
-      // series data so anime via Kitsu/MAL/AniList/AniDB without IMDB mappings
-      // gets full feature parity (absolute-fallback chain, bitrate display,
-      // season-pack episode-size estimation). Cinemeta cumulative tier is
-      // structurally unavailable on this path (no imdbId to query).
-      if (animeResolved.tvdbId && season !== undefined) {
-        const tvdbIdNum = parseInt(animeResolved.tvdbId, 10);
-        if (Number.isFinite(tvdbIdNum) && tvdbIdNum > 0) {
-          const tvdbResult = await resolveEpisodeCountFromTvdbId(tvdbIdNum, season, episode);
-          if (tvdbResult) {
-            titleInfo.episodesInSeason = tvdbResult.count;
-            if (tvdbResult.runtime) titleInfo.runtime = tvdbResult.runtime;
-            if (tvdbResult.episodeName) titleInfo.episodeName = tvdbResult.episodeName;
-            if (tvdbResult.absoluteNumber) titleInfo.absoluteEpisodeNumber = tvdbResult.absoluteNumber;
-            if (tvdbResult.priorSeasonsCount !== undefined) titleInfo.tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
-          }
-        }
-      }
-    } else {
-      titleInfo = await resolveTitle(type, imdbId, season, episode);
-      if (animeId) {
-        titleInfo.isAnime = true;
-      }
-    }
+    // === STEP 1: TITLE RESOLUTION + STEP 2 SEARCH CONTEXT ===
+    const { titleInfo, searchCtx } = await resolveTitleAndBuildSearchCtx({
+      type, imdbId, season, episode, animeId, animeResolved,
+    });
 
-    // === STEP 2: PARALLEL SEARCH ===
-    const searchCtx = {
-      type, imdbId,
-      title: titleInfo.title,
-      year: titleInfo.year,
-      country: titleInfo.country,
-      season, episode,
-      episodesInSeason: titleInfo.episodesInSeason,
-      priorSeasonsEpisodeCount: titleInfo.priorSeasonsEpisodeCount,
-      absoluteEpisodeNumber: titleInfo.absoluteEpisodeNumber,
-      tvdbPriorSeasonsCount: titleInfo.tvdbPriorSeasonsCount,
-      additionalTitles: titleInfo.additionalTitles,
-      isAnime: titleInfo.isAnime,
-      titleYear: titleInfo.titleYear,
-      searchAliases: titleInfo.searchAliases,
-      episodeAired: titleInfo.episodeAired,
-      animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
-    };
-
-    // Optional pre-search: scan the WebDAV library first. Run the same dedup +
-    // user-filter pipeline that the main flow runs on the library-only set so the
-    // threshold check fires on POST-FILTER survivor count. When filters drop
-    // library hits below the threshold, the library results are discarded and the
-    // normal indexer flow runs — the user never sees a blank result list because
-    // their filters wiped out the library candidates. Threshold of 0 disables.
-    let libraryResults: any[] = [];
-    let shortCircuited = false;
-    const libraryThreshold = config.searchConfig?.librarySearchThreshold ?? 0;
-    const libraryTypeAllowed = type === 'movie'
-      ? config.searchConfig?.libraryApplyToMovies !== false
-      : config.searchConfig?.libraryApplyToSeries !== false;
-    if (libraryThreshold > 0 && libraryTypeAllowed && config.streamingMode === 'nzbdav' && config.nzbdavUrl && !libraryBypassed) {
-      console.log('');
-      console.log('═══ Ultimate Library ' + '═'.repeat(42));
-      libraryResults = await searchLibrary(searchCtx, buildNzbdavConfig());
-      if (libraryResults.length > 0) {
-        // Pre-check: dedup + user-filters on library-only set. No fallback group,
-        // no stream build, no health checks — pure JS array operations on a small
-        // set. applyUserFilters returns the COMBINED list (main + surviving deprio
-        // packs), so .length is the true post-filter survivor count.
-        //
-        // On short-circuit, the same chain runs again in the main flow (idempotent,
-        // deterministic), so inner filter sub-logs ('🎯 Filtered N by ...',
-        // '📊 Ranked rules: top X', '📊 Returning N streams after filtering') will
-        // fire twice with identical output. Library results are typically a small
-        // set so the duplication is brief; accepted trade for not threading a quiet
-        // flag through the entire filter pipeline.
-        const { results: libDeduped, deprioritizedPacks: libDepri } = deduplicateAndPreFilter(
-          libraryResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear
-        );
-        const libFiltered = applyUserFilters(libDeduped, type, Date.now(), titleInfo.runtime, libDepri);
-        if (libFiltered.length >= libraryThreshold) {
-          shortCircuited = true;
-          console.log(`📚 Ultimate Library short-circuit fired (${libFiltered.length} ≥ ${libraryThreshold} after filters) — skipping indexer queries`);
-        } else {
-          console.log(`📚 Ultimate Library: scan returned ${libraryResults.length} match(es), ${libFiltered.length} after filters — below threshold (${libraryThreshold}), discarding`);
-        }
-      }
-    }
+    // Optional pre-search: scan the WebDAV library first. Bypass marker (one-shot
+    // user action via the Skip tile) takes precedence over the standing config; when
+    // armed, the gate is skipped for this request. All threshold/type/streaming-mode
+    // checks live inside runLibraryGate.
+    const freshGate = !libraryBypassed
+      ? await runLibraryGate(searchCtx, titleInfo, buildNzbdavConfig)
+      : { shortCircuited: false, libraryResults: [] as any[] };
+    let libraryResults: any[] = freshGate.libraryResults;
+    let shortCircuited = freshGate.shortCircuited;
 
     let allRawResults: any[];
     if (shortCircuited) {

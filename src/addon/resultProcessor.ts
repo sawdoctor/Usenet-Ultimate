@@ -44,7 +44,7 @@ export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, 
  * Deprioritized packs (yearless remake season packs) are filtered separately
  * and appended after sorting but before stream limits.
  */
-export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
+export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[], options?: { quiet?: boolean }): any[] {
   results = stripBareArchiveParts(results);
   results = deduplicateByIndexerContent(results);
   results = deduplicateByUrl(results);
@@ -65,22 +65,28 @@ export function applyUserFilters(results: any[], type: string, now?: number, run
   results = sortResults(results, filterConfig, now, runtime);
   results = [...results, ...filteredDeprioritized];
   results = applyStreamLimits(results, filterConfig);
-  console.log(`📊 Returning ${results.length} streams after filtering`);
-  if (results.length > 0) {
-    // Cap the dump so a 200-result search doesn't flood the log; truncated tail
-    // still shows the count so it's clear the list is longer than what's printed.
-    const FINAL_RESULTS_LOG_LIMIT = 30;
-    const visible = results.slice(0, FINAL_RESULTS_LOG_LIMIT);
-    console.log('');
-    console.log('═══ Final Results ' + '═'.repeat(45));
-    console.log(`📊 Final results (after filtering + sorting):`);
-    visible.forEach((r, i) => {
-      const tag = r.isSeasonPack ? '📦' : '🎬';
-      const idx = (i + 1).toString().padStart(3, ' ');
-      console.log(`   ${idx}. ${tag} ${r.title} [${r.indexerName ?? 'unknown'}]`);
-    });
-    if (results.length > FINAL_RESULTS_LOG_LIMIT) {
-      console.log(`   ... and ${results.length - FINAL_RESULTS_LOG_LIMIT} more`);
+  // Suppressed for the library-gate pre-check call so the UL short-circuit
+  // path doesn't print a duplicate "Final Results" block (the gate's pass is
+  // a counting pass, not a real final list — processFromRaw runs the pipeline
+  // again and emits the real one).
+  if (!options?.quiet) {
+    console.log(`📊 Returning ${results.length} streams after filtering`);
+    if (results.length > 0) {
+      // Cap the dump so a 200-result search doesn't flood the log; truncated tail
+      // still shows the count so it's clear the list is longer than what's printed.
+      const FINAL_RESULTS_LOG_LIMIT = 30;
+      const visible = results.slice(0, FINAL_RESULTS_LOG_LIMIT);
+      console.log('');
+      console.log('═══ Final Results ' + '═'.repeat(45));
+      console.log(`📊 Final results (after filtering + sorting):`);
+      visible.forEach((r, i) => {
+        const tag = r.isSeasonPack ? '📦' : '🎬';
+        const idx = (i + 1).toString().padStart(3, ' ');
+        console.log(`   ${idx}. ${tag} ${r.title} [${r.indexerName ?? 'unknown'}]`);
+      });
+      if (results.length > FINAL_RESULTS_LOG_LIMIT) {
+        console.log(`   ... and ${results.length - FINAL_RESULTS_LOG_LIMIT} more`);
+      }
     }
   }
   return results;

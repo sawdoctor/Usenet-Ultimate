@@ -92,6 +92,10 @@ interface IndexManagerOverlayProps {
   librarySearchScanUncategorized: boolean;
   setLibrarySearchScanUncategorized: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // Run Ultimate Library on cache hit (default false)
+  libraryRunOnCacheHit: boolean;
+  setLibraryRunOnCacheHit: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Display library in results
   displayLibraryInResults: boolean;
   setDisplayLibraryInResults: React.Dispatch<React.SetStateAction<boolean>>;
@@ -269,6 +273,8 @@ export function IndexManagerOverlay({
   setLibraryApplyToSeries,
   librarySearchScanUncategorized,
   setLibrarySearchScanUncategorized,
+  libraryRunOnCacheHit,
+  setLibraryRunOnCacheHit,
   displayLibraryInResults,
   setDisplayLibraryInResults,
   libraryDeleteAllTile,
@@ -802,6 +808,25 @@ export function IndexManagerOverlay({
                         </label>
                       </div>
                       <p className="text-xs text-amber-400/60 italic">Scan <code className="text-amber-300/80">/content/uncategorized</code>, in additon to the default categories, for content that's been manually uploaded to the default location in NzbDAV.</p>
+
+                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-amber-500/20">
+                        <span className="text-xs text-slate-300 font-medium">Run on Cache Hit</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={libraryRunOnCacheHit}
+                            onChange={(e) => setLibraryRunOnCacheHit(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+                      <div className="text-xs text-amber-400/60 italic space-y-1">
+                        <p>When enabled, Ultimate Library runs on every request, including when cached results exist.</p>
+                        <p>If the post-filter Ultimate Library scan meets your threshold, library results replace the cached results for that request.</p>
+                        <p>Otherwise, the cached results are returned.</p>
+                        <p>The "Skip Ultimate Library" stream tile will bypass Ultimate Library and return cached results, if they exist, on the next request.</p>
+                      </div>
 
                       <div className="space-y-3 pt-3 border-t border-amber-500/20">
                         <div className="text-sm font-semibold text-slate-200 py-2">Skip Ultimate Library Stream Tile</div>

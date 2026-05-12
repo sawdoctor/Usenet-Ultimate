@@ -220,10 +220,10 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
   // Ultimate Library bypass endpoint — fired by the "Query indexers on next
   // search" action-tile. Sets a one-shot, manifest-scoped marker so the next
-  // search of this content skips Ultimate Library and runs indexers instead.
-  // Drops the corresponding search cache entry so the next request re-evaluates
-  // fresh. Returns 204 (no body) — Stremio shows a brief toast and the user
-  // backs out; marker is set as a background side-effect.
+  // search of this content skips Ultimate Library. Cache handling depends on
+  // libraryRunOnCacheHit (see the inline comment below). Returns 204 (no body)
+  // — Stremio shows a brief toast and the user backs out; marker is set as a
+  // background side-effect.
   router.get('/library-bypass', async (req, res) => {
     // Source of truth for manifestKey is req.params (already validated by the
     // validateManifestKey middleware mounted upstream). The sk query param is
@@ -238,9 +238,17 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     const id = (season || episode) ? `${imdbId}:${season || ''}:${episode || ''}` : imdbId;
     const bypassKey = `${manifestKey}:${type}:${imdbId}:${season || ''}:${episode || ''}`;
     markLibraryBypass(bypassKey);
-    // Drop only THIS content's existing search cache entry under THIS manifest.
-    const targetCacheKey = buildSearchCacheKey(manifestKey, type, id, config);
-    deleteSearchCacheEntry(targetCacheKey);
+    // When libraryRunOnCacheHit is OFF (legacy semantics), the Skip tile means
+    // "skip UL AND force a fresh indexer query" so we drop the cache entry to
+    // guarantee re-evaluation. When the toggle is ON, the user has opted into
+    // "use cache when possible" semantics; the Skip tile only suppresses UL for
+    // the next search and leaves the cached indexer results in place so the
+    // next request is served from cache (the orchestrator's cache-hit branch
+    // honors the bypass marker and skips UL even when the toggle is on).
+    if (!config.searchConfig?.libraryRunOnCacheHit) {
+      const targetCacheKey = buildSearchCacheKey(manifestKey, type, id, config);
+      deleteSearchCacheEntry(targetCacheKey);
+    }
     if (!recentLoggedBypassKeys.has(bypassKey)) {
       console.log(`📚 Ultimate Library bypass armed for ${bypassKey} (5 min TTL)`);
       recentLoggedBypassKeys.add(bypassKey);
@@ -361,12 +369,17 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     }
   }
 
-  // Drop cache state that referenced the deleted path so the next search
-  // re-evaluates fresh. File scope: ready cache entry by exact videoPath,
-  // plus broken-video marker and dead-NZB entry pointing at library:<path>.
-  // Pack scope: prefix sweep across ready cache, dead-NZB cache, and
-  // broken-video markers. Search cache for the request key is dropped in
-  // both cases so the next search rescans the library.
+  // Drop cache state that referenced the deleted path. File scope: ready cache
+  // entry by exact videoPath, plus broken-video marker and dead-NZB entry
+  // pointing at library:<path>. Pack scope: prefix sweep across ready cache,
+  // dead-NZB cache, and broken-video markers. Ready-cache evictions are
+  // unconditional (a deleted file can't be streamed). The search cache drop is
+  // gated on libraryRunOnCacheHit: when OFF (legacy) we drop the entry so the
+  // next search re-evaluates from scratch; when ON, the user has opted into
+  // "use cache when possible" semantics and we leave the cached indexer entry
+  // in place so the next stream-fetch is a cache hit. The orchestrator's
+  // cache-hit path re-validates the inLibrary flag, so deleted entries lose
+  // their 📚 marker on the next request without needing a full cache wipe.
   function invalidateAfterDelete(targetPath: string, scope: 'file' | 'pack', manifestKey: string, type?: string, id?: string): void {
     if (scope === 'file') {
       evictReadyByVideoPath(targetPath, false);
@@ -374,7 +387,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     } else {
       evictReadyByVideoPathPrefix(targetPath, false);
     }
-    if (type && id) {
+    if (type && id && !config.searchConfig?.libraryRunOnCacheHit) {
       const searchCacheKey = buildSearchCacheKey(manifestKey, type, id, config);
       deleteSearchCacheEntry(searchCacheKey);
     }
