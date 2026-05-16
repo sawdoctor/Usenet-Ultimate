@@ -126,6 +126,12 @@ export interface ConfigData {
     speedSeasonPackTimeoutSeconds?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
+
+  // One-time cleanup of stale release folders left over from the legacy
+  // file-scope delete (which left release dirs behind when only extras
+  // remained). Runs once on update when this flag is below the migration's
+  // target, then bumps the flag so it never runs again.
+  staleLibraryFolderCleanupVersion?: number;
 }
 
 // Load config from file or create default

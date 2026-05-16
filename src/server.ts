@@ -25,6 +25,7 @@ import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
 import { resolveBaseUrl } from './utils/urlHelpers.js';
 import { initAnimeDatabase, startDailyRefresh, stopDailyRefresh, getDatabaseStatus } from './anime/animeDatabase.js';
+import { runStaleLibraryFolderCleanup } from './nzbdav/staleFolderCleanup.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'node:module';
@@ -244,6 +245,12 @@ process.on('SIGINT', () => {
   } catch (err) {
     console.error('⚠️  Anime database initialization failed (addon will still work for IMDB IDs):', (err as Error).message);
   }
+
+  // One-time best-effort migration. Fire-and-forget so it never blocks
+  // listening; gated internally by a config version flag + dry-run toggle.
+  runStaleLibraryFolderCleanup().catch(err =>
+    console.error('Stale library folder cleanup error:', err)
+  );
 
   app.listen(PORT, () => {
     console.log(`\n\u{1F680} Usenet Ultimate is running!\n`);
