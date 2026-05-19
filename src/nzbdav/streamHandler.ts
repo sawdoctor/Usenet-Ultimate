@@ -610,7 +610,7 @@ export async function handleStream(
     nzbUrl = cand?.nzbUrl ?? payload.url ?? '';
     title = cand?.title ?? payload.title ?? '';
     indexerName = cand?.indexerName ?? payload.indexer ?? '';
-    contentType = group?.type;
+    contentType = group?.type ?? payload.ty;
     seasonParam = payload.season !== undefined ? String(payload.season) : undefined;
     episodeParam = payload.episode !== undefined ? String(payload.episode) : undefined;
     tPackSp = payload.seasonpack === 1 ? '1' : undefined;
@@ -961,6 +961,9 @@ export async function handleStream(
         url: nextCandidate.nzbUrl,
         title: nextCandidate.title,
         indexer: nextCandidate.indexerName,
+        // Carry the resolved type so a UF-enabled install whose fallback group
+        // is later evicted still files this candidate under the right category.
+        ...(contentType === 'movie' || contentType === 'series' ? { ty: contentType } : {}),
         ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
         ...(sessionKey ? { sk: sessionKey } : {}),
         ...(includeSeasonPack ? {

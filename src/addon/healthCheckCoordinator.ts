@@ -16,7 +16,7 @@ import { requestContext } from '../requestContext.js';
 import { buildStreamFilename } from '../parsers/metadataParsers.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
-import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
+import { encodeTileEnvelope, toContentType } from '../nzbdav/redirectHelpers.js';
 import { buildEpisodePattern, buildDateEpisodePattern } from '../nzbdav/utils.js';
 import { getTvAllowMultiEpisode } from '../config/accessors.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
@@ -528,6 +528,10 @@ export function autoQueueToNzbdav(
     return;
   }
 
+  // Packed into the tile envelope so the stream handler resolves the nzbdav
+  // category correctly for auto-queued submits.
+  const ty = toContentType(type);
+
   const sendToNzbdav = (result: any, reason: string) => {
     try {
       console.log(`🚀 Auto-queueing (${reason}): ${result.title}`);
@@ -549,6 +553,7 @@ export function autoQueueToNzbdav(
       const streamFilename = buildStreamFilename(result.title, type, season, episode);
       const includeSeasonPack = result.isSeasonPack && season !== undefined && episode !== undefined;
       const tileT = encodeTileEnvelope({
+        ty,
         url: nzbUrl,
         title: result.title,
         indexer: result.indexerName,

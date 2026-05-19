@@ -18,7 +18,7 @@ import type { Stream, AutoPlayConfig } from '../types.js';
 import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
-import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
+import { encodeTileEnvelope, toContentType } from '../nzbdav/redirectHelpers.js';
 import { registerDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
@@ -77,6 +77,10 @@ export interface StreamBuildOutput {
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, episodeAired, now, runtime, shortCircuited } = ctx;
+  // Normalize once and pack into every NZB tile envelope so the stream handler
+  // can resolve the nzbdav category (Movies vs TV) even when no in-memory
+  // fallback group exists (Ultimate Fallback disabled, evicted, or post-restart).
+  const ty = toContentType(type);
   // sessionKey includes manifestKey so concurrent requests from different Stremio installations
   // don't share UF session state (avoids cross-tenant state leaks on multi-user deployments).
   const streamManifestKey = requestContext.getStore()?.manifestKey || '';
@@ -275,6 +279,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           ...(candidateIdx >= 0 ? { idx: candidateIdx } : {}),
           ...(sessionKey ? { sk: sessionKey } : {}),
           ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}), ...(episodeAired ? { aired: episodeAired } : {}) } : {}),
+          ty,
           url: nzbProxyUrl,
           title: result.title,
           indexer: result.indexerName || '',
@@ -341,6 +346,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         ...(candidateIdx >= 0 ? { idx: candidateIdx } : {}),
         ...(sessionKey ? { sk: sessionKey } : {}),
         ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}), ...(episodeAired ? { aired: episodeAired } : {}) } : {}),
+        ty,
         url: result.link,
         title: result.title,
         indexer: result.indexerName || '',
