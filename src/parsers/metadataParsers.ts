@@ -63,9 +63,24 @@ export function parseMetadata(title: string): ParsedMetadata {
 
 // ── Resolution ───────────────────────────────────────────────────────
 
+// Bare resolution numbers without the `p` suffix. Recognized as fallback
+// when the library parser misses them and UHD detection also failed.
+// Rejects alphanumeric neighbors, so `Show.2160.WEB`, `Show 2160 WEB`,
+// and `Show_2160_WEB` match while `Show2160WEB`, `OPUS720Codec`,
+// `DTS2160kbps`, and `2160x1440` do not.
+const BARE_RESOLUTION_PATTERN = /(?<![A-Za-z0-9])(2160|1440|1080|720)(?![A-Za-z0-9])/;
+const BARE_RESOLUTION_MAP: Record<string, string> = {
+  '2160': '4k',
+  '1440': '1440p',
+  '1080': '1080p',
+  '720':  '720p',
+};
+
 function parseResolution(parsed: any, title: string): string {
   if (!parsed.resolution) {
     if (/\bUHD\b|UHDRip/i.test(title)) return '4k';
+    const bareMatch = title.match(BARE_RESOLUTION_PATTERN);
+    if (bareMatch) return BARE_RESOLUTION_MAP[bareMatch[1]];
     return 'Unknown';
   }
   const res = parsed.resolution.toLowerCase();
