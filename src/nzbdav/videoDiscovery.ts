@@ -88,6 +88,8 @@ export async function folderHasPlayableVideo(folderPath: string, config: NZBDavC
       if (NON_PLAYABLE_PATH_RE.test(item.filename)) continue;
       return true;
     }
+    // Hidden dirs intentionally NOT filtered here — discovery filters .unpack/
+    // decoys; cleanup stays conservative to avoid wiping folders prematurely.
     for (const sub of subdirs) {
       if (NON_PLAYABLE_PATH_RE.test(sub + '/')) continue;
       if (await walk(sub, depth + 1)) return true;
@@ -131,6 +133,8 @@ export async function findVideoFile(
     for (const item of items) {
       if (item.type === 'file') {
         const basename = item.filename.split('/').pop() || '';
+        // Skip hidden files (e.g. .unpack.mkv) — uploaders plant these as decoys
+        if (basename.startsWith('.')) continue;
         const ext = basename.substring(basename.lastIndexOf('.')).toLowerCase();
         const pathLower = item.filename.toLowerCase();
 
@@ -246,11 +250,13 @@ export async function findVideoFile(
     // Recurse into subdirectories
     for (const item of items) {
       if (item.type === 'directory') {
+        const subBasename = item.filename.split('/').pop() || '';
+        // Skip hidden directories (e.g. .unpack/) — uploaders plant these as decoy roots
+        if (subBasename.startsWith('.')) continue;
         const dirLower = item.filename.toLowerCase();
         if (dirLower.includes('/sample') || dirLower.includes('/subs')) continue;
         // Skip per-season subdirs whose name belongs to a different season
         // (e.g. don't enter Pack/S01/ when looking for an S03 episode).
-        const subBasename = item.filename.split('/').pop() || '';
         if (targetSeason != null && !folderCouldContainSeason(subBasename, targetSeason)) continue;
         const found = await findVideoFile(client, item.filename, depth + 1, episodePattern, episodesInSeason, strictEpisodeMatch);
         if (found) return found;
