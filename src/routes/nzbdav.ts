@@ -233,7 +233,15 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     if (!manifestKey || !sk) return sendLibraryBypassArmedVideo(req, res);
     // sk encodes ${manifestKey}:${type}:${imdbId}:${season}:${episode}. Skip
     // index 0 (the embedded manifestKey) and use the validated path manifest.
-    const [, type, imdbId, season, episode] = sk.split(':');
+    // Back-parse from the end so colon-containing imdbIds (e.g. `tvdb:NNN`
+    // from the tvdb: Stremio prefix) survive the split. Mirrors the pattern at
+    // src/nzbdav/streamHandler.ts where the same sk format is consumed.
+    const parts = sk.split(':');
+    if (parts.length < 5) return sendLibraryBypassArmedVideo(req, res);
+    const type = parts[1];
+    const episode = parts[parts.length - 1];
+    const season = parts[parts.length - 2];
+    const imdbId = parts.slice(2, -2).join(':');
     if (!type || !imdbId) return sendLibraryBypassArmedVideo(req, res);
     const id = (season || episode) ? `${imdbId}:${season || ''}:${episode || ''}` : imdbId;
     const bypassKey = `${manifestKey}:${type}:${imdbId}:${season || ''}:${episode || ''}`;

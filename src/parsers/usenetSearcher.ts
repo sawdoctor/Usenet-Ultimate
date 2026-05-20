@@ -221,9 +221,12 @@ export class UsenetSearcher {
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
         slog(`🔍 Movie search for ${externalId.idParam}: ${externalId.idValue}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
-      } else {
+      } else if (imdbId.startsWith('tt')) {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
         slog(`🔍 Movie search for IMDB: ${imdbId}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+      } else {
+        slog(`⚠️  Movie imdb-method search skipped: no externalId and imdbId "${imdbId}" is not a tt-prefixed IMDB id`);
+        return [];
       }
       slog(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}`);
 
@@ -507,9 +510,12 @@ export class UsenetSearcher {
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
         slog(`🔍 TV search for ${externalId.idParam}: ${externalId.idValue} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
-      } else {
+      } else if (imdbId.startsWith('tt')) {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
         slog(`🔍 TV search for IMDB: ${imdbId} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+      } else {
+        slog(`⚠️  TV imdb-method search skipped: no externalId and imdbId "${imdbId}" is not a tt-prefixed IMDB id`);
+        return [];
       }
       slog(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}`);
 
