@@ -92,7 +92,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Create fallback group for NZBDav mode (auto-retry next NZB on failure)
   let fallbackGroupId: string | undefined;
   let fallbackCandidates: FallbackCandidate[] | undefined;
-  if (config.streamingMode === 'nzbdav' && config.ultimateFallback?.enabled) {
+  if (config.streamingMode === 'nzbdav' && config.ultimateFallback?.enabled && allResults.length > 0) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
 
     fallbackCandidates = allResults
@@ -373,9 +373,12 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Prepend synthetic Ultimate Fallback tile so users can opt into the UF lobby explicitly.
   // Guarded by streamingMode=nzbdav: UF resolves via NZBDav, so showing the tile in other
   // modes would produce a URL the handler can't serve. sessionKey gate skips item pages
-  // that don't have an imdbId (shouldn't happen in practice, but defensive).
+  // that don't have an imdbId (shouldn't happen in practice, but defensive). streams.length
+  // gate suppresses the tile when there are no search results, so a lone UF tile cannot
+  // obscure results from other Stremio addons.
   if (
-    config.ultimateFallback?.enabled
+    streams.length > 0
+    && config.ultimateFallback?.enabled
     && config.streamingMode === 'nzbdav'
     && sessionKey
   ) {
