@@ -29,7 +29,7 @@ import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
 
 interface NzbdavDeps {
   config: Config;
-  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, trackGrab: (indexer: string, title: string) => void, proxyFn?: (req: any, res: any, videoPath: string, usePipe: boolean) => Promise<void>) => Promise<void>;
+  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, proxyFn?: (req: any, res: any, videoPath: string, usePipe: boolean) => Promise<void>) => Promise<void>;
   getCacheStats: () => any;
   clearStreamCache: () => void;
   clearReadyCache: () => number;
@@ -37,7 +37,6 @@ interface NzbdavDeps {
   deleteCacheEntry: (cacheKey: string) => boolean;
   getCacheEntries: () => any;
   isStreamCached: (nzbUrl: string, title: string) => boolean;
-  trackGrab: (indexerName: string, title: string) => void;
   getLatestVersions: () => { chrome: string };
 }
 
@@ -200,12 +199,7 @@ export function createNzbdavRoutes(deps: NzbdavDeps): Router {
  */
 export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const router = Router({ mergeParams: true });
-  const { config, handleStream, trackGrab, getLatestVersions } = deps;
-
-  // Dedup set for grab tracking — prevents concurrent requests from tracking the same grab
-  // before the stream cache is populated. Entries are cleaned up after 60s.
-  const trackedGrabKeys = new Set<string>();
-  const GRAB_DEDUP_TTL_MS = 60_000;
+  const { config, handleStream, getLatestVersions } = deps;
 
   // Throttle the /stream entry log to first-hit-per-(kind,filename) per 60 s —
   // Range probes and seek bursts otherwise spam the log during active playback.
@@ -510,27 +504,15 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       console.log(`\u{1F39F}\uFE0F /stream hit: kind=${kind} filename=${req.params.filename ?? '-'} q=[${qKeys}] ua=${(req.headers['user-agent'] ?? '').slice(0, 80)}`);
     }
 
-    // Grab tracking happens inside the stream handler once the `t` envelope
-    // is decoded (route-level tracking would need to decode here too just to
-    // extract nzb/title/indexer for the dedup key, so route-level was duplicated
-    // work). The handler calls `dedupedTrackGrab` below for first-time grabs.
+    // Grab tracking now occurs inside `submitNzb` when the NZB is fetched
+    // from the indexer. Cache hits at nzbdavApi.ts:40 short-circuit before
+    // the fetch, providing natural dedup; no route-level wrapper needed.
 
     const nzbdavConfig = buildNzbdavConfig();
 
-    // Wrap trackGrab with the same dedup set so fallback grabs after
-    // self-redirects don't double-count candidates already tracked.
-    const dedupedTrackGrab = (indexer: string, grabTitle: string) => {
-      const key = `${indexer}::${grabTitle}`;
-      if (trackedGrabKeys.has(key)) return;
-      trackedGrabKeys.add(key);
-      setTimeout(() => trackedGrabKeys.delete(key), GRAB_DEDUP_TTL_MS);
-      trackGrab(indexer, grabTitle);
-      console.log(`\u{1F4CA} Tracked grab from ${indexer}: ${grabTitle}`);
-    };
-
     // Delegate to nzbdav module (handles caching, history polling, streaming, fallback)
     try {
-      await handleStream(req, res, nzbdavConfig, dedupedTrackGrab, proxyVideoStream);
+      await handleStream(req, res, nzbdavConfig, proxyVideoStream);
     } catch (error) {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Stream handler failed' });

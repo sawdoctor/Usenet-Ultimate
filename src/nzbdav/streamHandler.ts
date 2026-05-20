@@ -29,8 +29,8 @@ const pipelineAsync = promisify(pipeline);
 // Register prepareStream into the cache to break the circular import
 // (streamCache needs to call prepareStream, but importing it directly would create a cycle)
 setPrepareFn(
-  (nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix) =>
-    prepareStream(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix)
+  (nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix, indexerName) =>
+    prepareStream(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix, indexerName)
 );
 
 // ============================================================================
@@ -175,6 +175,7 @@ export async function prepareStream(
   episodesInSeason?: number,
   isSeasonPack?: boolean,
   logPrefix = '',
+  indexerName?: string,
 ): Promise<StreamData> {
   const totalBudgetMs = getAttemptBudgetMs(contentType, isSeasonPack);
   const unlimited = totalBudgetMs === 0;
@@ -198,9 +199,10 @@ export async function prepareStream(
     }
   }
 
-  // Step 1: Submit NZB
+  // Step 1: Submit NZB. Grab tracking lives inside submitNzb after content
+  // validation, so cache hits (precached by health checks) do not double-count.
   console.log(`${logPrefix}  \u23F1\uFE0F Submitting NZB... (${remaining()}s remaining)`);
-  const nzoId = await submitNzb(nzbUrl, title, config, contentType, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart), logPrefix);
+  const nzoId = await submitNzb(nzbUrl, title, config, contentType, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart), logPrefix, indexerName);
   console.log(`${logPrefix}  \u23F1\uFE0F NZB submitted → ${remaining()}s remaining`);
 
   // Step 2: Wait for job to complete (or fail) — remaining budget
@@ -525,7 +527,6 @@ export async function handleStream(
   req: Request,
   res: ExpressResponse,
   config: NZBDavConfig,
-  trackGrabFn?: (indexerName: string, title: string) => void,
   proxyFn?: (req: Request, res: ExpressResponse, videoPath: string, usePipe: boolean) => Promise<void>
 ): Promise<void> {
   // Express returns string[] for repeated query keys (`?t=a&t=b`). Take the
@@ -1119,9 +1120,6 @@ export async function handleStream(
     try {
       if (i > 0) {
         console.log(`🔄 Trying backup [${i + 1}/${maxCandidates}]: ${candidate.title} [${candidate.indexerName}]`);
-        if (trackGrabFn && candidate.indexerName) {
-          trackGrabFn(candidate.indexerName, candidate.title);
-        }
       }
 
       // On post-redirect requests, cap blocking time to the ExoPlayer budget so
