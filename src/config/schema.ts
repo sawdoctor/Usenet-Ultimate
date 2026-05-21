@@ -132,6 +132,11 @@ export interface ConfigData {
   // remained). Runs once on update when this flag is below the migration's
   // target, then bumps the flag so it never runs again.
   staleLibraryFolderCleanupVersion?: number;
+
+  // One-time stats hygiene migration: purges the synthetic "WebDAV Library"
+  // row and merges case-variant indexer rows. Bumps once on update; never
+  // runs again.
+  staleIndexerStatsCleanupVersion?: number;
 }
 
 // Load config from file or create default

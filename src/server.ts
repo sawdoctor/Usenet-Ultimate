@@ -14,7 +14,7 @@ import addonSDK from 'stremio-addon-sdk';
 import addon, { clearSearchCache, addonManifest } from './addon/index.js';
 import { config, getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderIndexers, reorderSyncedIndexers, updateSettings, getProviders, addProvider, updateProvider, deleteProvider, reorderProviders } from './config/index.js';
 import { getLogBuffer, subscribeToLogs } from './logBuffer.js';
-import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats } from './statsTracker.js';
+import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats, runStaleIndexerStatsCleanup } from './statsTracker.js';
 import { fetchLatestVersions, getLatestVersions } from './versionFetcher.js';
 import { handleStream, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './nzbdav/index.js';
 import { proxyFetch, testProxyConnection } from './proxy.js';
@@ -246,9 +246,12 @@ process.on('SIGINT', () => {
   }
 
   // One-time best-effort migration. Fire-and-forget so it never blocks
-  // listening; gated internally by a config version flag + dry-run toggle.
+  // listening; gated internally by a config version flag.
   runStaleLibraryFolderCleanup().catch(err =>
     console.error('Stale library folder cleanup error:', err)
+  );
+  runStaleIndexerStatsCleanup().catch(err =>
+    console.error('Stale indexer stats cleanup error:', err)
   );
 
   app.listen(PORT, () => {
