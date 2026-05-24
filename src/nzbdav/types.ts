@@ -60,7 +60,9 @@ export interface FallbackCandidate {
   libraryVideoPath?: string;
   /** Proxy exit IP captured at search time. verifyProxyCircuit compares against
    *  this when grabbing the NZB, so a rotation+new-search between search and
-   *  grab cannot silently pass verification. In-memory only, not persisted. */
+   *  grab cannot silently pass verification. Persisted with the group (it's a
+   *  hash, never the raw IP) so post-restart grabs still verify against the
+   *  search-time IP. */
   searchExitIp?: string;
 }
 

@@ -5,7 +5,7 @@
 
 import { config as globalConfig } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { proxyFetch, logProxyExitIp, verifyProxyCircuit } from '../proxy.js';
+import { proxyFetch, verifyProxyCircuit } from '../proxy.js';
 import { getCachedNzbContent, cacheNzbContent } from '../health/nzbContentCache.js';
 import { trackGrab } from '../statsTracker.js';
 import type { NZBDavConfig, HistorySlot } from './types.js';
@@ -53,7 +53,6 @@ export async function submitNzb(
     const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
     console.log(`${logPrefix}  \u{1F4E5} Downloading NZB from indexer: ${nzbUrl.substring(0, 80)}...`);
     await verifyProxyCircuit(nzbUrl, 'nzb-grab', indexerName, searchExitIp);
-    await logProxyExitIp(nzbUrl, 'nzb-grab', indexerName);
 
     const controller = new AbortController();
     const downloadTimeoutMs = remainingBudget();
@@ -178,7 +177,6 @@ export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false,
     const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
     if (!quiet) console.log(`${logPrefix}  📥 Prefetching NZB: ${nzbUrl.substring(0, 80)}...`);
     await verifyProxyCircuit(nzbUrl, 'nzb-prefetch', indexerName, searchExitIp);
-    await logProxyExitIp(nzbUrl, 'nzb-prefetch', indexerName);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);

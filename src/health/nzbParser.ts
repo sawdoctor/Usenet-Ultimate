@@ -7,7 +7,7 @@
  */
 
 import { parseStringPromise } from 'xml2js';
-import { proxyFetch, logProxyExitIp, verifyProxyCircuit, ProxyCircuitAbortError } from '../proxy.js';
+import { proxyFetch, verifyProxyCircuit, ProxyCircuitAbortError } from '../proxy.js';
 import type { NzbFile, NzbParseResult } from './types.js';
 import { cacheNzbContent, getCachedNzbContent } from './nzbContentCache.js';
 
@@ -43,7 +43,6 @@ export async function downloadAndParseNzb(nzbUrl: string, userAgent: string, ind
       }
       throw err;
     }
-    await logProxyExitIp(nzbUrl, 'health-check', indexerName);
     const response = await proxyFetch(nzbUrl, {
       headers: { 'User-Agent': userAgent }
     }, indexerName);

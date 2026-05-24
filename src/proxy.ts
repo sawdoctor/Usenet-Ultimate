@@ -18,6 +18,7 @@ import https from 'https';
 import http from 'http';
 import { createHash } from 'crypto';
 import { config } from './config/index.js';
+import { requestContext } from './requestContext.js';
 
 /**
  * Deterministic short hash of a proxy egress IP. Used as the stable stamp on
@@ -35,10 +36,6 @@ function hashIp(ip: string): string {
 // Cache resolved exit IPs
 const exitIpCache = new Map<string, string>();
 
-// In-flight dedup: if multiple concurrent requests resolve the same key,
-// they share one network call instead of firing duplicates
-const exitIpInflight = new Map<string, Promise<string>>();
-
 // HTTP proxy agent (single shared instance)
 let proxyAgent: HttpsProxyAgent<string> | null = null;
 
@@ -48,7 +45,8 @@ const PROXY_DEFAULT_URL = '';
 const PROXY_CACHE_KEY = '__proxy__';
 
 // Sentinel returned by probeLiveProxyIp when the probe can't determine an IP.
-// Never cached as a baseline (resolveProxyExitIp declines to write it).
+// Never cached as a baseline (verifyProxyCircuit only writes the cache on a
+// confirmed-match probe).
 const PROBE_UNKNOWN = 'unknown';
 
 /**
@@ -78,15 +76,23 @@ function isProxyEnabled(): boolean {
 
 /**
  * Check whether proxy is enabled for a specific indexer.
- * Zyclops-routed indexers force-bypass the HTTP proxy at every layer
- * (search, grab, prefetch, health-check). Zyclops IS the proxy for that
- * indexer, so an HTTP proxy on top would create a double-tunnel and a
- * search/grab IP mismatch the verifier can't reason about.
+ * Two cases force-bypass the HTTP proxy at every layer (search, grab,
+ * prefetch, health-check):
+ *  - Zyclops-routed indexers: Zyclops IS the proxy for that indexer, so an
+ *    HTTP proxy on top would create a double-tunnel and a search/grab IP
+ *    mismatch the verifier can't reason about.
+ *  - The built-in EasyNews indexer: its searcher, /nzb route, and /resolve
+ *    route all call easynews.com directly with no proxy agent attached. The
+ *    HTTP proxy is never on the wire for EasyNews traffic, so verifyProxyCircuit
+ *    must take the bypass branch instead of firing the "missing baseline"
+ *    fan-out on every grab. Guarded by `!indexer` so a user who happens to
+ *    name a custom Newznab indexer "EasyNews" is not silently bypassed.
  */
 function isProxyEnabledForIndexer(indexerName: string): boolean {
   if (config.proxyMode === 'disabled' || !config.proxyMode) return false;
   const indexer = config.indexers?.find(i => i.name === indexerName);
   if (indexer?.zyclops?.enabled) return false;
+  if (!indexer && indexerName.toLowerCase() === 'easynews') return false;
   const indexerMap = config.proxyIndexers;
   if (!indexerMap) return true; // default: all indexers proxied
   return indexerMap[indexerName] !== false;
@@ -121,6 +127,25 @@ function isDirectUrl(targetUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Hide the addon's own deployment hostname in proxy log lines so a shared log
+ * doesn't expose the operator's public URL. Indexer hostnames pass through
+ * unchanged; only the live request's baseUrl or env-configured BASE_URL
+ * is redacted.
+ */
+function redactOwnHost(hostname: string): string {
+  try {
+    const reqBase = requestContext.getStore()?.baseUrl;
+    if (reqBase && new URL(reqBase).hostname === hostname) return '<addon>';
+  } catch { /* ignore parse errors */ }
+  if (process.env.BASE_URL) {
+    try {
+      if (new URL(process.env.BASE_URL).hostname === hostname) return '<addon>';
+    } catch { /* ignore */ }
+  }
+  return hostname;
 }
 
 /**
@@ -241,73 +266,22 @@ function probeDirectExitIp(): Promise<string> {
 }
 
 /**
- * Resolve and cache the proxy exit IP.
- * All traffic shares one tunnel, so we use a single global cache key.
- * Deduplicates concurrent lookups.
- */
-async function resolveProxyExitIp(): Promise<string> {
-  const cached = exitIpCache.get(PROXY_CACHE_KEY);
-  if (cached) return cached;
-
-  const inflight = exitIpInflight.get(PROXY_CACHE_KEY);
-  if (inflight) return inflight;
-
-  const promise = (async () => {
-    try {
-      const ip = await probeLiveProxyIp();
-      if (ip !== PROBE_UNKNOWN) exitIpCache.set(PROXY_CACHE_KEY, ip);
-      console.log(`🔒 Proxy exit IP → ${ip}`);
-      return ip;
-    } catch {
-      return PROBE_UNKNOWN;
-    } finally {
-      exitIpInflight.delete(PROXY_CACHE_KEY);
-    }
-  })();
-
-  exitIpInflight.set(PROXY_CACHE_KEY, promise);
-  return promise;
-}
-
-/**
- * Log the proxy exit IP for a target URL. Resolves once per tunnel, then cached.
- * Returns the resolved exit IP so callers can stamp it onto search results.
- * Returns undefined when the request bypasses the proxy (disabled, per-indexer
- * opt-out, or direct URL like localhost / internal service) or when the probe
- * returned PROBE_UNKNOWN.
- */
-export async function logProxyExitIp(targetUrl: string, label: string, indexerName?: string): Promise<string | undefined> {
-  if (!isProxyApplicable(indexerName)) {
-    if (indexerName !== undefined && isProxyEnabled() && !isProxyEnabledForIndexer(indexerName)) {
-      const hostname = new URL(targetUrl).hostname;
-      const directIp = await probeDirectExitIp();
-      console.log(`🔓 [${label}] proxy bypassed per indexer setting (${indexerName} → ${hostname}, direct exit ${directIp})`);
-    }
-    return undefined;
-  }
-  if (isDirectUrl(targetUrl)) return undefined;
-  const hostname = new URL(targetUrl).hostname;
-  const ip = await resolveProxyExitIp();
-  console.log(`🔒 [${label}] ${hostname} via proxy exit ${ip}`);
-  return ip === PROBE_UNKNOWN ? undefined : ip;
-}
-
-/**
  * Probes the live proxy exit IP directly (no cache read, no cache write).
  * Call immediately AFTER an outbound indexer request so the stamp reflects
  * the proxy's exit IP at the moment that request completed. Bypassing the
- * cache is required because the cached path (logProxyExitIp) is refreshed
- * only by the 30s keepalive, so it would be too stale to stamp on results.
+ * cache is required because the cached exit IP is refreshed only by
+ * verifyProxyCircuit on a confirmed-match grab, so it would be too stale
+ * to stamp on results.
  *
- * Returns undefined for the same bypass cases as logProxyExitIp (proxy off,
- * per-indexer opt-out, direct URL) and when the probe cannot determine an IP.
+ * Returns undefined when the proxy is bypassed (disabled, per-indexer opt-out,
+ * direct URL) or when the probe cannot determine an IP.
  */
 export async function probeSearchExitIp(targetUrl: string, label: string, indexerName?: string, silent = false): Promise<string | undefined> {
   if (!isProxyApplicable(indexerName)) {
     if (!silent && indexerName !== undefined && isProxyEnabled() && !isProxyEnabledForIndexer(indexerName)) {
       const hostname = new URL(targetUrl).hostname;
       const directIp = await probeDirectExitIp();
-      console.log(`🔓 [${label}] proxy bypassed per indexer setting (${indexerName} → ${hostname}, direct exit ${directIp})`);
+      console.log(`🔓 [${label}] proxy bypassed per indexer setting (${indexerName} → ${redactOwnHost(hostname)}, direct exit ${directIp})`);
     }
     return undefined;
   }
@@ -315,7 +289,7 @@ export async function probeSearchExitIp(targetUrl: string, label: string, indexe
   const ip = await probeLiveProxyIp();
   if (!silent) {
     const hostname = new URL(targetUrl).hostname;
-    console.log(`🔒 [${label}] ${hostname} via proxy exit ${ip}`);
+    console.log(`🔒 [${label}] ${redactOwnHost(hostname)} via proxy exit ${ip}`);
   }
   // Hash before returning. The raw IP is logged above for local debugging,
   // but the stamp that travels through result objects and URL envelopes is
@@ -343,10 +317,6 @@ export async function proxyFetch(
   const parsed = new URL(url);
   const proxyBypass = !isProxyApplicable(indexerName);
   const urlDirect = isDirectUrl(url);
-  if (indexerName !== undefined && isProxyEnabled() && !isProxyEnabledForIndexer(indexerName) && !urlDirect) {
-    const directIp = await probeDirectExitIp();
-    console.log(`\u{1F513} [${indexerName}] proxy bypassed per indexer setting (direct exit ${directIp})`);
-  }
   if (proxyBypass || urlDirect) {
     // Manual redirect loop so the fallback matches the proxy path's 5-redirect cap.
     const fallbackMaxRedirects = 5;
@@ -509,7 +479,17 @@ export async function proxyFetch(
 // Dedup concurrent circuit verification probes, keyed by expected IP.
 // Concurrent grabs from the same search (same expected IP) share one probe;
 // grabs from different searches (different expected IPs) do not collide.
-const verifyInflight = new Map<string, Promise<void>>();
+const verifyInflight = new Map<string, Promise<string>>();
+
+// Fire-and-forget the downstream cache clears shared by every rotation-detection
+// path (grab-time IP mismatch, grab-time missing baseline, keepalive rotation).
+// A rotation stales every pre-rotation stamp, so the next search re-probes and
+// re-stamps. Fire-and-forget so the caller's abort/throw surfaces with no latency.
+function fanOutRotationClears(): void {
+  void import('./addon/index.js').then(m => m.clearSearchCache?.()).catch(err => console.warn('🔒 ⚠️ clearSearchCache failed:', err?.message));
+  void import('./nzbdav/fallbackManager.js').then(m => m.clearFallbackGroups?.()).catch(err => console.warn('🔒 ⚠️ clearFallbackGroups failed:', err?.message));
+  void import('./nzbdav/ultimateFallback.js').then(m => m.cancelAllUltimateFallbacks?.()).catch(err => console.warn('🔒 ⚠️ cancelAllUltimateFallbacks failed:', err?.message));
+}
 
 /**
  * Verify the proxy exit IP for a URL still matches what we saw during search.
@@ -537,13 +517,13 @@ export async function verifyProxyCircuit(targetUrl: string, label: string, index
     // mismatch this function exists to prevent. Abort.
     if (expectedIp) {
       const hostname = new URL(targetUrl).hostname;
-      console.error(`🔒 🚫 [${label}] proxy bypass conflicts with stamp ${expectedIp} for ${hostname}, ABORTING to protect account`);
+      console.error(`🔒 🚫 [${label}] proxy bypass conflicts with stamp ${expectedIp} for ${redactOwnHost(hostname)}, ABORTING to protect account`);
       throw new ProxyCircuitAbortError(`Proxy bypass conflicts with search-time stamp (label: ${label}). Configuration changed between search and grab. Operation aborted to prevent account ban.`);
     }
     if (proxyBypass && indexerName !== undefined && isProxyEnabled() && !isProxyEnabledForIndexer(indexerName)) {
       const hostname = new URL(targetUrl).hostname;
       const directIp = await probeDirectExitIp();
-      console.log(`🔓 [${label}] proxy bypassed per indexer setting (${indexerName} → ${hostname}, direct exit ${directIp})`);
+      console.log(`🔓 [${label}] proxy bypassed per indexer setting (${indexerName} → ${redactOwnHost(hostname)}, direct exit ${directIp})`);
     }
     return;
   }
@@ -553,59 +533,74 @@ export async function verifyProxyCircuit(targetUrl: string, label: string, index
   // PROBE_UNKNOWN string never reaches here (probeSearchExitIp returns undefined
   // for it). Treat any falsy expectedIp as a missing baseline.
   if (!expectedIp) {
-    console.error(`🔒 🚫 [${label}] VPN IP baseline unavailable for ${hostname}: ABORTING to protect account`);
-    throw new ProxyCircuitAbortError(`Proxy exit IP baseline unavailable for ${hostname} (label: ${label}). Operation [${label}] aborted to prevent account ban. Please retry from a fresh search.`);
+    // A missing baseline on a proxy-applicable grab means the search that
+    // produced this result couldn't be stamped, which only happens on a
+    // mid-search VPN rotation (consensusSearchIp bailed). That rotation also
+    // stales every pre-rotation stamp, and the unstamped results are sitting in
+    // the search cache. Without the fan-out they replay on every cache hit and
+    // stay wedged until TTL; clear downstream so the next search re-stamps fresh.
+    console.error(`🔒 🚫 [${label}] VPN IP baseline unavailable for ${redactOwnHost(hostname)}: ABORTING to protect account, invalidating search + fallback caches; retry from a fresh search`);
+    fanOutRotationClears();
+    throw new ProxyCircuitAbortError(`Proxy exit IP baseline unavailable for ${redactOwnHost(hostname)} (label: ${label}). Operation [${label}] aborted to prevent account ban. Please retry from a fresh search.`);
   }
 
   if (!proxyAgent) {
     // Caller asserted a specific search-time stamp, but the agent was torn
     // down (clearProxyCache or never initialised). The grab cannot be made
     // safely.
-    console.error(`🔒 🚫 [${label}] proxy agent missing for ${hostname} after search asserted stamp ${expectedIp}, ABORTING`);
+    console.error(`🔒 🚫 [${label}] proxy agent missing for ${redactOwnHost(hostname)} after search asserted stamp ${expectedIp}, ABORTING`);
     throw new ProxyCircuitAbortError(`Proxy agent unavailable (label: ${label}). Operation [${label}] aborted to prevent account ban.`);
   }
 
+  // Concurrent verifies with the same expectedIp share one probe (saves a redundant
+  // ipify round-trip), but the success log lives OUTSIDE this dedup so every caller
+  // emits one log line with its own label. Without that lift, a multi-candidate UF
+  // run only logs the first caller's verify and the rest pass through silently.
   const inflight = verifyInflight.get(expectedIp);
-  if (inflight) return inflight;
+  let liveIp: string;
+  if (inflight) {
+    liveIp = await inflight;
+  } else {
+    const promise = (async () => {
+      const ip = await probeLiveProxyIp();
+      if (ip === PROBE_UNKNOWN) {
+        console.error(`🔒 🚫 [${label}] VPN IP probe returned unknown for ${redactOwnHost(hostname)}, ABORTING to protect account`);
+        throw new ProxyCircuitAbortError(`Proxy exit IP probe returned unknown (label: ${label}). Operation [${label}] aborted to prevent account ban. Please retry.`);
+      }
 
-  const promise = (async () => {
-    const liveIp = await probeLiveProxyIp();
-    if (liveIp === PROBE_UNKNOWN) {
-      console.error(`🔒 🚫 [${label}] VPN IP probe returned unknown for ${hostname}, ABORTING to protect account`);
-      throw new ProxyCircuitAbortError(`Proxy exit IP probe returned unknown (label: ${label}). Operation [${label}] aborted to prevent account ban. Please retry.`);
+      // expectedIp is the 16-char hash that was stamped at search time. Hash
+      // the live IP and compare. Raw IPs are still logged for local debugging;
+      // they only become hashes at this comparison boundary so leaked URLs do
+      // not directly expose the egress IP.
+      const liveHash = hashIp(ip);
+      if (liveHash !== expectedIp) {
+        // VPN IP changed. Every result carrying the old hash (this search, plus any
+        // persisted fallback groups from before the rotation) would fail the same
+        // way, so fan out the downstream clears and let the next search re-stamp on
+        // the new IP. fanOutRotationClears is fire-and-forget, so the throw below
+        // surfaces to the caller immediately without waiting on the clears.
+        console.error(`🔒 🚫 [${label}] VPN IP changed for ${redactOwnHost(hostname)}: live exit IP ${ip} (hash ${liveHash}) does not match stamp ${expectedIp}, ABORTING to protect account`);
+        exitIpCache.delete(PROXY_CACHE_KEY);
+        fanOutRotationClears();
+        throw new ProxyCircuitAbortError(`Proxy exit IP changed (live ${ip} hashes to ${liveHash}, expected stamp ${expectedIp}). Operation [${label}] aborted to prevent account ban. Please retry, the next request will use the new IP.`);
+      }
+
+      // verifyProxyCircuit owns this cache's lifecycle: set on confirmed match,
+      // delete on rotation (above). The keepalive reads it to detect rotation
+      // between ticks; nothing else writes it.
+      exitIpCache.set(PROXY_CACHE_KEY, ip);
+      return ip;
+    })();
+
+    verifyInflight.set(expectedIp, promise);
+    try {
+      liveIp = await promise;
+    } finally {
+      verifyInflight.delete(expectedIp);
     }
-
-    // expectedIp is the 16-char hash that was stamped at search time. Hash
-    // the live IP and compare. Raw IPs are still logged for local debugging;
-    // they only become hashes at this comparison boundary so leaked URLs do
-    // not directly expose the egress IP.
-    const liveHash = hashIp(liveIp);
-    if (liveHash === expectedIp) {
-      console.log(`🔒 [${label}] VPN IP verified for ${hostname}, exit IP ${liveIp} matches stamp`);
-      return;
-    }
-
-    // VPN IP changed. Every result stamped in this session carries the old
-    // hash and would fail the same way — fan out to clear the search cache,
-    // fallback groups, and in-flight Ultimate Fallback sessions so the
-    // user's next search returns fresh-stamped results instead of hitting
-    // the same dead stamps repeatedly. Fire-and-forget the dynamic imports
-    // so the throw happens immediately (no waiting on the clears) and the
-    // candidate's failure surfaces to the caller without latency.
-    console.error(`🔒 🚫 [${label}] VPN IP changed for ${hostname}: live exit IP ${liveIp} (hash ${liveHash}) does not match stamp ${expectedIp}, ABORTING to protect account`);
-    exitIpCache.delete(PROXY_CACHE_KEY);
-    void import('./addon/index.js').then(m => m.clearSearchCache?.()).catch(() => {});
-    void import('./nzbdav/fallbackManager.js').then(m => m.clearFallbackGroups?.()).catch(() => {});
-    void import('./nzbdav/ultimateFallback.js').then(m => m.cancelAllUltimateFallbacks?.()).catch(() => {});
-    throw new ProxyCircuitAbortError(`Proxy exit IP changed (live ${liveIp} hashes to ${liveHash}, expected stamp ${expectedIp}). Operation [${label}] aborted to prevent account ban. Please retry, the next request will use the new IP.`);
-  })();
-
-  verifyInflight.set(expectedIp, promise);
-  try {
-    await promise;
-  } finally {
-    verifyInflight.delete(expectedIp);
   }
+
+  console.log(`🔒 [${label}] VPN IP verified for ${redactOwnHost(hostname)}, exit IP ${liveIp} matches stamp`);
 }
 
 /**
@@ -643,13 +638,10 @@ function startKeepalive(): void {
         if (previousIp && previousIp !== ip && ip !== PROBE_UNKNOWN) {
           console.warn(`🔒 ⚠️ VPN IP changed: ${previousIp} → ${ip}, invalidating proxy + search + fallback caches; next search will re-probe`);
           exitIpCache.delete(PROXY_CACHE_KEY);
-          exitIpInflight.delete(PROXY_CACHE_KEY);
-          // Same fan-out as verifyProxyCircuit's rotation branch: clear
+          // Same fan-out as verifyProxyCircuit's rotation branches: clear
           // downstream caches proactively so the next grab finds fresh
           // stamps instead of eating a bogus "VPN IP changed" abort.
-          void import('./addon/index.js').then(m => m.clearSearchCache?.()).catch(() => {});
-          void import('./nzbdav/fallbackManager.js').then(m => m.clearFallbackGroups?.()).catch(() => {});
-          void import('./nzbdav/ultimateFallback.js').then(m => m.cancelAllUltimateFallbacks?.()).catch(() => {});
+          fanOutRotationClears();
           // Leave verifyInflight alone: it's keyed by expected IP, so any
           // in-flight verifications complete against their own stamped IP.
         }
@@ -671,7 +663,6 @@ function stopKeepalive(): void {
  */
 export function clearProxyCache(): void {
   exitIpCache.clear();
-  exitIpInflight.clear();
   verifyInflight.clear();
   proxyAgent = null;
   stopKeepalive();

@@ -27,7 +27,7 @@ export function getFallbackGroupTTLMs(): number {
 // the original fbg inside, finds no in-memory group, and breaks the
 // alternative-candidate fallback. Mirrors streamCache.ts.
 const FALLBACK_GROUPS_FILE = path.join(__dirname, '..', '..', 'config', 'fallback-groups.json');
-const FALLBACK_GROUPS_SCHEMA_VERSION = 1;
+const FALLBACK_GROUPS_SCHEMA_VERSION = 2;
 
 interface SerializedFallbackGroup {
   version: number;
@@ -65,12 +65,7 @@ function saveFallbackGroupsToDisk(): void {
   const data: SerializedFallbackGroup[] = [];
   for (const [id, group] of fallbackGroups) {
     if (now - group.createdAt <= ttl) {
-      // Strip searchExitIp at the persistence boundary; the field is in-memory
-      // only (see FallbackCandidate doc in nzbdav/types.ts). Persisting it would
-      // survive a VPN rotation across restart and produce bogus "VPN IP changed"
-      // aborts on every fallback grab after the addon comes back up.
-      const candidates = group.candidates.map(({ searchExitIp: _ip, ...rest }) => rest);
-      data.push({ version: FALLBACK_GROUPS_SCHEMA_VERSION, id, ...group, candidates });
+      data.push({ version: FALLBACK_GROUPS_SCHEMA_VERSION, id, ...group });
     }
   }
   try { fs.writeFileSync(FALLBACK_GROUPS_FILE, JSON.stringify(data, null, 2)); } catch {}
