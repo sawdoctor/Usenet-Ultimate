@@ -172,6 +172,9 @@ export async function resolveTitleFromTmdb(
 /**
  * Resolve movie runtime in seconds from TMDB detail endpoint.
  * Requires an extra API call to /3/movie/{id} since /find doesn't include runtime.
+ * The same request also pulls release_dates (append_to_response), so it records the
+ * premiere year (earliest release, when earlier than the theatrical date) under
+ * `premiereYear:tmdb:{imdbId}` for getCachedPremiereYear to read.
  */
 export async function resolveRuntimeFromTmdb(imdbId: string): Promise<number | undefined> {
   const cacheKey = `runtime:tmdb:${imdbId}`;
@@ -188,10 +191,34 @@ export async function resolveRuntimeFromTmdb(imdbId: string): Promise<number | u
 
     const isReadAccessToken = apiKey.length > 40 || apiKey.startsWith('eyJ');
     const response = await axios.get(`https://api.themoviedb.org/3/movie/${tmdbResult.id}`, {
-      params: isReadAccessToken ? {} : { api_key: apiKey },
+      params: {
+        append_to_response: 'release_dates',
+        ...(isReadAccessToken ? {} : { api_key: apiKey }),
+      },
       headers: isReadAccessToken ? { Authorization: `Bearer ${apiKey}` } : {},
       timeout: 5000,
     });
+
+    // Derive the premiere year:
+    // The earliest release when it falls before the primary (theatrical) date.
+    // The movie search-year resolver prefers it, since that is the year IMDB shows
+    // and release groups tag. Stored under its own key for getCachedPremiereYear.
+    const primaryYear = response.data?.release_date?.match(/^\d{4}/)?.[0];
+    const regions = response.data?.release_dates?.results;
+    if (primaryYear && Array.isArray(regions)) {
+      let earliest: string | undefined;
+      for (const region of regions) {
+        if (!Array.isArray(region?.release_dates)) continue;
+        for (const d of region.release_dates) {
+          const rd = d?.release_date;
+          if (typeof rd === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rd) && (!earliest || rd < earliest)) earliest = rd;
+        }
+      }
+      const earliestYear = earliest?.slice(0, 4);
+      if (earliestYear && earliestYear < primaryYear) {
+        idCache.set(`premiereYear:tmdb:${imdbId}`, earliestYear);
+      }
+    }
 
     const runtime = response.data?.runtime;
     if (typeof runtime === 'number' && runtime > 0) {
@@ -204,6 +231,15 @@ export async function resolveRuntimeFromTmdb(imdbId: string): Promise<number | u
     console.warn(`⚠️  Failed to resolve TMDB runtime for ${imdbId}:`, (error as Error).message);
   }
   return undefined;
+}
+
+/**
+ * Earliest-release ("premiere") year recorded by resolveRuntimeFromTmdb, set only
+ * when it predates the primary/theatrical date. Used by the movie search-year
+ * resolver to prefer the year IMDB shows. Returns undefined when there is no earlier release.
+ */
+export function getCachedPremiereYear(imdbId: string): string | undefined {
+  return idCache.get<string>(`premiereYear:tmdb:${imdbId}`);
 }
 
 /**

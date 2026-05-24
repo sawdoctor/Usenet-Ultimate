@@ -8,7 +8,7 @@
 
 import axios from 'axios';
 import { config, getTvRemakeFiltering } from '../config/index.js';
-import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveEpisodeCountFromTvdbId, resolveRuntimeFromTmdb, detectRemake, fetchTvdbRecordById } from '../idResolver.js';
+import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveEpisodeCountFromTvdbId, resolveRuntimeFromTmdb, getCachedPremiereYear, detectRemake, fetchTvdbRecordById } from '../idResolver.js';
 import { isStylizedTitle } from '../parsers/titleMatching.js';
 import { isAnimeByImdbId, lookupByImdbId, lookupByTvdbId, getKitsuImdbEntries } from '../anime/animeDatabase.js';
 
@@ -296,6 +296,16 @@ export async function resolveTitle(
   if (type === 'movie' && tvdbIdHint === undefined) {
     const tmdbRuntime = await resolveRuntimeFromTmdb(imdbId);
     if (tmdbRuntime) runtime = tmdbRuntime;
+
+    // Release groups tag films with the year IMDB shows (the earliest public
+    // release); TMDB/Cinemeta report the later theatrical year, so text searches
+    // miss the scene releases. Prefer the premiere year when it is exactly one
+    // year earlier. resolveRuntimeFromTmdb cached it above (same request).
+    const premiereYear = getCachedPremiereYear(imdbId);
+    if (year && premiereYear && parseInt(year, 10) - parseInt(premiereYear, 10) === 1) {
+      console.log(`📅 Using premiere year ${premiereYear} from TMDB release_dates (theatrical: ${year})`);
+      year = premiereYear;
+    }
   }
 
   // Step 6: Detect remakes — check if another show shares the same title (for text search filtering)
