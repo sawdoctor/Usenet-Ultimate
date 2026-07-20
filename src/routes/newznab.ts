@@ -173,7 +173,7 @@ async function pipelineSearch(
   season: number | undefined,
   episode: number | undefined,
 ): Promise<any[]> {
-  const tvdbIdFromRequest = !imdbId && tvdbId ? parseInt(tvdbId, 10) : undefined;
+  const tvdbIdFromRequest = tvdbId ? parseInt(tvdbId, 10) : undefined;
   const titleInfo = await resolveTitle(type, imdbId, season, episode, tvdbIdFromRequest);
 
   const searchCtx: SearchContext = {
