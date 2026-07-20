@@ -224,7 +224,7 @@ async function prowlarrRecent(categories: number[]): Promise<NewznabItem[]> {
     signal: AbortSignal.timeout(20_000),
   });
   if (!resp.ok) throw new Error(`Prowlarr responded ${resp.status}`);
-  const data: any[] = await resp.json();
+  const data = await resp.json() as any[];
   if (!Array.isArray(data)) return [];
 
   const items: NewznabItem[] = [];
