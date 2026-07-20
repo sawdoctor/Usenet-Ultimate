@@ -166,6 +166,9 @@ function mapPipelineResults(
 // Search via the full UU pipeline (title resolution → orchestrator → filters)
 // ---------------------------------------------------------------------------
 
+const searchCache = new Map<string, { at: number; results: any[] }>();
+const SEARCH_CACHE_MS = 10 * 60 * 1000;
+
 async function pipelineSearch(
   type: 'movie' | 'series',
   imdbId: string,
@@ -205,9 +208,12 @@ async function pipelineSearch(
   const { results: preFiltered, deprioritizedPacks } = deduplicateAndPreFilter(
     allRaw, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear,
   );
-  return applyUserFilters(
+  const finalResults = applyUserFilters(
     preFiltered, type, Date.now(), titleInfo.runtime, deprioritizedPacks, { quiet: true },
   );
+  searchCache.set(cacheKey, { at: Date.now(), results: finalResults });
+  if (searchCache.size > 500) searchCache.clear();
+  return finalResults;
 }
 
 // ---------------------------------------------------------------------------
