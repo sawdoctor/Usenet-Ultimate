@@ -176,6 +176,9 @@ async function pipelineSearch(
   season: number | undefined,
   episode: number | undefined,
 ): Promise<any[]> {
+  const cacheKey = `${type}|${imdbId}|${tvdbId ?? ''}|${season ?? ''}|${episode ?? ''}`;
+  const hit = searchCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.results;
   const tvdbIdFromRequest = tvdbId ? parseInt(tvdbId, 10) : undefined;
   const titleInfo = await resolveTitle(type, imdbId, season, episode, tvdbIdFromRequest);
 
