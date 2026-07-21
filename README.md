@@ -824,6 +824,40 @@ ui/             React + Tailwind configuration dashboard (Vite, PWA)
 ## License
 
 [MIT](LICENSE)
+---
+
+# Newznab
+
+Usenet Ultimate includes a built-in Newznab server compatible with Sonarr, Radarr, Prowlarr and other Newznab clients.
+
+## URL
+
+Use:
+
+```
+http://your-server:1337/stremio/<INSTALL_ID>/newznab
+```
+
+Replace:
+
+- `your-server` with your server name or IP.
+- `<INSTALL_ID>` with the same ID used in your Stremio Manifest URL.
+
+For example, if your Stremio Manifest is:
+
+```
+http://your-server:1337/stremio/<INSTALL_ID>/manifest.json
+```
+
+then your Newznab URL is:
+
+```
+http://your-server:1337/stremio/<INSTALL_ID>/newznab
+```
+
+## API Key
+
+Leave the API Key field blank.
 
 ---
 
