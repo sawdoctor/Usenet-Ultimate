@@ -35,7 +35,7 @@ cd "$SCRIPT_DIR"
 
 # ── Defaults ────────────────────────────────────────────────────────────────
 IMAGE_NAME="usenet-ultimate"
-GHCR_IMAGE="ghcr.io/dsmart33/usenet-ultimate"
+GHCR_IMAGE="ghcr.io/sawdoctor/usenet-ultimate"
 BUMP=""
 DO_PUSH=false
 DO_DOCKER=true
