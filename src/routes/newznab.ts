@@ -25,6 +25,9 @@ import { config } from '../config/index.js';
 import { resolveTitle } from '../addon/titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from '../addon/searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProcessor.js';
+import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent } from '../health/index.js';
+import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
+import { getLatestVersions } from '../versionFetcher.js';
 
 const MAX_RESULTS = 100;
 const RSS_LIMIT = 100;
@@ -214,9 +217,50 @@ async function pipelineSearch(
   const finalResults = applyUserFilters(
     preFiltered, type, Date.now(), titleInfo.runtime, deprioritizedPacks, { quiet: true },
   );
-  searchCache.set(cacheKey, { at: Date.now(), results: finalResults });
+  // Search-side health verification: remove dead NZBs before Sonarr/Radarr
+  // ever sees them. Reuses UU's batch health engine and dead-NZB database.
+  const hc = (config as any).healthChecks;
+  const hcSearchProviders = hc?.providers?.filter((p: any) => p.enabled) || [];
+  let healthyResults = finalResults;
+  if (hc?.enabled && hcSearchProviders.length > 0 && finalResults.length > 0) {
+    healthyResults = finalResults.filter((r: any) => !r?.link || !isDeadNzbByUrl(r.link));
+    const inspectCount = Math.min(Number(hc.nzbsToInspect) || 6, healthyResults.length);
+    const topCandidates = healthyResults
+      .slice(0, inspectCount)
+      .filter((r: any) => /^https?:\/\//i.test(r?.link));
+    if (topCandidates.length > 0) {
+      const hcUa = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
+      try {
+        console.log(`\u{1FA7A} Newznab: verifying top ${topCandidates.length} result(s) before responding...`);
+        const { results: verdicts } = await performBatchHealthChecks(
+          topCandidates.map((r: any) => r.link),
+          hcSearchProviders,
+          hcUa,
+          Math.min(Number(hc.maxConnections) || 3, topCandidates.length),
+          { archiveInspection: false, sampleCount: hc.sampleCount === 7 ? 7 : 3 },
+        );
+        const deadUrls = new Set<string>();
+        for (const [url, v] of verdicts.entries()) {
+          if (v && v.playable === false) {
+            deadUrls.add(url);
+            try { addDeadNzbByUrl(url, 'newznab search verification'); } catch { /* noop */ }
+          }
+        }
+        if (deadUrls.size > 0) {
+          saveCacheToDisk();
+          console.log(`\u{1FA7A} Newznab: removed ${deadUrls.size} dead NZB(s) from results`);
+          healthyResults = healthyResults.filter((r: any) => !deadUrls.has(r?.link));
+        } else {
+          console.log(`\u{1FA7A} Newznab: all verified candidates healthy`);
+        }
+      } catch (e) {
+        console.warn('\u{1FA7A} Newznab: verification skipped:', e instanceof Error ? e.message : e);
+      }
+    }
+  }
+  searchCache.set(cacheKey, { at: Date.now(), results: healthyResults });
   if (searchCache.size > 500) searchCache.clear();
-  return finalResults;
+  return healthyResults;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,10 +322,38 @@ export function createNewznabRoutes(): Router {
       if (t === 'caps') return xml(res, capsXml());
 
       if (t === 'get') {
+        console.log(`\u{1F4E5} Newznab t=get request received`);
         const encoded = String(req.query.d ?? '');
         let target = '';
         try { target = Buffer.from(encoded, 'base64url').toString('utf8'); } catch { /* noop */ }
         if (!/^https?:\/\//i.test(target)) return errorXml(res, 300, 'Bad or missing NZB reference');
+        // Verify NZB health with UU's engine before handing to the download client.
+        // Governed by the existing Health Checks toggle; disabled = passthrough.
+        const hcProviders = (config as any).healthChecks?.providers?.filter((p: any) => p.enabled) || [];
+        if ((config as any).healthChecks?.enabled && hcProviders.length > 0) {
+          if (isDeadNzbByUrl(target)) {
+            return errorXml(res, 410, 'NZB previously verified dead by health checks', 404);
+          }
+          const ua = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
+          try {
+            const verdict = await Promise.race([
+              performHealthCheck(target, hcProviders, ua, { archiveInspection: false, sampleCount: 3 }),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+            ]);
+            if (verdict && verdict.playable === false) {
+              addDeadNzbByUrl(target, 'newznab t=get grab');
+              saveCacheToDisk();
+              return errorXml(res, 410, `NZB failed health check: ${verdict.message}`, 404);
+            }
+          } catch { /* best-effort: verification errors never block serving */ }
+          const cachedNzb = getCachedNzbContent(target);
+          if (typeof cachedNzb === 'string' && cachedNzb.length > 0) {
+            res.status(200).setHeader('Content-Type', 'application/x-nzb');
+            res.setHeader('Content-Disposition', 'attachment; filename="release.nzb"');
+            res.setHeader('Cache-Control', 'no-store');
+            return res.send(Buffer.from(cachedNzb, 'utf8'));
+          }
+        }
         const upstream = await fetch(target, {
           redirect: 'follow',
           signal: AbortSignal.timeout(120_000),
