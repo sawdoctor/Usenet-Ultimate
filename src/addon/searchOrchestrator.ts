@@ -122,6 +122,10 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           return await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear, isAnime, searchAliases);
         } else if (type === 'series' && season !== undefined && episode !== undefined) {
           return await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear, isAnime, searchAliases, episodeAired, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount);
+        } else if (type === 'series' && season !== undefined) {
+          // Whole-season search (no episode) — e.g. Sonarr t=tvsearch with
+          // season= but no ep=. Previously fell through to `return []`.
+          return await searcher.searchTVSeason(imdbId, title, season, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
         }
         return [];
       });

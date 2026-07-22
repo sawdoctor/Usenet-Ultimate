@@ -414,6 +414,113 @@ export class ProwlarrSearcher {
    *   Matches Newznab's per-indexer behavior in searchOrchestrator where
    *   searchTVShowPacks fires text-based pack queries against every indexer.
    */
+  /**
+   * Season-only search (season present, no episode). Sonarr's whole-season
+   * searches (t=tvsearch with season= but no ep=) previously had NO code
+   * path here at all — searchTVShow requires an episode, so the orchestrator
+   * returned [] instantly and the season search silently found nothing.
+   *
+   * Runs in parallel:
+   *  - per-indexer ID searches (tvsearch + season, no ep) for id-method indexers
+   *  - a "Title Sxx" text aggregate query across all indexers (returns both
+   *    individual episodes and season packs; title-filtered, not pack-restricted)
+   *  - a "Title S01" multi-season fanout, filtered to packs covering the
+   *    requested season (mirrors runTitleSearchTV's fanout)
+   */
+  async searchTVSeason(
+    imdbId: string,
+    title: string,
+    season: number,
+    episodesInSeason: number | undefined,
+    year: string | undefined,
+    country: string | undefined,
+    resolvedIds?: Map<string, { idParam: string; idValue: string } | null>,
+    additionalTitles?: string[],
+    titleYear?: string,
+  ): Promise<(NZBSearchResult & { indexerName: string })[]> {
+    const groups = this.groupByMethod('tv');
+    const s = season.toString().padStart(2, '0');
+    const idSearches: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
+    const idSearchedIndexerIds: string[] = [];
+    const textMethodIds: string[] = [];
+
+    for (const [method, indexerIds] of groups) {
+      if (method === 'text') {
+        textMethodIds.push(...indexerIds);
+        continue;
+      }
+      for (const indexerId of indexerIds) {
+        const indexer = this.indexers.find(i => i.id === indexerId);
+        const indexerName = indexer?.name || 'Unknown';
+        const params: NewznabParams = { t: 'tvsearch', cat: '5000', season };
+        if (method === 'imdb' && imdbId.startsWith('tt')) {
+          params.imdbid = imdbId.replace('tt', '');
+        } else if (method === 'tvdb' && resolvedIds?.get('tvdb')) {
+          params.tvdbid = parseInt(resolvedIds.get('tvdb')!.idValue, 10);
+        } else if (method === 'tvmaze' && resolvedIds?.get('tvmaze')) {
+          params.tvmazeid = parseInt(resolvedIds.get('tvmaze')!.idValue, 10);
+        } else {
+          slog(`⚠️  ${method} ID unavailable for "${indexerName}" (id=${indexerId}) — skipping`);
+          continue;
+        }
+        idSearches.push(withSubBuffer(`TV ${method} season search S${s} "${indexerName}"`, () => this.doNewznabSearch(indexerId, indexerName, params, undefined, method)));
+        idSearchedIndexerIds.push(indexerId);
+      }
+    }
+
+    // Pack/text queries are text-by-nature: run them across text-method AND
+    // id-method indexers (same rule as searchTVShow's packIndexerIds).
+    const packIndexerIds = [...new Set([...textMethodIds, ...idSearchedIndexerIds])];
+    const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [
+      Promise.all(idSearches).then(sets => sets.flat()),
+    ];
+
+    if (packIndexerIds.length > 0 && title) {
+      const seasonQuery = stripDiacritics(`${title} S${s}`);
+      tasks.push(withSubBuffer(`TV season text search: ${seasonQuery}`, async () => {
+        slog(`🔍 [Prowlarr] Query: "${seasonQuery}"`);
+        const r = await this.doAggregateSearch(packIndexerIds, 'search', seasonQuery, ['5000'], buildSeasonPackPaginationAdditionalPages(config.searchConfig));
+        const f = r.filter(x => isTextSearchMatch(title, x.title, year, country, additionalTitles, titleYear));
+        if (r.length !== f.length) {
+          slog(`   🎯 [Prowlarr] Title filter: ${r.length} → ${f.length}`);
+        }
+        return f;
+      }));
+
+      const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+      if (season > 1 && includeMultiSeasonPacks) {
+        const fanoutQuery = stripDiacritics(`${title} S01`);
+        tasks.push(withSubBuffer(`Multi-season fanout: ${fanoutQuery}`, async () => {
+          const r = await this.doAggregateSearch(packIndexerIds, 'search', fanoutQuery, ['5000'], buildSeriesPackPaginationAdditionalPages(config.searchConfig));
+          const matched = r.filter(x => isTextSearchMatch(title, x.title, year, country, additionalTitles, titleYear));
+          const packs = tagSeasonPack(matched, season, episodesInSeason);
+          if (packs.length > 0) slog(`   📦 [Prowlarr] Found ${packs.length} multi-season pack(s) covering S${season}`);
+          return packs;
+        }));
+      }
+    }
+
+    console.log(`🧪 SEASON TRACE: starting ${tasks.length} task(s) for "${title}" S${s}`);
+    const settled = await Promise.allSettled(tasks);
+    console.log(`🧪 SEASON TRACE: allSettled returned for "${title}" S${s}`);
+
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        console.log(`🧪 SEASON TRACE: task ${index + 1} fulfilled with ${result.value.length} result(s)`);
+      } else {
+        console.error(`🧪 SEASON TRACE: task ${index + 1} rejected:`, result.reason);
+      }
+    });
+
+    const results = settled
+      .filter((result): result is PromiseFulfilledResult<(NZBSearchResult & { indexerName: string })[]> =>
+        result.status === 'fulfilled')
+      .flatMap(result => result.value);
+
+    slog(`📊 [Prowlarr] Season search total: ${results.length} result(s) for "${title}" S${s}`);
+    return results;
+  }
+
   private async runTitleSearchTV(
     filterTitle: string,
     queryTitle: string,
