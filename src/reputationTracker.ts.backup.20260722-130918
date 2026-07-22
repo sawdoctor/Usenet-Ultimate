@@ -1,0 +1,329 @@
+/**
+ * Release Reputation Tracker
+ *
+ * Builds a per-release evidence log from real observations (search-time
+ * health checks, Sonarr/Radarr grabs, nzbdav download outcomes) and
+ * aggregates them into release-group and indexer reputation counters.
+ *
+ * Phase 1: record everything, score nothing. Scoring comes once real
+ * outcome data exists.
+ *
+ * Persisted to config/reputation.json alongside stats.json.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { config } from './config/index.js';
+import { getLatestVersions } from './versionFetcher.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPUTATION_FILE = path.join(__dirname, '..', 'config', 'reputation.json');
+
+const MAX_RELEASES = 2000;          // prune oldest beyond this
+const PENDING_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // grab never seen in history → 'lost'
+const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Data model
+// ---------------------------------------------------------------------------
+
+export type OutcomeBucket = 'missing_articles' | 'repair_failed' | 'passworded' | 'other';
+
+export interface ReleaseRecord {
+  title: string;
+  releaseGroup: string | null;
+  indexer: string | null;
+  nzbUrl?: string;
+  firstSeen: string;
+  lastSeen: string;
+  health: { alive: number; dead: number; lastResult: 'alive' | 'dead' | null; lastMessage?: string; lastChecked?: string };
+  passworded: boolean;
+  grabs: Array<{ timestamp: string; source: 'arr' | 'other'; userAgent?: string }>;
+  outcome: {
+    status: 'pending' | 'success' | 'failed' | 'lost' | null;
+    bucket?: OutcomeBucket;
+    failMessage?: string;
+    resolvedAt?: string;
+  };
+}
+
+interface AggregateStats {
+  grabs: number;
+  successes: number;
+  failures: number;
+  healthAlive: number;
+  healthDead: number;
+  passworded: number;
+  lastActivity: string | null;
+}
+
+interface ReputationData {
+  releases: { [key: string]: ReleaseRecord };
+  groups: { [group: string]: AggregateStats };
+  indexers: { [indexer: string]: AggregateStats };
+}
+
+let data: ReputationData = { releases: {}, groups: {}, indexers: {} };
+
+// ---------------------------------------------------------------------------
+// Persistence (debounced — health checks can fire in bursts)
+// ---------------------------------------------------------------------------
+
+function loadFile(): ReputationData {
+  try {
+    if (fs.existsSync(REPUTATION_FILE)) {
+      return JSON.parse(fs.readFileSync(REPUTATION_FILE, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('\u{1F4C8} Reputation: error loading file:', err);
+  }
+  return { releases: {}, groups: {}, indexers: {} };
+}
+
+let saveTimer: NodeJS.Timeout | null = null;
+function scheduleSave(): void {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      fs.writeFileSync(REPUTATION_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('\u{1F4C8} Reputation: error saving file:', err);
+    }
+  }, 2000);
+}
+
+data = loadFile();
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function now(): string { return new Date().toISOString(); }
+
+/** Normalized key: lowercase, dots/underscores/spaces collapsed. */
+export function releaseKey(title: string): string {
+  return title.toLowerCase().replace(/[.\s_]+/g, ' ').trim();
+}
+
+/** Best-effort scene-style group parse: trailing -GROUP, sans extension/tags. */
+export function parseReleaseGroup(title: string): string | null {
+  let t = title.trim().replace(/\.(mkv|mp4|avi|nzb|par2|rar)$/i, '');
+  const m = t.match(/-([A-Za-z0-9]+)\s*(\[[^\]]*\])?$/);
+  if (m && m[1] && m[1].length <= 24 && !/^\d+$/.test(m[1])) return m[1];
+  return null;
+}
+
+export function classifyFailMessage(msg: string | undefined): OutcomeBucket {
+  const s = (msg || '').toLowerCase();
+  if (/password|encrypt/.test(s)) return 'passworded';
+  if (/repair|par2|not enough.*blocks/.test(s)) return 'repair_failed';
+  if (/missing|article|segment|430|not found/.test(s)) return 'missing_articles';
+  return 'other';
+}
+
+function emptyAggregate(): AggregateStats {
+  return { grabs: 0, successes: 0, failures: 0, healthAlive: 0, healthDead: 0, passworded: 0, lastActivity: null };
+}
+
+function aggFor(map: { [k: string]: AggregateStats }, key: string | null): AggregateStats | null {
+  if (!key) return null;
+  if (!map[key]) map[key] = emptyAggregate();
+  map[key].lastActivity = now();
+  return map[key];
+}
+
+function getOrCreateRelease(title: string, indexer: string | null, nzbUrl?: string): ReleaseRecord {
+  const key = releaseKey(title);
+  if (!data.releases[key]) {
+    data.releases[key] = {
+      title,
+      releaseGroup: parseReleaseGroup(title),
+      indexer,
+      nzbUrl,
+      firstSeen: now(),
+      lastSeen: now(),
+      health: { alive: 0, dead: 0, lastResult: null },
+      passworded: false,
+      grabs: [],
+      outcome: { status: null },
+    };
+    pruneIfNeeded();
+  }
+  const rec = data.releases[key];
+  rec.lastSeen = now();
+  if (indexer && !rec.indexer) rec.indexer = indexer;
+  if (nzbUrl && !rec.nzbUrl) rec.nzbUrl = nzbUrl;
+  return rec;
+}
+
+function pruneIfNeeded(): void {
+  const keys = Object.keys(data.releases);
+  if (keys.length <= MAX_RELEASES) return;
+  keys.sort((a, b) => data.releases[a].lastSeen.localeCompare(data.releases[b].lastSeen));
+  for (const k of keys.slice(0, keys.length - MAX_RELEASES)) delete data.releases[k];
+}
+
+// ---------------------------------------------------------------------------
+// Recording — called from routes/newznab.ts
+// ---------------------------------------------------------------------------
+
+/** Search-time health verdict for a specific release. */
+export function recordHealthCheck(
+  title: string,
+  indexer: string | null,
+  alive: boolean,
+  message?: string,
+): void {
+  const rec = getOrCreateRelease(title, indexer);
+  rec.health[alive ? 'alive' : 'dead']++;
+  rec.health.lastResult = alive ? 'alive' : 'dead';
+  rec.health.lastMessage = message;
+  rec.health.lastChecked = now();
+  if (/password|encrypt/i.test(message || '')) rec.passworded = true;
+
+  const g = aggFor(data.groups, rec.releaseGroup);
+  if (g) { g[alive ? 'healthAlive' : 'healthDead']++; if (rec.passworded) g.passworded++; }
+  const i = aggFor(data.indexers, rec.indexer);
+  if (i) { i[alive ? 'healthAlive' : 'healthDead']++; }
+  scheduleSave();
+}
+
+/**
+ * A t=get download of an NZB. Only requests from Sonarr/Radarr-family
+ * user agents count as real grabs with a pending outcome; anything else
+ * (UU's own verification, curl tests) is logged but not awaited.
+ */
+export function recordGrab(
+  nzbUrl: string,
+  meta: { title: string; indexer: string | null } | null,
+  isArr: boolean,
+  userAgent?: string,
+): void {
+  const title = meta?.title || `unknown:${nzbUrl.slice(-40)}`;
+  const rec = getOrCreateRelease(title, meta?.indexer ?? null, nzbUrl);
+  rec.grabs.push({ timestamp: now(), source: isArr ? 'arr' : 'other', userAgent: userAgent?.slice(0, 60) });
+  if (rec.grabs.length > 20) rec.grabs.shift();
+
+  if (isArr) {
+    rec.outcome = { status: 'pending' };
+    const g = aggFor(data.groups, rec.releaseGroup);
+    if (g) g.grabs++;
+    const i = aggFor(data.indexers, rec.indexer);
+    if (i) i.grabs++;
+    console.log(`\u{1F4C8} Reputation: grab recorded — "${rec.title}" [${rec.releaseGroup || 'no group'}] from ${rec.indexer || 'unknown indexer'}, awaiting nzbdav outcome`);
+  }
+  scheduleSave();
+}
+
+// ---------------------------------------------------------------------------
+// Reconciliation — poll nzbdav history, resolve pending grabs by name
+// ---------------------------------------------------------------------------
+
+interface SabHistorySlot { nzo_id?: string; nzoId?: string; status?: string; Status?: string; fail_message?: string; failMessage?: string; name?: string }
+
+async function fetchNzbdavHistory(): Promise<SabHistorySlot[] | null> {
+  const url = (config as any).nzbdavUrl as string | undefined;
+  const apiKey = (config as any).nzbdavApiKey as string | undefined;
+  if (!url || !apiKey) return null;
+  const base = url.replace(/\/+$/, '');
+  try {
+    const res = await fetch(`${base}/api?mode=history&apikey=${apiKey}&output=json`, {
+      headers: { 'User-Agent': (config as any).userAgents?.nzbdavOperations || getLatestVersions().chrome },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const body = await res.json() as { history?: { slots?: SabHistorySlot[] } };
+    return body.history?.slots || [];
+  } catch {
+    return null;
+  }
+}
+
+function resolveOutcome(rec: ReleaseRecord, status: string, failMessage?: string): void {
+  const ok = status.toLowerCase() === 'completed';
+  rec.outcome = {
+    status: ok ? 'success' : 'failed',
+    bucket: ok ? undefined : classifyFailMessage(failMessage),
+    failMessage: failMessage || undefined,
+    resolvedAt: now(),
+  };
+  const g = aggFor(data.groups, rec.releaseGroup);
+  if (g) g[ok ? 'successes' : 'failures']++;
+  const i = aggFor(data.indexers, rec.indexer);
+  if (i) i[ok ? 'successes' : 'failures']++;
+  console.log(`\u{1F4C8} Reputation: outcome for "${rec.title}" → ${rec.outcome.status}${rec.outcome.bucket ? ` (${rec.outcome.bucket})` : ''}`);
+}
+
+let reconciling = false;
+export async function reconcileWithNzbdav(): Promise<void> {
+  if (reconciling) return;
+  const pending = Object.values(data.releases).filter(r => r.outcome.status === 'pending');
+  if (pending.length === 0) return;
+  reconciling = true;
+  try {
+    const slots = await fetchNzbdavHistory();
+    if (slots === null) return; // nzbdav unreachable/unconfigured — try again next tick
+
+    const byName = new Map<string, SabHistorySlot>();
+    for (const s of slots) {
+      if (s.name) byName.set(releaseKey(s.name), s);
+    }
+
+    for (const rec of pending) {
+      const slot = byName.get(releaseKey(rec.title));
+      if (slot) {
+        const status = slot.status || slot.Status || '';
+        if (/completed|failed/i.test(status)) {
+          resolveOutcome(rec, status, slot.fail_message || slot.failMessage);
+        }
+        continue; // still downloading/queued — leave pending
+      }
+      // Never appeared in history and grab is old → mark lost, don't count
+      const lastGrab = rec.grabs[rec.grabs.length - 1];
+      if (lastGrab && Date.now() - new Date(lastGrab.timestamp).getTime() > PENDING_EXPIRY_MS) {
+        rec.outcome = { status: 'lost', resolvedAt: now() };
+        console.log(`\u{1F4C8} Reputation: "${rec.title}" never appeared in nzbdav history — marked lost`);
+      }
+    }
+    scheduleSave();
+  } finally {
+    reconciling = false;
+  }
+}
+
+let reconcilerStarted = false;
+export function startReputationReconciler(): void {
+  if (reconcilerStarted) return;
+  reconcilerStarted = true;
+  setInterval(() => { reconcileWithNzbdav().catch(() => { /* noop */ }); }, RECONCILE_INTERVAL_MS);
+  console.log('\u{1F4C8} Reputation tracker active (reconciling with nzbdav every 5 min)');
+}
+
+// ---------------------------------------------------------------------------
+// Inspection
+// ---------------------------------------------------------------------------
+
+export function getReputationData(): {
+  summary: { releases: number; pendingOutcomes: number; groups: number; indexers: number };
+  groups: { [g: string]: AggregateStats };
+  indexers: { [i: string]: AggregateStats };
+  recentReleases: ReleaseRecord[];
+} {
+  const releases = Object.values(data.releases);
+  return {
+    summary: {
+      releases: releases.length,
+      pendingOutcomes: releases.filter(r => r.outcome.status === 'pending').length,
+      groups: Object.keys(data.groups).length,
+      indexers: Object.keys(data.indexers).length,
+    },
+    groups: data.groups,
+    indexers: data.indexers,
+    recentReleases: releases
+      .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
+      .slice(0, 50),
+  };
+}

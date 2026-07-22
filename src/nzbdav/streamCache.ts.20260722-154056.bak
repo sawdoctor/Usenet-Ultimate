@@ -14,7 +14,6 @@ import type { CacheEntry, StreamData, NZBDavConfig } from './types.js';
 import { config as globalConfig } from '../config/index.js';
 import { clearFallbackGroups } from './fallbackManager.js';
 import { clearDeliveryLog, MULTI_EPISODE_BLOCKED_ERROR, VIDEO_NOT_FOUND_ERROR } from './utils.js';
-import { recordStreamOutcome } from '../reputationTracker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -291,15 +290,7 @@ function shouldDeadBeUrlWide(nzbUrl: string, isSeasonPack?: boolean): boolean {
 /** Write a resolved stream directly to readyCache (used by Ultimate-Fallback to bypass getOrCreateStream). */
 export function setReadyCacheEntry(cacheKey: string, data: StreamData, indexerName?: string): void {
   const now = Date.now();
-  const isNew = !readyCache.has(cacheKey);
   readyCache.set(cacheKey, { data, indexerName, createdAt: now, expiresAt: now + getReadyTTLMs() });
-  // Reputation: a stream reached ready state — record success once per cache entry.
-  // cacheKey is `${normalizedUrl}::${title}`, so the title is everything after '::'.
-  if (isNew) {
-    const sepIdx = cacheKey.indexOf('::');
-    const title = sepIdx >= 0 ? cacheKey.substring(sepIdx + 2) : '';
-    if (title) { try { recordStreamOutcome(title, indexerName ?? null, true); } catch { /* noop */ } }
-  }
   saveCacheToDisk();
 }
 
@@ -323,7 +314,6 @@ export function setDeadNzbEntry(
   if (!wide && cachePattern) (error as any).isEpisodeSpecific = true;
   const now = Date.now();
   deadNzbCache.set(key, { title, indexerName, size, error, createdAt: now, expiresAt: now + getDeadTTLMs() });
-  try { recordStreamOutcome(title, indexerName ?? null, false, error?.message); } catch { /* noop */ }
   saveCacheToDisk();
 }
 
@@ -874,7 +864,6 @@ export function addDeadNzbByUrl(nzbUrl: string, title: string, indexerName?: str
   const error = new Error('Health check: blocked');
   (error as any).isNzbdavFailure = true;
   deadNzbCache.set(normalized, { title, indexerName, size, error, createdAt, expiresAt: createdAt + getDeadTTLMs() });
-  try { recordStreamOutcome(title, indexerName ?? null, false, error.message); } catch { /* noop */ }
   if (globalConfig.deadNzbDbMode === 'storage') {
     enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
   }

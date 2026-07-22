@@ -224,7 +224,6 @@ app.get('*', (req, res) => {
 // Start server
 // Clean up orphaned segment cache file from previous versions
 import fs from 'fs';
-import { startReputationReconciler } from './reputationTracker.js';
 try { fs.unlinkSync(path.join(__dirname, '..', 'config', 'segment-cache.json')); } catch {}
 
 // Graceful shutdown — persist caches before exit
@@ -258,7 +257,6 @@ process.on('SIGINT', () => {
   runStaleIndexerStatsCleanup().catch(err =>
     console.error('Stale indexer stats cleanup error:', err)
   );
-  startReputationReconciler();
 
   app.listen(PORT, () => {
     console.log(`\n\u{1F680} Usenet Ultimate is running!\n`);

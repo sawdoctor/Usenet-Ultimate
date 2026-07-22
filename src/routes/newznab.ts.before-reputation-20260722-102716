@@ -28,8 +28,6 @@ import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProces
 import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent } from '../health/index.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { recordHealthCheck, recordGrab, getReputationData } from '../reputationTracker.js';
-import { trackGrab } from '../statsTracker.js';
 
 const MAX_RESULTS = 100;
 const RSS_LIMIT = 100;
@@ -242,20 +240,7 @@ async function pipelineSearch(
           { archiveInspection: false, sampleCount: hc.sampleCount === 7 ? 7 : 3 },
         );
         const deadUrls = new Set<string>();
-        const candidateByUrl = new Map<string, any>(topCandidates.map((r: any) => [r.link, r] as [string, any]));
         for (const [url, v] of verdicts.entries()) {
-          // Reputation: log every verdict as a release-level observation
-          const cand = candidateByUrl.get(url);
-          if (cand) {
-            try {
-              recordHealthCheck(
-                cand.title || 'Unknown release',
-                cand.indexer || cand.indexerName || null,
-                !(v && v.playable === false),
-                v?.message,
-              );
-            } catch { /* noop — reputation must never break search */ }
-          }
           if (v && v.playable === false) {
             deadUrls.add(url);
             try { addDeadNzbByUrl(url, 'newznab search verification'); } catch { /* noop */ }
@@ -276,18 +261,6 @@ async function pipelineSearch(
   searchCache.set(cacheKey, { at: Date.now(), results: healthyResults });
   if (searchCache.size > 500) searchCache.clear();
   return healthyResults;
-}
-
-/** Map a grabbed NZB URL back to its title + indexer via the search cache. */
-function findCachedResultByUrl(url: string): { title: string; indexer: string | null } | null {
-  for (const { results } of searchCache.values()) {
-    for (const r of results) {
-      if (r?.link === url) {
-        return { title: r.title || 'Unknown release', indexer: r.indexer || r.indexerName || null };
-      }
-    }
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,17 +327,6 @@ export function createNewznabRoutes(): Router {
         let target = '';
         try { target = Buffer.from(encoded, 'base64url').toString('utf8'); } catch { /* noop */ }
         if (!/^https?:\/\//i.test(target)) return errorXml(res, 300, 'Bad or missing NZB reference');
-        // Reputation: record the grab. Only *arr user agents count as real
-        // grabs with a pending outcome; anything else is logged but not awaited.
-        const grabUa = req.get('user-agent') || '';
-        const isArrGrab = /sonarr|radarr|lidarr|whisparr|prowlarr/i.test(grabUa);
-        try {
-          const cached = findCachedResultByUrl(target);
-          recordGrab(target, cached, isArrGrab, grabUa);
-          if (isArrGrab && cached) {
-            trackGrab(cached.indexer || 'Unknown', cached.title); // stats.json parity with Stremio path
-          }
-        } catch { /* noop — reputation must never block a grab */ }
         // Verify NZB health with UU's engine before handing to the download client.
         // Governed by the existing Health Checks toggle; disabled = passthrough.
         const hcProviders = (config as any).healthChecks?.providers?.filter((p: any) => p.enabled) || [];
@@ -445,11 +407,6 @@ export function createNewznabRoutes(): Router {
         // Free-text search isn't ID-addressable; serve recent from both categories
         const items = await prowlarrRecent([2000, 5000]);
         return xml(res, itemsXml(items, baseUrl));
-      }
-
-      if (t === 'uu-reputation') {
-        // Inspection endpoint (not part of Newznab spec — behind manifest-key auth)
-        return res.status(200).json(getReputationData());
       }
 
       return errorXml(res, 202, `Unsupported function: ${t || '(none)'}`);
