@@ -26,3 +26,7 @@ npm-debug.log*
 
 # Runtime data
 /config/
+# Development backup files
+*.bak
+*.backup.*
+*.before-*
