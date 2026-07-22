@@ -5,7 +5,7 @@
 <h1 align="center">Usenet Ultimate</h1>
 
 <p align="center">
-  A Stremio addon that searches Usenet indexers for media content and streams it directly through NzbDAV.
+  An intelligent Usenet search platform for Stremio, Sonarr, Radarr, Prowlarr, and other Newznab clients.
 </p>
 
 <p align="center">
@@ -25,6 +25,24 @@
   &nbsp;&nbsp;
   <img src="https://github.com/user-attachments/assets/eba4c2a9-25ea-41f5-9d63-622ef5687540" width="200" alt="PWA Install">
 </p>
+
+---
+
+## What's New in v1.6.0
+
+Version 1.6.0 adds the first phase of the **Release Reputation Engine** and promotes the built-in Newznab endpoint to a first-class supported use case.
+
+- Records search-time NZB health results
+- Records real grabs made by Sonarr, Radarr, and compatible Arr applications
+- Reconciles pending grabs against Sonarr and Radarr history every five minutes
+- Detects successful imports and failed or ignored downloads
+- Records Stremio stream successes and failures immediately
+- Aggregates evidence by release, release group, and indexer
+- Persists reputation data in `config/reputation.json`
+- Uses a provider-based outcome architecture that can be extended to more Servarr applications
+- Continues to use health and dead-NZB data for filtering; reputation-weighted ranking is planned for a later phase
+
+> **Important:** v1.6.0 records evidence but does not yet alter result scores using reputation data.
 
 ---
 
@@ -48,22 +66,81 @@ Once it's running, **[SETUP.md](SETUP.md)** walks you through first-time configu
 
 ---
 
+## Newznab Server Setup
+
+Usenet Ultimate includes a built-in Newznab server compatible with Sonarr, Radarr, Prowlarr, and other Newznab clients.
+
+### Endpoint
+
+Use:
+
+```text
+http://your-server:1337/stremio/<INSTALL_ID>/newznab
+```
+
+Replace:
+
+- `your-server` with the hostname or IP address of your Usenet Ultimate server
+- `<INSTALL_ID>` with the same personal ID used in your Stremio manifest URL
+
+For example:
+
+```text
+Manifest: http://your-server:1337/stremio/<INSTALL_ID>/manifest.json
+Newznab:  http://your-server:1337/stremio/<INSTALL_ID>/newznab
+```
+
+### API key
+
+Leave the Newznab client's **API Key** field blank. Access is tied to the install ID embedded in the URL.
+
+### Sonarr and Radarr
+
+Add Usenet Ultimate as a **Generic Newznab** indexer:
+
+- **URL:** the endpoint shown above
+- **API Key:** blank
+- **Categories:** use the normal TV or movie categories expected by your Arr application
+- **Enable RSS / Automatic Search / Interactive Search:** according to your normal Arr policy
+
+Usenet Ultimate is the indexer-facing search layer. Your download client remains configured separately in Sonarr or Radarr.
+
+---
+
 ## What Is It
 
-Usenet Ultimate is a self-hosted Stremio addon that turns Usenet into a streaming service. Point it at your Newznab indexers (or Prowlarr/NZBHydra), connect a Usenet provider and [NzbDAV](https://github.com/nzbdav-dev/nzbdav), and you've got a fully searchable streaming layer on top of Usenet — no download client required.
+Usenet Ultimate is a self-hosted Usenet search, verification, and delivery platform with two supported front ends:
 
-> **What is NzbDAV?** — [NzbDAV](https://github.com/nzbdav-dev/nzbdav) is the streaming engine that powers playback. It downloads NZBs from your Usenet provider, assembles the files, and serves them over WebDAV so Usenet Ultimate can stream video directly into Stremio. Think of it as the backend that turns Usenet downloads into a streamable library. Head to the [NzbDAV repo](https://github.com/nzbdav-dev/nzbdav) to set it up — it runs alongside Usenet Ultimate as a separate container.
+- **Stremio addon** — searches Usenet indexers and streams verified releases through NzbDAV or EasyNews.
+- **Newznab server** — exposes the same search, parsing, filtering, health-checking, and tracking pipeline to Sonarr, Radarr, Prowlarr, and other compatible clients.
+
+Point it at your Newznab indexers, Prowlarr, NZBHydra, or EasyNews. Usenet Ultimate collects results, parses release metadata, filters unsuitable releases, checks article availability, and returns the strongest candidates for the requesting client.
+
+> **What is NzbDAV?** — [NzbDAV](https://github.com/nzbdav-dev/nzbdav) is the streaming and download engine used by Usenet Ultimate. It downloads NZBs from your Usenet provider, assembles the files, and serves them through WebDAV. It runs alongside Usenet Ultimate as a separate container.
 
 ## How It Works
+
+### Stremio path
 
 When you click play on a movie or TV show in Stremio, Usenet Ultimate:
 
 1. **Resolves the title** via IMDB/TMDB/TVDB/TVMaze, including alternate and international titles
-2. **Searches your configured Usenet indexers** in parallel across all configured sources
+2. **Searches configured sources** in parallel
 3. **Parses release metadata** — resolution, codec, HDR, audio, release group, edition, language, and more
-4. **Health-checks NZBs** against your Usenet provider at the NNTP level before presenting them
+4. **Filters and health-checks candidates** against your Usenet provider
 5. **Inspects archives** for encryption, passwords, nested containers, and disc structures
-6. **Streams the content** through NzbDAV or EasyNews directly into Stremio with automatic fallback
+6. **Streams through NzbDAV or EasyNews**, with automatic fallback when a candidate fails
+
+### Newznab / Arr path
+
+When Sonarr, Radarr, Prowlarr, or another Newznab client searches Usenet Ultimate:
+
+1. The client calls the built-in Newznab endpoint
+2. Usenet Ultimate searches the configured upstream sources
+3. Results are parsed, filtered, deduplicated, ordered, and optionally health-checked
+4. The client receives a standard Newznab RSS response
+5. A real Arr grab is recorded as a pending reputation outcome
+6. Sonarr and Radarr history are checked periodically to resolve the grab as imported, failed, or ignored
 
 ---
 
@@ -182,6 +259,49 @@ Before running NNTP checks, health checks consult the NZB Database (the same cac
 **NzbDAV Library Pre-Check**
 
 If content is already in your NzbDAV library (previously downloaded), the addon skips health checking entirely and streams it directly. No redundant verification for content you already have.
+
+---
+
+### Release Reputation Engine
+
+The reputation engine builds a persistent evidence record from real activity across both supported front ends.
+
+It records:
+
+- Search-time health verdicts
+- Password or encryption warnings
+- Arr grabs made through the Newznab `t=get` path
+- Successful and failed Stremio streams
+- Successful Sonarr and Radarr imports
+- Sonarr and Radarr download failures or ignored downloads
+- Aggregate counters for release groups and indexers
+
+Arr grabs begin in a **pending** state. A provider-based reconciler checks configured Sonarr and Radarr history endpoints every five minutes:
+
+```text
+Newznab search
+      ↓
+Arr grabs release
+      ↓
+Pending reputation outcome
+      ↓
+Sonarr / Radarr history
+      ↓
+Imported → success
+Failed or ignored → failure
+```
+
+Stremio outcomes do not need polling because Usenet Ultimate directly observes whether the stream succeeds or fails.
+
+Reputation data is stored in:
+
+```text
+config/reputation.json
+```
+
+The provider abstraction is designed so other Servarr-family applications or download-history sources can be added without rewriting the core reconciler.
+
+> **Current scope:** v1.6.0 records and exposes evidence. Reputation-based score changes are deliberately deferred until enough real outcome data has been collected.
 
 ---
 
@@ -790,6 +910,7 @@ All persistent data lives in the `config/` directory (single Docker volume):
 | `healthy-nzbs.json` | NZB Database: successfully streamed NZBs (ready cache) |
 | `dead-nzbs.json` | NZB Database: failed NZBs from streaming and health checks |
 | `stats.json` | Per-indexer query counts, response times, grab statistics |
+| `reputation.json` | Release, release-group, and indexer outcome evidence |
 | `version-cache.json` | Cached latest versions of Prowlarr, SABnzbd, Chrome, Alpine |
 
 ## Releasing
@@ -824,40 +945,6 @@ ui/             React + Tailwind configuration dashboard (Vite, PWA)
 ## License
 
 [MIT](LICENSE)
----
-
-# Newznab
-
-Usenet Ultimate includes a built-in Newznab server compatible with Sonarr, Radarr, Prowlarr and other Newznab clients.
-
-## URL
-
-Use:
-
-```
-http://your-server:1337/stremio/<INSTALL_ID>/newznab
-```
-
-Replace:
-
-- `your-server` with your server name or IP.
-- `<INSTALL_ID>` with the same ID used in your Stremio Manifest URL.
-
-For example, if your Stremio Manifest is:
-
-```
-http://your-server:1337/stremio/<INSTALL_ID>/manifest.json
-```
-
-then your Newznab URL is:
-
-```
-http://your-server:1337/stremio/<INSTALL_ID>/newznab
-```
-
-## API Key
-
-Leave the API Key field blank.
 
 ---
 
