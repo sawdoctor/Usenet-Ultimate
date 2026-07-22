@@ -90,14 +90,14 @@ function capsXml(): string {
   ].join('\n');
 }
 
-function itemsXml(items: NewznabItem[], baseUrl: string, offset = 0): string {
+function itemsXml(items: NewznabItem[], baseUrl: string, offset = 0, total = items.length): string {
   const lines: string[] = [
     '<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">',
     '<channel>',
     '<title>Usenet Ultimate</title>',
     `<link>${esc(baseUrl)}</link>`,
     '<description>UU curated results</description>',
-    `<newznab:response offset="${offset}" total="${items.length}"/>`,
+    `<newznab:response offset="${offset}" total="${total}"/>`,
   ];
   for (const it of items) {
     const dl = `${baseUrl}/api?t=get&amp;d=${encodeURIComponent(Buffer.from(it.nzbUrl, 'utf8').toString('base64url'))}`;
@@ -338,6 +338,26 @@ function intParam(v: unknown): number | undefined {
   return Number.isInteger(n) && n >= 0 ? n : undefined;
 }
 
+/**
+ * prowlarrRecent() only ever fetches one fixed batch (up to RSS_LIMIT items) —
+ * there's no real "next page" to fetch from Prowlarr. What was broken before:
+ * every page request got served that same batch starting at offset 0, with
+ * `total` always equal to the batch size, regardless of what the client
+ * actually asked for. A client that respects the Newznab pagination contract
+ * (stop once offset >= total) had no way to know it had already seen
+ * everything, so it kept incrementing offset and re-fetching identical data.
+ *
+ * This slices the already-fetched batch honestly: `total` is the true size
+ * of what UU has to offer (the full batch), and the returned items are the
+ * real slice at the requested offset — empty once offset runs past the end,
+ * which is the client's actual stop signal.
+ */
+function pageItems(items: NewznabItem[], req: Request): { page: NewznabItem[]; offset: number } {
+  const offset = intParam(req.query.offset) ?? 0;
+  const limit = intParam(req.query.limit) ?? items.length;
+  return { page: items.slice(offset, offset + limit), offset };
+}
+
 export function createNewznabRoutes(): Router {
   const router = Router({ mergeParams: true });
 
@@ -415,11 +435,25 @@ export function createNewznabRoutes(): Router {
         const tvdbId = String(req.query.tvdbid ?? '').trim() || undefined;
         const season = intParam(req.query.season);
         const episode = intParam(req.query.ep);
+        const qParam = String(req.query.q ?? '').trim();
 
-        // Identifier-free request = Sonarr RSS poll → Prowlarr recent passthrough
-        if ((!imdbId && !tvdbId) || season === undefined) {
+        // True RSS poll: no ids, no season, no text query — Sonarr's periodic feed sync.
+        if (!imdbId && !tvdbId && season === undefined && !qParam) {
           const items = await prowlarrRecent([5000]);
-          return xml(res, itemsXml(items, baseUrl));
+          const { page, offset } = pageItems(items, req);
+          return xml(res, itemsXml(page, baseUrl, offset, items.length));
+        }
+
+        // Title-text fallback search (q + season, no ids): UU has no text→ID
+        // resolution today, so pipelineSearch cannot run. Returning the
+        // RSS-recent list here would silently hand Sonarr unrelated
+        // releases that happen to share a category — worse than no
+        // results, since they look like real matches. Return an accurate
+        // empty set instead; total=0 also stops Sonarr's pagination loop
+        // (it was previously re-requesting offset 0..2900+ against the
+        // same recent-list content every time).
+        if (!imdbId && !tvdbId) {
+          return xml(res, itemsXml([], baseUrl));
         }
 
         const results = await pipelineSearch('series', imdbId, tvdbId, season, episode);
@@ -433,7 +467,8 @@ export function createNewznabRoutes(): Router {
 
         if (!imdbId) {
           const items = await prowlarrRecent([2000]);
-          return xml(res, itemsXml(items, baseUrl));
+          const { page, offset } = pageItems(items, req);
+          return xml(res, itemsXml(page, baseUrl, offset, items.length));
         }
 
         const results = await pipelineSearch('movie', imdbId, undefined, undefined, undefined);
@@ -444,7 +479,8 @@ export function createNewznabRoutes(): Router {
       if (t === 'search') {
         // Free-text search isn't ID-addressable; serve recent from both categories
         const items = await prowlarrRecent([2000, 5000]);
-        return xml(res, itemsXml(items, baseUrl));
+        const { page, offset } = pageItems(items, req);
+        return xml(res, itemsXml(page, baseUrl, offset, items.length));
       }
 
       if (t === 'uu-reputation') {
