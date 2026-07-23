@@ -28,7 +28,7 @@ import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProces
 import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent } from '../health/index.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { recordHealthCheck, recordGrab, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
+import { recordHealthCheck, recordGrab, recordDeadCacheEvidence, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
 import { trackGrab } from '../statsTracker.js';
 
 const MAX_RESULTS = 100;
@@ -229,7 +229,18 @@ async function pipelineSearch(
   const hcSearchProviders = hc?.providers?.filter((p: any) => p.enabled) || [];
   let healthyResults = finalResults;
   if (hc?.enabled && hcSearchProviders.length > 0 && finalResults.length > 0) {
-    healthyResults = finalResults.filter((r: any) => !r?.link || !isDeadNzbByUrl(r.link));
+    // Filter known-dead NZBs, recording each as reputation evidence on first
+    // sight. Without this, a release in the dead cache is never health-checked
+    // again and so never counts against its group — the groups producing the
+    // most dead NZBs stay invisible. recordDeadCacheEvidence dedupes per
+    // release, so repeat searches don't compound one dead NZB into many.
+    healthyResults = finalResults.filter((r: any) => {
+      if (!r?.link || !isDeadNzbByUrl(r.link)) return true;
+      try {
+        recordDeadCacheEvidence(r.title || '', r.indexer || r.indexerName || null, r.link);
+      } catch { /* noop — reputation must never break search */ }
+      return false;
+    });
     const inspectCount = Math.min(Number(hc.nzbsToInspect) || 6, healthyResults.length);
 
     // Reputation chooses which releases receive the scarce verification slots,
@@ -276,13 +287,21 @@ async function pipelineSearch(
         }
       }
 
+      // Report the two evidence dimensions separately. Indexer history fills
+      // up within a few searches (there are only a handful of indexers), while
+      // group history needs one grab per group across thousands of groups — so
+      // a combined count reads as though the engine knows far more than it does.
+      const groupHistory = scored.filter((x: any) => x.ex.hasGroupHistory).length;
+      const indexerHistory = scored.filter((x: any) => x.ex.hasIndexerHistory).length;
+      const evidence = `${groupHistory}/${candidateWindow.length} with group history, ${indexerHistory}/${candidateWindow.length} with indexer history`;
+
       if (withEvidence.length === 0) {
         console.log(`\u{1F4C8} Reputation: ${candidateWindow.length} candidate(s), none with recorded history yet — health-check selection unchanged (neutral)`);
       } else if (changed) {
         const promoted = selectedIdx.filter((i: number) => !baselineIdx.includes(i));
-        console.log(`\u{1F4C8} Reputation: influenced health-check selection — promoted ${promoted.length} candidate(s) [${promoted.map((i: number) => `#${i} ${scored[i]?.ex.group || 'no-group'}`).join(', ')}] over default order`);
+        console.log(`\u{1F4C8} Reputation: influenced health-check selection — promoted ${promoted.length} candidate(s) [${promoted.map((i: number) => `#${i} ${scored[i]?.ex.group || 'no-group'}`).join(', ')}] over default order (${evidence})`);
       } else {
-        console.log(`\u{1F4C8} Reputation: ${withEvidence.length}/${candidateWindow.length} candidate(s) had history; selection matches default order`);
+        console.log(`\u{1F4C8} Reputation: ${evidence}; selection matches default order`);
       }
 
       topCandidates = selected.map((x: any) => x.r);

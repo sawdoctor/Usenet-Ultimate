@@ -209,6 +209,38 @@ export function recordHealthCheck(
  * user agents count as real grabs with a pending outcome; anything else
  * (UU's own verification, curl tests) is logged but not awaited.
  */
+/**
+ * One-time backfill for releases already in the persistent dead-NZB cache.
+ *
+ * The search path filters known-dead NZBs out before health checking, so
+ * those releases never record health evidence — meaning the groups producing
+ * the most dead NZBs stay invisible to reputation. This closes that gap.
+ *
+ * Strictly deduplicated: a cached-dead release reappears in every subsequent
+ * search for the same title, so recording it each time would compound a
+ * single dead NZB into an unbounded pile of failures and unfairly bury its
+ * group and indexer. Evidence is counted once per release, ever.
+ */
+export function recordDeadCacheEvidence(
+  title: string,
+  indexer: string | null,
+  nzbUrl: string,
+): void {
+  if (!title) return;
+  const rec = getOrCreateRelease(title, indexer, nzbUrl);
+  if (rec.health.dead > 0 || rec.health.alive > 0) return; // already has health evidence
+  rec.health.dead++;
+  rec.health.lastResult = 'dead';
+  rec.health.lastMessage = 'Known dead from persistent NZB cache';
+  rec.health.lastChecked = now();
+
+  const g = aggFor(data.groups, rec.releaseGroup);
+  if (g) g.healthDead++;
+  const i = aggFor(data.indexers, rec.indexer);
+  if (i) i.healthDead++;
+  scheduleSave();
+}
+
 export function recordGrab(
   nzbUrl: string,
   meta: { title: string; indexer: string | null } | null,
@@ -556,7 +588,12 @@ function scoreAggregate(a: AggregateStats | undefined): ReputationScore {
   const shrunkRate = (S + PRIOR_RATE * PRIOR_WEIGHT) / (samples + PRIOR_WEIGHT);
   const confidence = samples / (samples + PRIOR_WEIGHT);
   const score = Math.max(SCORE_MIN, Math.min(SCORE_MAX, Math.round((shrunkRate - PRIOR_RATE) * SCORE_SCALE)));
-  const stars = shrunkRate >= 0.95 ? 5 : shrunkRate >= 0.85 ? 4 : shrunkRate >= 0.7 ? 3 : shrunkRate >= 0.5 ? 2 : 1;
+  // A subject with no evidence sits exactly at PRIOR_RATE, which lands on the
+  // 4-star threshold — so "never seen" would display as ★★★★ (good). Show the
+  // neutral 3 instead; the score is already 0 in that case.
+  const stars = samples === 0
+    ? 3
+    : shrunkRate >= 0.95 ? 5 : shrunkRate >= 0.85 ? 4 : shrunkRate >= 0.7 ? 3 : shrunkRate >= 0.5 ? 2 : 1;
   return { score, successRate, samples: Math.round(samples * 10) / 10, confidence: Math.round(confidence * 100) / 100, stars };
 }
 
@@ -602,6 +639,10 @@ export interface RankExplanation {
   indexerScore: number;
   samples: number;
   confidence: number;
+  /** True when this release's own group has recorded evidence. */
+  hasGroupHistory: boolean;
+  /** True when the supplying indexer has recorded evidence. */
+  hasIndexerHistory: boolean;
   /** True when neither group nor indexer has any recorded evidence yet. */
   unknown: boolean;
 }
@@ -611,6 +652,12 @@ export interface RankExplanation {
  * callers can log why a candidate ranked where it did. Without this, a
  * young database (every score 0) is indistinguishable from a broken one —
  * the logs look identical either way.
+ *
+ * Group and indexer evidence are reported separately: indexer-level history
+ * accumulates far faster (a handful of indexers, every search) than
+ * group-level history (thousands of groups, one grab each), so collapsing
+ * them into one "has history" flag makes the summary read as though the
+ * engine knows much more than it does.
  */
 export function explainReputationRank(title: string, indexer?: string | null): RankExplanation {
   const mult = getReputationWeightMultiplier();
@@ -624,6 +671,8 @@ export function explainReputationRank(title: string, indexer?: string | null): R
     indexerScore: i.score,
     samples: g.samples,
     confidence: g.confidence,
+    hasGroupHistory: g.samples > 0,
+    hasIndexerHistory: i.samples > 0,
     unknown: g.samples === 0 && i.samples === 0,
   };
 }
