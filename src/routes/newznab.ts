@@ -638,8 +638,24 @@ export function createNewznabRoutes(): Router {
       }
 
       if (t === 'search') {
-        // Free-text search isn't ID-addressable; serve recent from both categories
-        const items = await prowlarrRecent([2000, 5000]);
+        // Free-text search isn't ID-addressable; serve recent releases —
+        // but honour the client's cat= parameter. Previously this branch
+        // always returned BOTH movies (2000) and TV (5000) regardless of
+        // what the client asked for, so e.g. a Radarr falling back to
+        // t=search with cat=2000 received TV releases mixed into movie
+        // results. Newznab cat values are comma-separated subcategory ids
+        // (2040, 5030...); map them to their top-level Prowlarr category.
+        // No cat= means the client genuinely wants everything — keep both.
+        const requestedCats = String(req.query.cat ?? '')
+          .split(',')
+          .map((c) => parseInt(c.trim(), 10))
+          .filter(Number.isFinite);
+        const wantsMovies = requestedCats.some((c) => c >= 2000 && c < 3000);
+        const wantsTv = requestedCats.some((c) => c >= 5000 && c < 6000);
+        const cats = wantsMovies || wantsTv
+          ? [...(wantsMovies ? [2000] : []), ...(wantsTv ? [5000] : [])]
+          : [2000, 5000];
+        const items = await prowlarrRecent(cats);
         const { page, offset } = pageItems(items, req);
         return xml(res, itemsXml(page, baseUrl, offset, items.length));
       }
