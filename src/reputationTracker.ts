@@ -105,10 +105,6 @@ function loadFile(): ReputationData {
       }
       if (repaired > 0) {
         console.log(`\u{1F4C8} Reputation: repaired ${repaired} record(s) with missing or non-numeric counters on load`);
-        // Persist the repaired representation immediately. Waiting for a later
-        // reputation event would leave null/missing counters on disk if this
-        // instance performs no further writes.
-        fs.writeFileSync(REPUTATION_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
       }
       return parsed;
     }
@@ -446,19 +442,47 @@ function makeArrHistoryProvider(name: string, baseUrl: string, apiKey: string): 
  * Adding Readarr/Lidarr/Whisparr later is just another addServarrApp() call —
  * they speak the identical /api/v3/history API.
  */
+/**
+ * Servarr instances come from env vars. Each app has its own pair, so 4K and
+ * anime instances get meaningful provider names in outcome.source and logs
+ * rather than positional ones (sonarr-1/sonarr-2 tells you nothing):
+ *
+ *   SONARR_URL / SONARR_API_KEY              RADARR_URL / RADARR_API_KEY
+ *   SONARR4K_URL / SONARR4K_API_KEY          RADARR4K_URL / RADARR4K_API_KEY
+ *   SONARR_ANIME_URL / SONARR_ANIME_API_KEY
+ *   READARR_URL / LIDARR_URL / WHISPARR_URL  (+ matching _API_KEY)
+ *
+ * Any of these also accepts comma-separated lists for further instances of the
+ * same app, keys matched by position — those fall back to positional naming
+ * (radarr4k-1, radarr4k-2). Every Servarr app speaks the same /api/v3/history,
+ * so adding another is one line in SERVARR_APPS.
+ */
+const SERVARR_APPS: Array<{ label: string; env: string }> = [
+  { label: 'sonarr', env: 'SONARR' },
+  { label: 'sonarr4k', env: 'SONARR4K' },
+  { label: 'sonarr-anime', env: 'SONARR_ANIME' },
+  { label: 'radarr', env: 'RADARR' },
+  { label: 'radarr4k', env: 'RADARR4K' },
+  { label: 'readarr', env: 'READARR' },
+  { label: 'lidarr', env: 'LIDARR' },
+  { label: 'whisparr', env: 'WHISPARR' },
+];
+
 function buildProviders(): OutcomeProvider[] {
   const providers: OutcomeProvider[] = [];
-  const addServarrApp = (label: string, urls?: string, keys?: string) => {
-    const u = (urls || '').split(',').map(s => s.trim()).filter(Boolean);
-    const k = (keys || '').split(',').map(s => s.trim()).filter(Boolean);
-    u.forEach((url, idx) => {
-      if (k[idx]) providers.push(makeArrHistoryProvider(u.length > 1 ? `${label}-${idx + 1}` : label, url, k[idx]));
+  for (const { label, env } of SERVARR_APPS) {
+    const urls = (process.env[`${env}_URL`] || '').split(',').map(s => s.trim()).filter(Boolean);
+    const keys = (process.env[`${env}_API_KEY`] || '').split(',').map(s => s.trim()).filter(Boolean);
+    urls.forEach((url, idx) => {
+      if (!keys[idx]) {
+        // Half-configured is almost always a typo — say so rather than
+        // silently running with one fewer outcome source than intended.
+        console.error(`\u{1F4C8} Reputation: ${env}_URL[${idx}] is set (${url}) but ${env}_API_KEY${urls.length > 1 ? `[${idx}]` : ''} is missing — this instance will not be polled`);
+        return;
+      }
+      providers.push(makeArrHistoryProvider(urls.length > 1 ? `${label}-${idx + 1}` : label, url, keys[idx]));
     });
-  };
-  addServarrApp('sonarr', process.env.SONARR_URL, process.env.SONARR_API_KEY);
-  addServarrApp('radarr', process.env.RADARR_URL, process.env.RADARR_API_KEY);
-  // Future: addServarrApp('readarr', process.env.READARR_URL, process.env.READARR_API_KEY);
-  // Future: addServarrApp('lidarr', process.env.LIDARR_URL, process.env.LIDARR_API_KEY);
+  }
   providers.push(nzbdavHistoryProvider);
   return providers;
 }
@@ -530,6 +554,7 @@ function resolveOutcome(rec: ReleaseRecord, ok: boolean, message: string | undef
 }
 
 let providers: OutcomeProvider[] | null = null;
+let loggedProviderSet = false;
 let reconciling = false;
 
 export async function reconcileWithNzbdav(): Promise<void> {
@@ -541,7 +566,10 @@ export async function reconcileWithNzbdav(): Promise<void> {
     if (!providers) providers = buildProviders();
     const servarrProviders = providers.filter(p => p !== nzbdavHistoryProvider);
     if (servarrProviders.length === 0) {
-      logFetchFailure('no Sonarr/Radarr instances configured (set SONARR_URL/SONARR_API_KEY and/or RADARR_URL/RADARR_API_KEY) — grab outcomes cannot be resolved from *arr history');
+      logFetchFailure('no *arr instances configured (set e.g. SONARR_URL/SONARR_API_KEY, RADARR4K_URL/RADARR4K_API_KEY) — grab outcomes cannot be resolved from *arr history');
+    } else if (!loggedProviderSet) {
+      loggedProviderSet = true;
+      console.log(`\u{1F4C8} Reputation: resolving outcomes from ${servarrProviders.length} *arr instance(s) — ${servarrProviders.map(p => p.name).join(', ')}`);
     }
 
     let remaining = pending;
