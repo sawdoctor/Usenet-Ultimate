@@ -28,43 +28,64 @@
 
 ---
 
-## What's New in v1.6.2
+## Highlights
 
-Version 1.6.2 enables reputation-aware health-check prioritisation for the built-in Newznab server without replacing Usenet Ultimate's existing quality and profile ordering.
+- 🧠 Intelligent Newznab server for Sonarr, Radarr, Prowlarr and other Arr applications
+- ⭐ Persistent release, release-group and indexer reputation engine
+- ✅ Reputation-aware health-check verification with indexer diversity protection
+- 📚 Automatic learning from successful imports, failed downloads and dead NZBs
+- 🎬 Stremio streaming through NzbDAV or EasyNews
+- 🔄 Automatic fallback and self-healing stream selection
+- 🐳 Multi-architecture Docker images (amd64 & arm64)
 
-### Reputation-aware health checks
+---
 
-When Newznab health checking is enabled, reputation helps choose which nearby results receive the limited health-check slots.
+## What's New in v1.7.0
 
-- Existing quality and profile ordering remains authoritative
-- Reputation does not globally reorder the result list
-- Candidate selection stays within a bounded nearby-result window
-- Release-group reputation is the primary signal
-- Indexer reputation is a smaller secondary signal
-- Unknown releases remain neutral
+Version 1.7.0 introduces the first production-ready reputation engine for Usenet Ultimate's built-in Newznab server.
+
+Rather than changing search quality or profile ordering, the reputation engine intelligently decides which nearby releases receive the limited health-check verification slots by learning from previous outcomes.
+
+### Reputation-aware verification
+
+When Newznab health checking is enabled, Usenet Ultimate continuously learns from successful and failed health checks, Arr imports, failed downloads, streaming outcomes and dead-cache detections.
+
+Reputation is maintained for release groups, individual releases and indexers. Existing quality and profile ordering always remain authoritative—reputation only influences which nearby candidates receive pre-response verification.
+
+### Smarter verification
+
+Version 1.7.0 adds indexer diversity protection so one indexer cannot monopolise all verification slots while still guaranteeing full verification coverage when diversity is limited.
+
+### Persistent learning
+
+Evidence is stored in `config/reputation.json`, allowing learning to persist across restarts.
+
+### Automatic repair
+
+Legacy reputation databases containing missing or invalid counters are automatically repaired during startup.
+
+### Improved diagnostics
+
+New debug logging includes candidate reputation scores, group/indexer history, verification slot allocation and diversity decisions.
 
 ### Configuration
-
-Set this environment variable on the Usenet Ultimate container:
 
 ```yaml
 environment:
   - REPUTATION_WEIGHT=low
 ```
 
-Supported values:
-
 | Value | Behaviour |
 |---|---|
 | `off` | Disable reputation influence |
-| `low` | Conservative influence; recommended initially and default when unset |
+| `low` | Conservative influence (default) |
 | `medium` | Standard influence |
 | `high` | Strong influence |
 
-Reputation evidence is stored in `config/reputation.json`. Sonarr and Radarr history can be used to learn whether grabbed releases imported successfully or failed.
-
+Version 1.7.0 represents the largest improvement to Usenet Ultimate's Newznab intelligence since the project began.
 
 ---
+
 
 ## Community & Support
 
@@ -494,7 +515,7 @@ docker run -d \
   -p 1337:1337 \
   -v ./config:/app/config \
   --restart unless-stopped \
-  ghcr.io/dsmart33/usenet-ultimate:latest
+  ghcr.io/sawdoctor/usenet-ultimate:latest
 ```
 
 Or with Docker Compose:
@@ -502,7 +523,7 @@ Or with Docker Compose:
 ```yaml
 services:
   usenet-ultimate:
-    image: ghcr.io/dsmart33/usenet-ultimate:latest
+    image: ghcr.io/sawdoctor/usenet-ultimate:latest
     container_name: usenet-ultimate
     ports:
       - "1337:1337"
