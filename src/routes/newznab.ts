@@ -386,6 +386,18 @@ async function pipelineSearch(
           { archiveInspection: false, sampleCount: hc.sampleCount === 7 ? 7 : 3 },
         );
         const deadUrls = new Set<string>();
+        // Undeclared disc images: the payload is an .iso/.img or BDMV/VIDEO_TS
+        // structure but the title carries no disc marker (BDISO, BR-DISK,
+        // COMPLETE.BLURAY...). Arr clients classify releases by TITLE, so these
+        // import as the wrong quality (a "1080p BluRay" that is actually a
+        // BR-DISK). They are healthy — not dead — so they are excluded from the
+        // response without being added to the dead-NZB cache, and the exclusion
+        // only covers verified candidates (payload knowledge requires fetching
+        // the NZB). Titles that DO declare a disc are passed through: the arr's
+        // profile can judge those honestly.
+        const allowDiscImages = flag('NEWZNAB_ALLOW_DISC_IMAGES', false);
+        const discTitleRe = /\b(bdiso|bdmv|br[-._ ]?disk|complete[-._ ]?blu[-._ ]?ray|full[-._ ]?blu[-._ ]?ray|iso)\b/i;
+        const discImageUrls = new Set<string>();
         const candidateByUrl = new Map<string, any>(topCandidates.map((r: any) => [r.link, r] as [string, any]));
         for (const [url, v] of verdicts.entries()) {
           // Reputation: log every verdict as a release-level observation
@@ -403,14 +415,19 @@ async function pipelineSearch(
           if (v && v.playable === false) {
             deadUrls.add(url);
             try { addDeadNzbByUrl(url, 'newznab search verification'); } catch { /* noop */ }
+          } else if (!allowDiscImages && v?.containerType === 'ISO' && cand && !discTitleRe.test(cand.title || '')) {
+            discImageUrls.add(url);
+            console.log(`\u{1F6AB} Newznab: excluding "${cand.title}" — payload is a disc image but the title doesn't declare it (set NEWZNAB_ALLOW_DISC_IMAGES=on to keep these)`);
           }
         }
         if (deadUrls.size > 0) {
           saveCacheToDisk();
           console.log(`\u{1FA7A} Newznab: removed ${deadUrls.size} dead NZB(s) from results`);
-          healthyResults = healthyResults.filter((r: any) => !deadUrls.has(r?.link));
         } else {
           console.log(`\u{1FA7A} Newznab: all verified candidates healthy`);
+        }
+        if (deadUrls.size > 0 || discImageUrls.size > 0) {
+          healthyResults = healthyResults.filter((r: any) => !deadUrls.has(r?.link) && !discImageUrls.has(r?.link));
         }
       } catch (e) {
         console.warn('\u{1FA7A} Newznab: verification skipped:', e instanceof Error ? e.message : e);

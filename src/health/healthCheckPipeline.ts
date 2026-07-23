@@ -12,7 +12,7 @@ import { downloadArchiveHeader, inspectArchive, hasVideoContent, download7zEndMe
 import type { UsenetProvider } from '../types.js';
 import type { HealthCheckResult, HealthCheckOptions } from './types.js';
 import { downloadAndParseNzb, CircuitChangedError } from './nzbParser.js';
-import { extractFilename, isVideoFile, isCompressedArchive, getVideoContainerType, getContainerFromArchiveFiles } from './fileClassifier.js';
+import { extractFilename, isVideoFile, isCompressedArchive, getVideoContainerType, getContainerFromArchiveFiles, isDiscImageFile, archiveContainsDiscImage } from './fileClassifier.js';
 import { findFirstArchivePart, selectMultiPartSamples, collectAllArchiveSegments } from './archiveGrouper.js';
 import { NntpConnectionPool } from './nntpConnection.js';
 import { checkArticlesMultiProvider } from './articleChecker.js';
@@ -75,14 +75,22 @@ export async function performHealthCheck(
     // Check if there are video files
     const videoFiles = files.filter(f => isVideoFile(f.subject));
     const archiveFiles = files.filter(f => isCompressedArchive(f.subject));
+    const discImageFiles = files.filter(f => isDiscImageFile(f.subject));
 
     // Extract container type from the first video file subject
     let containerType: string | undefined;
     if (videoFiles.length > 0) {
       containerType = getVideoContainerType(videoFiles[0].subject);
+    } else if (discImageFiles.length > 0) {
+      // Disc-image payload (.iso/.img) with no playable video container.
+      // Surfacing it through containerType lets every downstream consumer see
+      // it without widening the result type — these releases are frequently
+      // mislabeled as ordinary BluRay encodes in their titles, so the payload
+      // is the only reliable signal.
+      containerType = 'ISO';
     }
 
-    log(`${files.length} files (${videoFiles.length} video, ${archiveFiles.length} archive)${containerType ? ` [${containerType}]` : ''}`);
+    log(`${files.length} files (${videoFiles.length} video, ${archiveFiles.length} archive${discImageFiles.length > 0 ? `, ${discImageFiles.length} disc-image` : ''})${containerType ? ` [${containerType}]` : ''}`);
 
     // Determine which file to check
     // For archives, find the first part (.7z.001, .part001.rar, .rar, etc.)
@@ -201,6 +209,10 @@ export async function performHealthCheck(
           // Extract container type from archive file listing
           if (!containerType && archiveInfo.files.length > 0) {
             containerType = getContainerFromArchiveFiles(archiveInfo.files);
+          }
+          if (!containerType && archiveInfo.files.length > 0 && archiveContainsDiscImage(archiveInfo.files)) {
+            // Archive wrapping a disc image (or a raw BDMV/VIDEO_TS structure).
+            containerType = 'ISO';
           }
 
           log(`Archive: ${archiveInfo.format}, encrypted=${archiveInfo.encrypted}, compression=${archiveInfo.compression}, ${archiveInfo.files.length} files${containerType ? ` [${containerType}]` : ''}`);

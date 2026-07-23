@@ -57,6 +57,28 @@ export function isVideoFile(subject: string): boolean {
   return VIDEO_EXTENSIONS.some(ext => filename.endsWith(ext));
 }
 
+/** Disc-image extensions — full disc structures, not playable container files. */
+export const DISC_IMAGE_EXTENSIONS = ['.iso', '.img'];
+
+/**
+ * Check if a file is a disc image (.iso/.img). These are frequently mislabeled
+ * as ordinary BluRay encodes in release titles (no BDISO/BDMV/BR-DISK marker),
+ * so title parsing alone cannot catch them — only the payload can.
+ */
+export function isDiscImageFile(subject: string): boolean {
+  const filename = extractFilename(subject).toLowerCase();
+  return DISC_IMAGE_EXTENSIONS.some(ext => filename.endsWith(ext));
+}
+
+/** Detect disc-image payloads inside an archive listing (.iso/.img files or BDMV / VIDEO_TS disc structures). */
+export function archiveContainsDiscImage(files: { name: string }[]): boolean {
+  return files.some(f => {
+    const lower = f.name.toLowerCase();
+    return DISC_IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext))
+      || lower.includes('bdmv/') || lower.includes('video_ts/');
+  });
+}
+
 /**
  * Extract the video container type from an NZB subject line.
  * Returns the extension uppercased (e.g. 'MKV', 'MP4') or undefined if not a video file.
