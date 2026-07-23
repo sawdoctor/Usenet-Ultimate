@@ -83,7 +83,34 @@ let data: ReputationData = { releases: {}, groups: {}, indexers: {} };
 function loadFile(): ReputationData {
   try {
     if (fs.existsSync(REPUTATION_FILE)) {
-      return JSON.parse(fs.readFileSync(REPUTATION_FILE, 'utf-8'));
+      const parsed = JSON.parse(fs.readFileSync(REPUTATION_FILE, 'utf-8')) as ReputationData;
+      // One-pass repair of records written by earlier versions (missing fields)
+      // or corrupted by a prior undefined++ (persisted as NaN, serialized as
+      // null). aggFor/scoreAggregate normalize too, but an entry never touched
+      // again would otherwise keep bad values on disk and in the API output.
+      let repaired = 0;
+      for (const map of [parsed.groups, parsed.indexers]) {
+        for (const key of Object.keys(map || {})) {
+          const before = JSON.stringify(map[key]);
+          map[key] = normalizeAggregate(map[key]);
+          if (JSON.stringify(map[key]) !== before) repaired++;
+        }
+      }
+      for (const rec of Object.values(parsed.releases || {})) {
+        const h = rec.health as any;
+        if (h) {
+          if (!Number.isFinite(Number(h.alive))) { h.alive = 0; repaired++; }
+          if (!Number.isFinite(Number(h.dead))) { h.dead = 0; repaired++; }
+        }
+      }
+      if (repaired > 0) {
+        console.log(`\u{1F4C8} Reputation: repaired ${repaired} record(s) with missing or non-numeric counters on load`);
+        // Persist the repaired representation immediately. Waiting for a later
+        // reputation event would leave null/missing counters on disk if this
+        // instance performs no further writes.
+        fs.writeFileSync(REPUTATION_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+      }
+      return parsed;
     }
   } catch (err) {
     console.error('\u{1F4C8} Reputation: error loading file:', err);
@@ -133,13 +160,37 @@ export function classifyFailMessage(msg: string | undefined): OutcomeBucket {
   return 'other';
 }
 
-function emptyAggregate(): AggregateStats {
-  return { grabs: 0, successes: 0, failures: 0, streamSuccesses: 0, streamFailures: 0, healthAlive: 0, healthDead: 0, passworded: 0, lastActivity: null };
+/**
+ * Coerce every counter to a finite number.
+ *
+ * Records written by earlier versions lack fields added later (streamSuccesses,
+ * streamFailures). Reading a missing field yields undefined, and `undefined + 0`
+ * is NaN — which then spreads through every derived value. Worse, `undefined++`
+ * writes NaN back to disk, so one stale record permanently corrupts itself and
+ * anything computed from it. Normalizing on both read and write closes both
+ * paths, and also repairs NaN already persisted by a prior run.
+ */
+function normalizeAggregate(a: Partial<AggregateStats> | undefined): AggregateStats {
+  const num = (value: unknown): number => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return {
+    grabs: num(a?.grabs),
+    successes: num(a?.successes),
+    failures: num(a?.failures),
+    streamSuccesses: num(a?.streamSuccesses),
+    streamFailures: num(a?.streamFailures),
+    healthAlive: num(a?.healthAlive),
+    healthDead: num(a?.healthDead),
+    passworded: num(a?.passworded),
+    lastActivity: typeof a?.lastActivity === 'string' ? a.lastActivity : null,
+  };
 }
 
 function aggFor(map: { [k: string]: AggregateStats }, key: string | null): AggregateStats | null {
   if (!key) return null;
-  if (!map[key]) map[key] = emptyAggregate();
+  map[key] = normalizeAggregate(map[key]);
   map[key].lastActivity = now();
   return map[key];
 }
@@ -578,12 +629,13 @@ const SCORE_MAX = 60;
 
 function scoreAggregate(a: AggregateStats | undefined): ReputationScore {
   if (!a) return { score: 0, successRate: null, samples: 0, confidence: 0, stars: 3 };
-  const S = a.successes + a.streamSuccesses + a.healthAlive * 0.1;
-  const F = a.failures * 2 + a.streamFailures * 1.5 + a.passworded * 3 + a.healthDead * 0.25;
+  const n = normalizeAggregate(a);
+  const S = n.successes + n.streamSuccesses + n.healthAlive * 0.1;
+  const F = n.failures * 2 + n.streamFailures * 1.5 + n.passworded * 3 + n.healthDead * 0.25;
   const samples = S + F;
-  const outcomes = a.successes + a.failures + a.streamSuccesses + a.streamFailures;
+  const outcomes = n.successes + n.failures + n.streamSuccesses + n.streamFailures;
   const successRate = outcomes > 0
-    ? (a.successes + a.streamSuccesses) / outcomes
+    ? (n.successes + n.streamSuccesses) / outcomes
     : null;
   const shrunkRate = (S + PRIOR_RATE * PRIOR_WEIGHT) / (samples + PRIOR_WEIGHT);
   const confidence = samples / (samples + PRIOR_WEIGHT);
