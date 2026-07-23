@@ -44,16 +44,68 @@ export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, 
  * Deprioritized packs (yearless remake season packs) are filtered separately
  * and appended after sorting but before stream limits.
  */
-export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[], options?: { quiet?: boolean }): any[] {
+/** Per-category filter control for Newznab clients (Option C hybrid). */
+export interface ClientProfileFlags {
+  /** Apply UU's disabled-resolution preferences (e.g. "never 480p anywhere"). */
+  resolutionFilters: boolean;
+  /** Apply UU's source/encode/visual-tag/size preferences (arr custom-format territory). */
+  sourceFilters: boolean;
+  /** Apply UU's display caps (max per resolution / per quality / total). */
+  streamLimits: boolean;
+}
+
+/**
+ * Build a pruned copy of a FilterConfig honouring the client-profile flags.
+ * Pruning the config instead of adding flags to applyQualityFilters /
+ * applyStreamLimits keeps those functions untouched — they already skip any
+ * preference that isn't present.
+ */
+function pruneFilterConfig(fc: any, flags: ClientProfileFlags): any {
+  const out: any = { ...fc, enabledPriorities: { ...(fc?.enabledPriorities || {}) } };
+  if (!flags.resolutionFilters) {
+    delete out.enabledPriorities.resolution;
+  }
+  if (!flags.sourceFilters) {
+    delete out.enabledPriorities.video;
+    delete out.enabledPriorities.encode;
+    delete out.enabledPriorities.visualTag;
+    // Size preferences are quality taste too — arrs enforce their own
+    // per-quality size limits, so these ride with the source toggle.
+    delete out.minSize; delete out.maxSize;
+    delete out.minSeasonPackSize; delete out.maxSeasonPackSize;
+    delete out.minSeasonPackEpisodeSize; delete out.maxSeasonPackEpisodeSize;
+  }
+  if (!flags.streamLimits) {
+    delete out.maxStreams;
+    delete out.maxStreamsPerResolution;
+    delete out.maxStreamsPerQuality;
+    delete out.maxSeasonPacks;
+  }
+  return out;
+}
+
+export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[], options?: { quiet?: boolean; clientProfile?: ClientProfileFlags }): any[] {
+  // clientProfile: the caller is a Newznab client (Sonarr/Radarr) with its own
+  // quality profile. UU's preferences and display caps are Stremio settings —
+  // a human picking from a visible list — and applying them wholesale silently
+  // removes candidates the client's profile needs (a global source preference
+  // starved an HD Radarr while a 4K Radarr thrived on the same endpoint).
+  // The flags choose per category; correctness stages (bare-archive stripping,
+  // dedup, ranked rules, sorting) always run — order still decides which
+  // results occupy the health-check window. The multi-episode preference is
+  // always skipped for clients: season packs are something arrs explicitly
+  // request via season searches, never a display taste.
+  const cp = options?.clientProfile;
   results = stripBareArchiveParts(results);
   results = deduplicateByIndexerContent(results);
   results = deduplicateByUrl(results);
 
-  if (type !== 'movie' && !getTvAllowMultiEpisode(config)) {
+  if (!cp && type !== 'movie' && !getTvAllowMultiEpisode(config)) {
     results = applyMultiEpisodeFilter(results);
   }
 
-  const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
+  const baseFilterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
+  const filterConfig = cp ? pruneFilterConfig(baseFilterConfig, cp) : baseFilterConfig;
   const queryType = type === 'movie' ? 'movie' : 'series';
   results = applyQualityFilters(results, filterConfig);
   results = applyRankedRules(results, filterConfig, queryType, runtime);

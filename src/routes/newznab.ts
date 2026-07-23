@@ -216,9 +216,28 @@ async function pipelineSearch(
   const { results: preFiltered, deprioritizedPacks } = deduplicateAndPreFilter(
     allRaw, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear,
   );
+  // Option C hybrid: per-category control over which UU preferences apply to
+  // Newznab responses. Defaults: resolution filters ON (a "never 480p
+  // anywhere" preference is genuinely global), source filters OFF and stream
+  // limits OFF (arr custom formats / profiles own those decisions — a global
+  // source preference is what starved Radarr HD while Radarr4K thrived).
+  // Env overrides: NEWZNAB_RESOLUTION_FILTERS / NEWZNAB_SOURCE_FILTERS /
+  // NEWZNAB_STREAM_LIMITS = on|off.
+  const flag = (name: string, dflt: boolean): boolean => {
+    const v = (process.env[name] || '').toLowerCase();
+    if (v === 'on' || v === 'true' || v === '1') return true;
+    if (v === 'off' || v === 'false' || v === '0') return false;
+    return dflt;
+  };
+  const clientProfile = {
+    resolutionFilters: flag('NEWZNAB_RESOLUTION_FILTERS', true),
+    sourceFilters: flag('NEWZNAB_SOURCE_FILTERS', false),
+    streamLimits: flag('NEWZNAB_STREAM_LIMITS', false),
+  };
   let finalResults = applyUserFilters(
-    preFiltered, type, Date.now(), titleInfo.runtime, deprioritizedPacks, { quiet: true },
+    preFiltered, type, Date.now(), titleInfo.runtime, deprioritizedPacks, { quiet: true, clientProfile },
   );
+  console.log(`\u{1F4F0} Newznab: client-profile mode (resolution=${clientProfile.resolutionFilters ? 'on' : 'off'}, source=${clientProfile.sourceFilters ? 'on' : 'off'}, limits=${clientProfile.streamLimits ? 'on' : 'off'}) — returning ${finalResults.length} result(s) for the client's own profile to rank`);
   // Keep the existing quality/profile ordering intact. Reputation is applied
   // below when selecting the limited health-check budget, where UU's ordering
   // has a direct operational effect. Arr applications perform their own final
