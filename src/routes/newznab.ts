@@ -261,11 +261,49 @@ async function pipelineSearch(
         i,
         ex: explainReputationRank(r?.title || '', r?.indexer || r?.indexerName),
       }));
-      const selected = scored
+
+      // Diversity guard against exposure bias.
+      //
+      // Health evidence only accrues to candidates that get verified, so
+      // reputation-driven selection feeds itself: an indexer that ranks well
+      // early wins more slots, gathers more evidence, and keeps winning, while
+      // a poorly-ranked one may never get another slot to prove otherwise.
+      // Dead-cache backfill records negatives outside selection but offers no
+      // equivalent route for positives, so it doesn't break the loop on its own.
+      //
+      // Cap any one indexer at ceil(slots / 2), then fill any shortfall in a
+      // second uncapped pass — a search where only one indexer returned usable
+      // results must not end up verifying fewer NZBs than it otherwise would.
+      // Reputation scores are untouched; this only affects which candidates
+      // occupy the slots.
+      const perIndexerCap = Math.ceil(inspectCount / 2);
+      const byBoost = scored
         .slice()
-        .sort((a: any, b: any) => (b.ex.boost - a.ex.boost) || (a.i - b.i))
-        .slice(0, inspectCount)
-        .sort((a: any, b: any) => a.i - b.i);
+        .sort((a: any, b: any) => (b.ex.boost - a.ex.boost) || (a.i - b.i));
+
+      const indexerOf = (x: any): string =>
+        String(x.r?.indexer || x.r?.indexerName || 'unknown').toLowerCase();
+
+      const perIndexerCount = new Map<string, number>();
+      const picked: any[] = [];
+      for (const x of byBoost) {
+        if (picked.length >= inspectCount) break;
+        const key = indexerOf(x);
+        const used = perIndexerCount.get(key) || 0;
+        if (used >= perIndexerCap) continue;
+        perIndexerCount.set(key, used + 1);
+        picked.push(x);
+      }
+      const cappedOut = picked.length < inspectCount;
+      if (cappedOut) {
+        const already = new Set(picked.map((x: any) => x.i));
+        for (const x of byBoost) {
+          if (picked.length >= inspectCount) break;
+          if (already.has(x.i)) continue;
+          picked.push(x);
+        }
+      }
+      const selected = picked.sort((a: any, b: any) => a.i - b.i);
 
       // Visibility: without this, "reputation has no data yet" and
       // "reputation is silently broken" produce identical logs.
@@ -294,6 +332,13 @@ async function pipelineSearch(
       const groupHistory = scored.filter((x: any) => x.ex.hasGroupHistory).length;
       const indexerHistory = scored.filter((x: any) => x.ex.hasIndexerHistory).length;
       const evidence = `${groupHistory}/${candidateWindow.length} with group history, ${indexerHistory}/${candidateWindow.length} with indexer history`;
+
+      // Show the indexer spread of the chosen slots — the whole point of the
+      // cap is that this shouldn't collapse to one source.
+      const spread = new Map<string, number>();
+      for (const x of selected) spread.set(indexerOf(x), (spread.get(indexerOf(x)) || 0) + 1);
+      const spreadStr = [...spread.entries()].map(([k, n]) => `${k}×${n}`).join(', ');
+      console.log(`\u{1F4C8} Reputation: verification slots by indexer — ${spreadStr} (cap ${perIndexerCap}/indexer${cappedOut ? ', relaxed to fill remaining slots' : ''})`);
 
       if (withEvidence.length === 0) {
         console.log(`\u{1F4C8} Reputation: ${candidateWindow.length} candidate(s), none with recorded history yet — health-check selection unchanged (neutral)`);
