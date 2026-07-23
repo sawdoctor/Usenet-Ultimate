@@ -10,8 +10,8 @@
  * the Reconciliation section below) so new sources — another Servarr app,
  * a different download client — plug in without touching the reconciler.
  *
- * Phase 1: record everything, score nothing. Scoring comes once real
- * outcome data exists.
+ * Phase 2: record evidence and expose confidence-weighted reputation scores.
+ * Ranking consumers decide how strongly to apply those scores.
  *
  * Persisted to config/reputation.json alongside stats.json.
  */
@@ -191,10 +191,14 @@ export function recordHealthCheck(
   rec.health.lastResult = alive ? 'alive' : 'dead';
   rec.health.lastMessage = message;
   rec.health.lastChecked = now();
-  if (/password|encrypt/i.test(message || '')) rec.passworded = true;
+  const newlyPassworded = !rec.passworded && /password|encrypt/i.test(message || '');
+  if (newlyPassworded) rec.passworded = true;
 
   const g = aggFor(data.groups, rec.releaseGroup);
-  if (g) { g[alive ? 'healthAlive' : 'healthDead']++; if (rec.passworded) g.passworded++; }
+  if (g) {
+    g[alive ? 'healthAlive' : 'healthDead']++;
+    if (newlyPassworded) g.passworded++;
+  }
   const i = aggFor(data.indexers, rec.indexer);
   if (i) { i[alive ? 'healthAlive' : 'healthDead']++; }
   scheduleSave();
@@ -505,25 +509,118 @@ export function startReputationReconciler(): void {
 
 
 // ---------------------------------------------------------------------------
+// Scoring (v1.7) — turns raw evidence into a ranking signal
+//
+// Model: Bayesian shrinkage toward a neutral prior. Every subject starts as
+// "probably fine" (PRIOR_RATE) backed by PRIOR_WEIGHT phantom observations;
+// real evidence gradually overrides the prior as it accumulates. This is the
+// confidence weighting: 1 failure out of 2 grabs barely moves the score,
+// 12 failures out of 400 moves it decisively.
+//
+// Evidence weights (failures deliberately outweigh successes — a bad
+// download costs the user more than a good one saves):
+//   import success +1.0   import failure   -2.0
+//   stream success +1.0   stream failure   -1.5
+//   passworded     -3.0
+//   health alive   +0.1   health dead      -0.25   (weak evidence: pre-download)
+// ---------------------------------------------------------------------------
+
+export interface ReputationScore {
+  /** Ranking modifier, ~-100..+60. 0 = unknown/neutral. */
+  score: number;
+  /** Raw observed outcome success rate (imports + streams), null if no outcomes yet. */
+  successRate: number | null;
+  /** Weighted evidence backing the score. */
+  samples: number;
+  /** 0..1 — how much real evidence vs prior. */
+  confidence: number;
+  /** 1..5 display rating; 3 = neutral/unknown. */
+  stars: number;
+}
+
+const PRIOR_RATE = 0.85;
+const PRIOR_WEIGHT = 8;
+const SCORE_SCALE = 200;
+const SCORE_MIN = -100;
+const SCORE_MAX = 60;
+
+function scoreAggregate(a: AggregateStats | undefined): ReputationScore {
+  if (!a) return { score: 0, successRate: null, samples: 0, confidence: 0, stars: 3 };
+  const S = a.successes + a.streamSuccesses + a.healthAlive * 0.1;
+  const F = a.failures * 2 + a.streamFailures * 1.5 + a.passworded * 3 + a.healthDead * 0.25;
+  const samples = S + F;
+  const outcomes = a.successes + a.failures + a.streamSuccesses + a.streamFailures;
+  const successRate = outcomes > 0
+    ? (a.successes + a.streamSuccesses) / outcomes
+    : null;
+  const shrunkRate = (S + PRIOR_RATE * PRIOR_WEIGHT) / (samples + PRIOR_WEIGHT);
+  const confidence = samples / (samples + PRIOR_WEIGHT);
+  const score = Math.max(SCORE_MIN, Math.min(SCORE_MAX, Math.round((shrunkRate - PRIOR_RATE) * SCORE_SCALE)));
+  const stars = shrunkRate >= 0.95 ? 5 : shrunkRate >= 0.85 ? 4 : shrunkRate >= 0.7 ? 3 : shrunkRate >= 0.5 ? 2 : 1;
+  return { score, successRate, samples: Math.round(samples * 10) / 10, confidence: Math.round(confidence * 100) / 100, stars };
+}
+
+export function getGroupReputation(group: string | null | undefined): ReputationScore {
+  return scoreAggregate(group ? data.groups[group] : undefined);
+}
+
+export function getIndexerReputation(name: string | null | undefined): ReputationScore {
+  return scoreAggregate(name ? data.indexers[name] : undefined);
+}
+
+/**
+ * REPUTATION_WEIGHT env var: off | low | medium | high → 0 / 0.5 / 1 / 2.
+ * Defaults to medium. Controls how strongly reputation reorders results.
+ */
+export function getReputationWeightMultiplier(): number {
+  const w = (process.env.REPUTATION_WEIGHT || 'medium').toLowerCase();
+  if (w === 'off' || w === '0') return 0;
+  if (w === 'low') return 0.5;
+  if (w === 'high') return 2;
+  return 1;
+}
+
+/**
+ * Single ranking modifier for a release: group reputation dominates,
+ * indexer reputation contributes a quarter (an indexer serving many bad
+ * releases is a real but weaker signal than the release group itself).
+ */
+export function reputationRankBoost(title: string, indexer?: string | null): number {
+  const mult = getReputationWeightMultiplier();
+  if (mult === 0) return 0;
+  const group = parseReleaseGroup(title);
+  const g = getGroupReputation(group);
+  const i = getIndexerReputation(indexer);
+  return Math.round((g.score + i.score * 0.25) * mult);
+}
+
+// ---------------------------------------------------------------------------
 // Inspection
 // ---------------------------------------------------------------------------
 
 export function getReputationData(): {
-  summary: { releases: number; pendingOutcomes: number; groups: number; indexers: number };
-  groups: { [g: string]: AggregateStats };
-  indexers: { [i: string]: AggregateStats };
+  summary: { releases: number; pendingOutcomes: number; groups: number; indexers: number; weighting: string };
+  groups: { [g: string]: AggregateStats & { reputation: ReputationScore } };
+  indexers: { [i: string]: AggregateStats & { reputation: ReputationScore } };
   recentReleases: ReleaseRecord[];
 } {
   const releases = Object.values(data.releases);
+  const scored = <T extends { [k: string]: AggregateStats }>(map: T) =>
+    Object.fromEntries(
+      Object.entries(map)
+        .map(([k, a]) => [k, { ...a, reputation: scoreAggregate(a) }] as const)
+        .sort((x, y) => y[1].reputation.score - x[1].reputation.score),
+    ) as { [k: string]: AggregateStats & { reputation: ReputationScore } };
   return {
     summary: {
       releases: releases.length,
       pendingOutcomes: releases.filter(r => r.outcome.status === 'pending').length,
       groups: Object.keys(data.groups).length,
       indexers: Object.keys(data.indexers).length,
+      weighting: (process.env.REPUTATION_WEIGHT || 'medium').toLowerCase(),
     },
-    groups: data.groups,
-    indexers: data.indexers,
+    groups: scored(data.groups),
+    indexers: scored(data.indexers),
     recentReleases: releases
       .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
       .slice(0, 50),

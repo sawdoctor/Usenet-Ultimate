@@ -28,7 +28,7 @@ import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProces
 import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent } from '../health/index.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { recordHealthCheck, recordGrab, getReputationData } from '../reputationTracker.js';
+import { recordHealthCheck, recordGrab, getReputationData, reputationRankBoost, getReputationWeightMultiplier } from '../reputationTracker.js';
 import { trackGrab } from '../statsTracker.js';
 
 const MAX_RESULTS = 100;
@@ -216,9 +216,13 @@ async function pipelineSearch(
   const { results: preFiltered, deprioritizedPacks } = deduplicateAndPreFilter(
     allRaw, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear,
   );
-  const finalResults = applyUserFilters(
+  let finalResults = applyUserFilters(
     preFiltered, type, Date.now(), titleInfo.runtime, deprioritizedPacks, { quiet: true },
   );
+  // Keep the existing quality/profile ordering intact. Reputation is applied
+  // below when selecting the limited health-check budget, where UU's ordering
+  // has a direct operational effect. Arr applications perform their own final
+  // quality ranking, so globally replacing quality order here would be unsafe.
   // Search-side health verification: remove dead NZBs before Sonarr/Radarr
   // ever sees them. Reuses UU's batch health engine and dead-NZB database.
   const hc = (config as any).healthChecks;
@@ -227,8 +231,28 @@ async function pipelineSearch(
   if (hc?.enabled && hcSearchProviders.length > 0 && finalResults.length > 0) {
     healthyResults = finalResults.filter((r: any) => !r?.link || !isDeadNzbByUrl(r.link));
     const inspectCount = Math.min(Number(hc.nzbsToInspect) || 6, healthyResults.length);
-    const topCandidates = healthyResults
-      .slice(0, inspectCount)
+
+    // Reputation chooses which releases receive the scarce verification slots,
+    // without discarding the existing quality/profile order. Limit selection to
+    // a nearby candidate window so a highly reputed low-quality release cannot
+    // leapfrog the entire result set. Unknown releases remain neutral.
+    const candidateWindowSize = Math.min(
+      healthyResults.length,
+      Math.max(inspectCount, inspectCount * 3),
+    );
+    const candidateWindow = healthyResults.slice(0, candidateWindowSize);
+    const topCandidates = (getReputationWeightMultiplier() > 0
+      ? candidateWindow
+          .map((r: any, i: number) => ({
+            r,
+            i,
+            boost: reputationRankBoost(r?.title || '', r?.indexer || r?.indexerName),
+          }))
+          .sort((a: any, b: any) => (b.boost - a.boost) || (a.i - b.i))
+          .slice(0, inspectCount)
+          .sort((a: any, b: any) => a.i - b.i)
+          .map((x: any) => x.r)
+      : candidateWindow.slice(0, inspectCount))
       .filter((r: any) => /^https?:\/\//i.test(r?.link));
     if (topCandidates.length > 0) {
       const hcUa = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
