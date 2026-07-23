@@ -570,7 +570,8 @@ export function getIndexerReputation(name: string | null | undefined): Reputatio
 
 /**
  * REPUTATION_WEIGHT env var: off | low | medium | high → 0 / 0.5 / 1 / 2.
- * Defaults to low. Controls how strongly reputation influences Newznab health-check candidate selection.
+ * Defaults to low. Controls how strongly reputation influences
+ * Newznab health-check candidate selection.
  */
 export function getReputationWeightMultiplier(): number {
   const w = (process.env.REPUTATION_WEIGHT || 'low').toLowerCase();
@@ -592,6 +593,39 @@ export function reputationRankBoost(title: string, indexer?: string | null): num
   const g = getGroupReputation(group);
   const i = getIndexerReputation(indexer);
   return Math.round((g.score + i.score * 0.25) * mult);
+}
+
+export interface RankExplanation {
+  group: string | null;
+  boost: number;
+  groupScore: number;
+  indexerScore: number;
+  samples: number;
+  confidence: number;
+  /** True when neither group nor indexer has any recorded evidence yet. */
+  unknown: boolean;
+}
+
+/**
+ * Same computation as reputationRankBoost, but returns the components so
+ * callers can log why a candidate ranked where it did. Without this, a
+ * young database (every score 0) is indistinguishable from a broken one —
+ * the logs look identical either way.
+ */
+export function explainReputationRank(title: string, indexer?: string | null): RankExplanation {
+  const mult = getReputationWeightMultiplier();
+  const group = parseReleaseGroup(title);
+  const g = getGroupReputation(group);
+  const i = getIndexerReputation(indexer);
+  return {
+    group,
+    boost: mult === 0 ? 0 : Math.round((g.score + i.score * 0.25) * mult),
+    groupScore: g.score,
+    indexerScore: i.score,
+    samples: g.samples,
+    confidence: g.confidence,
+    unknown: g.samples === 0 && i.samples === 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -617,7 +651,7 @@ export function getReputationData(): {
       pendingOutcomes: releases.filter(r => r.outcome.status === 'pending').length,
       groups: Object.keys(data.groups).length,
       indexers: Object.keys(data.indexers).length,
-      weighting: (process.env.REPUTATION_WEIGHT || 'medium').toLowerCase(),
+      weighting: (process.env.REPUTATION_WEIGHT || 'low').toLowerCase(),
     },
     groups: scored(data.groups),
     indexers: scored(data.indexers),

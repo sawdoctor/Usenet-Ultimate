@@ -28,7 +28,7 @@ import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProces
 import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent } from '../health/index.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { recordHealthCheck, recordGrab, getReputationData, reputationRankBoost, getReputationWeightMultiplier } from '../reputationTracker.js';
+import { recordHealthCheck, recordGrab, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
 import { trackGrab } from '../statsTracker.js';
 
 const MAX_RESULTS = 100;
@@ -241,19 +241,56 @@ async function pipelineSearch(
       Math.max(inspectCount, inspectCount * 3),
     );
     const candidateWindow = healthyResults.slice(0, candidateWindowSize);
-    const topCandidates = (getReputationWeightMultiplier() > 0
-      ? candidateWindow
-          .map((r: any, i: number) => ({
-            r,
-            i,
-            boost: reputationRankBoost(r?.title || '', r?.indexer || r?.indexerName),
-          }))
-          .sort((a: any, b: any) => (b.boost - a.boost) || (a.i - b.i))
-          .slice(0, inspectCount)
-          .sort((a: any, b: any) => a.i - b.i)
-          .map((x: any) => x.r)
-      : candidateWindow.slice(0, inspectCount))
-      .filter((r: any) => /^https?:\/\//i.test(r?.link));
+    const repMult = getReputationWeightMultiplier();
+
+    let topCandidates: any[];
+    if (repMult > 0) {
+      const scored = candidateWindow.map((r: any, i: number) => ({
+        r,
+        i,
+        ex: explainReputationRank(r?.title || '', r?.indexer || r?.indexerName),
+      }));
+      const selected = scored
+        .slice()
+        .sort((a: any, b: any) => (b.ex.boost - a.ex.boost) || (a.i - b.i))
+        .slice(0, inspectCount)
+        .sort((a: any, b: any) => a.i - b.i);
+
+      // Visibility: without this, "reputation has no data yet" and
+      // "reputation is silently broken" produce identical logs.
+      const withEvidence = scored.filter((x: any) => !x.ex.unknown);
+      const baselineIdx = candidateWindow.slice(0, inspectCount).map((_: any, i: number) => i);
+      const selectedIdx = selected.map((x: any) => x.i);
+      const changed = selectedIdx.join(',') !== baselineIdx.join(',');
+
+      if (process.env.REPUTATION_DEBUG === '1' || process.env.REPUTATION_DEBUG === 'true') {
+        console.log(`\u{1F4C8} Reputation: health-check candidate scores (weight=${(process.env.REPUTATION_WEIGHT || 'low').toLowerCase()}, window=${candidateWindow.length}, slots=${inspectCount})`);
+        for (const x of scored) {
+          const chosen = selectedIdx.includes(x.i) ? '✔' : ' ';
+          const grp = (x.ex.group || 'no-group').padEnd(16).slice(0, 16);
+          const bst = (x.ex.boost >= 0 ? `+${x.ex.boost}` : `${x.ex.boost}`).padStart(4);
+          const detail = x.ex.unknown
+            ? 'no evidence yet'
+            : `group=${x.ex.groupScore >= 0 ? '+' : ''}${x.ex.groupScore} indexer=${x.ex.indexerScore >= 0 ? '+' : ''}${x.ex.indexerScore} samples=${x.ex.samples} conf=${x.ex.confidence}`;
+          console.log(`   ${chosen} #${String(x.i).padStart(2)} ${grp} boost=${bst}  ${detail}`);
+        }
+      }
+
+      if (withEvidence.length === 0) {
+        console.log(`\u{1F4C8} Reputation: ${candidateWindow.length} candidate(s), none with recorded history yet — health-check selection unchanged (neutral)`);
+      } else if (changed) {
+        const promoted = selectedIdx.filter((i: number) => !baselineIdx.includes(i));
+        console.log(`\u{1F4C8} Reputation: influenced health-check selection — promoted ${promoted.length} candidate(s) [${promoted.map((i: number) => `#${i} ${scored[i]?.ex.group || 'no-group'}`).join(', ')}] over default order`);
+      } else {
+        console.log(`\u{1F4C8} Reputation: ${withEvidence.length}/${candidateWindow.length} candidate(s) had history; selection matches default order`);
+      }
+
+      topCandidates = selected.map((x: any) => x.r);
+    } else {
+      console.log('\u{1F4C8} Reputation: health-check selection disabled (weight=off)');
+      topCandidates = candidateWindow.slice(0, inspectCount);
+    }
+    topCandidates = topCandidates.filter((r: any) => /^https?:\/\//i.test(r?.link));
     if (topCandidates.length > 0) {
       const hcUa = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
       try {
