@@ -570,10 +570,10 @@ export function getIndexerReputation(name: string | null | undefined): Reputatio
 
 /**
  * REPUTATION_WEIGHT env var: off | low | medium | high → 0 / 0.5 / 1 / 2.
- * Defaults to medium. Controls how strongly reputation reorders results.
+ * Defaults to low. Controls how strongly reputation influences Newznab health-check candidate selection.
  */
 export function getReputationWeightMultiplier(): number {
-  const w = (process.env.REPUTATION_WEIGHT || 'medium').toLowerCase();
+  const w = (process.env.REPUTATION_WEIGHT || 'low').toLowerCase();
   if (w === 'off' || w === '0') return 0;
   if (w === 'low') return 0.5;
   if (w === 'high') return 2;

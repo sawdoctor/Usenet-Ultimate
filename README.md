@@ -28,21 +28,41 @@
 
 ---
 
-## What's New in v1.6.0
+## What's New in v1.6.2
 
-Version 1.6.0 adds the first phase of the **Release Reputation Engine** and promotes the built-in Newznab endpoint to a first-class supported use case.
+Version 1.6.2 enables reputation-aware health-check prioritisation for the built-in Newznab server without replacing Usenet Ultimate's existing quality and profile ordering.
 
-- Records search-time NZB health results
-- Records real grabs made by Sonarr, Radarr, and compatible Arr applications
-- Reconciles pending grabs against Sonarr and Radarr history every five minutes
-- Detects successful imports and failed or ignored downloads
-- Records Stremio stream successes and failures immediately
-- Aggregates evidence by release, release group, and indexer
-- Persists reputation data in `config/reputation.json`
-- Uses a provider-based outcome architecture that can be extended to more Servarr applications
-- Continues to use health and dead-NZB data for filtering; reputation-weighted ranking is planned for a later phase
+### Reputation-aware health checks
 
-> **Important:** v1.6.0 records evidence but does not yet alter result scores using reputation data.
+When Newznab health checking is enabled, reputation helps choose which nearby results receive the limited health-check slots.
+
+- Existing quality and profile ordering remains authoritative
+- Reputation does not globally reorder the result list
+- Candidate selection stays within a bounded nearby-result window
+- Release-group reputation is the primary signal
+- Indexer reputation is a smaller secondary signal
+- Unknown releases remain neutral
+
+### Configuration
+
+Set this environment variable on the Usenet Ultimate container:
+
+```yaml
+environment:
+  - REPUTATION_WEIGHT=low
+```
+
+Supported values:
+
+| Value | Behaviour |
+|---|---|
+| `off` | Disable reputation influence |
+| `low` | Conservative influence; recommended initially and default when unset |
+| `medium` | Standard influence |
+| `high` | Strong influence |
+
+Reputation evidence is stored in `config/reputation.json`. Sonarr and Radarr history can be used to learn whether grabbed releases imported successfully or failed.
+
 
 ---
 
