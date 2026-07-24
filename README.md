@@ -40,11 +40,38 @@
 
 ---
 
-## What's New in v1.7.0
+## What's New in v1.7.2
 
-Version 1.7.0 introduces the first production-ready reputation engine for Usenet Ultimate's built-in Newznab server.
+Version 1.7.2 expands Usenet Ultimate's built-in Newznab server with multi-Arr intelligence and more accurate category-aware searching.
 
-Rather than changing search quality or profile ordering, the reputation engine intelligently decides which nearby releases receive the limited health-check verification slots by learning from previous outcomes.
+### Multi-Arr Intelligence Engine
+
+Usenet Ultimate can now track multiple independent Servarr instances, including separate HD, 4K, Anime and specialist libraries.
+
+Supported environment-variable pairs include:
+
+- `SONARR_URL` / `SONARR_API_KEY`
+- `SONARR4K_URL` / `SONARR4K_API_KEY`
+- `SONARR_ANIME_URL` / `SONARR_ANIME_API_KEY`
+- `RADARR_URL` / `RADARR_API_KEY`
+- `RADARR4K_URL` / `RADARR4K_API_KEY`
+- `READARR_URL` / `READARR_API_KEY`
+- `LIDARR_URL` / `LIDARR_API_KEY`
+- `WHISPARR_URL` / `WHISPARR_API_KEY`
+
+Each configured Arr instance is tracked independently. This allows the reputation engine to distinguish between HD, UHD, Anime and other libraries when learning from successful imports and failed downloads.
+
+If a URL is configured without its matching API key, Usenet Ultimate now reports the configuration error instead of silently ignoring that instance.
+
+### Improved Newznab Compatibility
+
+Generic `t=search` requests now honour the supplied Newznab `cat` parameter.
+
+- Movie categories (`2xxx`) search Movies only
+- TV categories (`5xxx`) search TV only
+- Requests without a supported category continue to search both
+
+This prevents Sonarr, Radarr, Prowlarr and other Newznab clients from unnecessarily searching the wrong media type.
 
 ### Reputation-aware verification
 
@@ -54,7 +81,7 @@ Reputation is maintained for release groups, individual releases and indexers. E
 
 ### Smarter verification
 
-Version 1.7.0 adds indexer diversity protection so one indexer cannot monopolise all verification slots while still guaranteeing full verification coverage when diversity is limited.
+Indexer diversity protection prevents one indexer from monopolising all verification slots while still guaranteeing full verification coverage when diversity is limited.
 
 ### Persistent learning
 
@@ -66,23 +93,22 @@ Legacy reputation databases containing missing or invalid counters are automatic
 
 ### Improved diagnostics
 
-New debug logging includes candidate reputation scores, group/indexer history, verification slot allocation and diversity decisions.
+Debug logging includes candidate reputation scores, group and indexer history, verification-slot allocation, Arr instance reconciliation and diversity decisions.
 
 ### Configuration
 
 ```yaml
 environment:
   - REPUTATION_WEIGHT=low
-```
 
-| Value | Behaviour |
-|---|---|
-| `off` | Disable reputation influence |
-| `low` | Conservative influence (default) |
-| `medium` | Standard influence |
-| `high` | Strong influence |
+  - SONARR_URL=http://sonarr:8989
+  - SONARR_API_KEY=xxxxxxxxxxxxxxxx
 
-Version 1.7.0 represents the largest improvement to Usenet Ultimate's Newznab intelligence since the project began.
+  - RADARR_URL=http://radarr:7878
+  - RADARR_API_KEY=xxxxxxxxxxxxxxxx
+
+  - RADARR4K_URL=http://radarr4k:7878
+  - RADARR4K_API_KEY=xxxxxxxxxxxxxxxx
 
 ---
 
