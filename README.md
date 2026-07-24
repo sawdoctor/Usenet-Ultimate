@@ -59,6 +59,7 @@ Supported environment-variable pairs include:
 - `LIDARR_URL` / `LIDARR_API_KEY`
 - `WHISPARR_URL` / `WHISPARR_API_KEY`
 
+
 Each configured Arr instance is tracked independently. This allows the reputation engine to distinguish between HD, UHD, Anime and other libraries when learning from successful imports and failed downloads.
 
 If a URL is configured without its matching API key, Usenet Ultimate now reports the configuration error instead of silently ignoring that instance.
@@ -109,6 +110,8 @@ environment:
 
   - RADARR4K_URL=http://radarr4k:7878
   - RADARR4K_API_KEY=xxxxxxxxxxxxxxxx
+
+```
 
 ---
 
