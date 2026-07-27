@@ -129,6 +129,73 @@ export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, y
   return false;
 }
 
+// --- ID-search sanity checks ---
+
+/*
+ * ID searches (imdbid/tmdbid/tvdbid/tvmazeid) are authoritative about WHICH
+ * title was requested, so they deliberately skip isTextSearchMatch: a correct
+ * ID lookup legitimately returns releases whose names don't resemble the
+ * resolved title at all (foreign-language titles, romaji vs English anime
+ * names, alternate distributor titles). Running full title matching over them
+ * would discard exactly the results the ID path exists to find.
+ *
+ * What ID results still need is a floor: an indexer that answers an ID query
+ * with a release for a different work — a real, if uncommon, indexer bug —
+ * currently sails straight through into the arr. These two checks reject only
+ * on positive contradiction and pass anything ambiguous, so they can't undo
+ * the ID path's advantage over text search.
+ */
+
+/**
+ * Reject a movie ID-search result whose release year contradicts the expected
+ * year (±1 for regional/festival release drift, matching isTextSearchMatch).
+ * Yearless releases pass — the ID lookup is the authority, not the filename.
+ */
+export function isIdSearchYearPlausible(
+  releaseTitle: string,
+  expectedTitle?: string,
+  year?: string,
+  titleYear?: string,
+): boolean {
+  if (!year && !titleYear) return true;
+  const parsed = parseYear(releaseTitle);
+  if (!parsed) return true;
+  // A year that appears in the title itself (e.g. "Blade Runner 2049") is part
+  // of the name, not a release year — same guard isTextSearchMatchSingle uses.
+  if (expectedTitle && expectedTitle.includes(parsed)) return true;
+  const p = parseInt(parsed, 10);
+  const yearOk = year ? Math.abs(p - parseInt(year, 10)) <= 1 : false;
+  const titleYearOk = titleYear ? Math.abs(p - parseInt(titleYear, 10)) <= 1 : false;
+  return yearOk || titleYearOk;
+}
+
+/**
+ * Reject a TV ID-search result whose declared season contradicts the requested
+ * one. Deliberately narrow: only titles carrying an explicit SxxE?? token are
+ * judged, so absolute-numbered anime, date-named dailies and word-form
+ * ("Season 2") releases all pass untouched. Multi-season spans (S01-S08,
+ * S01.S02.S03) are accepted when the requested season falls inside the span.
+ *
+ * No year check here — TV release names often carry the AIR year rather than
+ * the series year, so year comparison would reject correct episodes.
+ */
+export function isIdSearchSeasonPlausible(releaseTitle: string, season?: number): boolean {
+  if (season == null) return true;
+  const tokens = extractSeasonTokens(releaseTitle);
+  if (tokens.includes(season)) return true;
+
+  // Reuse the established pack-range parser so abbreviated ranges such as
+  // S01-08 are handled consistently with the normal season-pack path. The
+  // token-only version saw just S01 and incorrectly rejected that result for
+  // seasons 2-8 — exactly the sort of extra over-filtering this guard must not
+  // introduce.
+  if (titleContainsSeasonPack(releaseTitle, season).matched) return true;
+
+  // No explicit Sxx token means there is no positive contradiction to the ID
+  // lookup (absolute-numbered anime, date-named dailies, "Season 3" wording).
+  return tokens.length === 0;
+}
+
 // --- Stylized title detection ---
 
 /** Common digit-to-letter substitutions used in stylized titles */

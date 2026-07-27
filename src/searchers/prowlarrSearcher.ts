@@ -22,7 +22,7 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult, ProwlarrSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages, buildSeasonPackPaginationAdditionalPages, extractSeasonTokens, normalizeTitle, extractTitleFromRelease } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, isIdSearchYearPlausible, isIdSearchSeasonPlausible, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages, buildSeasonPackPaginationAdditionalPages, extractSeasonTokens, normalizeTitle, extractTitleFromRelease } from '../parsers/titleMatching.js';
 import { slog, withSubBuffer } from '../parsers/searchLogger.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
@@ -38,6 +38,27 @@ interface NewznabParams {
   tvmazeid?: number;
   season?: number;
   ep?: string;
+}
+
+/**
+ * Apply a sanity predicate to ID-search results before they join the merged
+ * result set. ID results previously bypassed all validation — the text-search
+ * paths run isTextSearchMatch, but nothing checked what an ID query returned,
+ * so an indexer answering a correct ID with the wrong release passed straight
+ * through to the client. Logs in the same shape as the text-path title filter.
+ */
+function validateIdResults<T extends { title: string }>(
+  results: T[],
+  label: string,
+  keep: (title: string) => boolean,
+): T[] {
+  if (results.length === 0) return results;
+  const filtered = results.filter(r => keep(r.title));
+  if (filtered.length !== results.length) {
+    slog(`   🎯 ID-search ${label} filter: ${results.length} → ${filtered.length}`);
+    results.filter(r => !keep(r.title)).forEach(r => slog(`      ✂️  ${r.title}`));
+  }
+  return filtered;
 }
 
 export class ProwlarrSearcher {
@@ -124,11 +145,16 @@ export class ProwlarrSearcher {
       }
     }
 
-    const [idResults, canonicalResults, ...altResults] = await Promise.all([
+    const [rawIdResults, canonicalResults, ...altResults] = await Promise.all([
       Promise.all(idSearches).then(sets => sets.flat()),
       canonicalTextPromise,
       ...altPromises,
     ]);
+    // Year-only validation: a correct IMDb/TMDB lookup may legitimately return
+    // a release named nothing like the resolved title, but not one from a
+    // different year.
+    const idResults = validateIdResults(rawIdResults, 'year', t =>
+      isIdSearchYearPlausible(t, title, year, titleYear));
     let allResults = [...idResults, ...canonicalResults, ...altResults.flat()];
 
     // Sequential alt-title retry: skipped when parallel/anime fan-out fired.
@@ -293,11 +319,16 @@ export class ProwlarrSearcher {
       }
     }
 
-    const [idResults, canonicalResults, ...altResults] = await Promise.all([
+    const [rawIdResults, canonicalResults, ...altResults] = await Promise.all([
       Promise.all(idSearches).then(sets => sets.flat()),
       canonicalTextPromise,
       ...altPromises,
     ]);
+    // Season-only validation: releases that declare a season must declare the
+    // one we asked for. Absolute-numbered anime and date-named dailies carry
+    // no SxxExx token and pass through untouched.
+    const idResults = validateIdResults(rawIdResults, 'season', t =>
+      isIdSearchSeasonPlausible(t, season));
     let allResults = [...idResults, ...canonicalResults, ...altResults.flat()];
 
     // Sequential alt-title retry: skipped when parallel/anime fan-out fired.
@@ -472,7 +503,10 @@ export class ProwlarrSearcher {
     // id-method indexers (same rule as searchTVShow's packIndexerIds).
     const packIndexerIds = [...new Set([...textMethodIds, ...idSearchedIndexerIds])];
     const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [
-      Promise.all(idSearches).then(sets => sets.flat()),
+      Promise.all(idSearches)
+        .then(sets => sets.flat())
+        .then(rawIdResults => validateIdResults(rawIdResults, 'season', t =>
+          isIdSearchSeasonPlausible(t, season))),
     ];
 
     if (packIndexerIds.length > 0 && title) {

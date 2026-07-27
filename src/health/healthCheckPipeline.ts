@@ -318,7 +318,8 @@ export async function performHealthCheck(
     const usedBackup = result.providersUsed.some(p => p.type === 'backup');
     const providerNames = result.providersUsed.map(p => `${p.name} (${p.found}/${p.total})`);
 
-    log(`Result: ${result.totalExists}/${samplesToCheck.length} found (${providerNames.join(', ')})`);
+    const unverifiedNote = result.totalUnknown > 0 ? `, ${result.totalUnknown} unverified` : '';
+    log(`Result: ${result.totalExists}/${samplesToCheck.length} found${unverifiedNote} (${providerNames.join(', ')})`);
 
     // All samples exist
     if (result.totalExists === samplesToCheck.length) {
@@ -369,13 +370,15 @@ export async function performHealthCheck(
       }
     }
 
-    // Some missing — blocked
+    // Confirmed missing (explicit 430 from every reachable provider) — blocked.
+    // This is the ONLY path that may produce a dead-NZB cache entry, so it must
+    // rest on positive evidence of absence, never on an unanswered check.
     if (result.totalMissing > 0) {
 
       const providerInfo = providerNames.length > 1
         ? ` (checked ${providerNames.length} providers)`
         : '';
-      log(`→ Blocked: ${result.totalMissing}/${samplesToCheck.length} missing${providerInfo}`);
+      log(`→ Blocked: ${result.totalMissing}/${samplesToCheck.length} missing${unverifiedNote}${providerInfo}`);
       return {
         status: 'blocked',
         message: `Missing ${result.totalMissing} of ${samplesToCheck.length} segments${providerInfo}`,
@@ -386,10 +389,16 @@ export async function performHealthCheck(
       };
     }
 
-    log('→ Error: unexpected state');
+    // Nothing confirmed missing, but not everything confirmed present: the
+    // check didn't complete. Fail open — 'error' means "couldn't verify",
+    // which downstream must treat as neither healthy nor dead.
+    const unverified = result.totalUnknown > 0
+      ? result.totalUnknown
+      : samplesToCheck.length - result.totalExists;
+    log(`→ Unverified: ${unverified}/${samplesToCheck.length} segment(s) could not be checked`);
     return {
       status: 'error',
-      message: 'Could not verify all articles',
+      message: `Unverified: ${unverified} of ${samplesToCheck.length} segments could not be checked`,
       playable: false,
       providersUsed: providerNames,
       password,

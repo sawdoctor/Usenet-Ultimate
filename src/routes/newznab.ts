@@ -174,6 +174,40 @@ function mapPipelineResults(
 const searchCache = new Map<string, { at: number; results: any[] }>();
 const SEARCH_CACHE_MS = 10 * 60 * 1000;
 
+/**
+ * URLs that passed a health check during search, with the time of that check.
+ * t=get arrives seconds-to-minutes after the search that produced the result,
+ * against the same providers and the same NZB — re-running the full check
+ * there costs the arr a grab-time stall and the providers a second round of
+ * STAT traffic for an answer we already have. Only positive verdicts are
+ * cached (negatives already live in the dead-NZB cache, which t=get consults
+ * first) and only for the lifetime of the search results themselves.
+ */
+const freshVerdictCache = new Map<string, number>();
+
+function recordFreshVerdict(url: string): void {
+  freshVerdictCache.set(url, Date.now());
+  if (freshVerdictCache.size > 1000) {
+    const cutoff = Date.now() - SEARCH_CACHE_MS;
+    for (const [u, at] of freshVerdictCache) {
+      if (at < cutoff) freshVerdictCache.delete(u);
+    }
+    // Still oversized after pruning expired entries (a burst of searches):
+    // drop everything rather than grow without bound.
+    if (freshVerdictCache.size > 1000) freshVerdictCache.clear();
+  }
+}
+
+function hasFreshVerdict(url: string): boolean {
+  const at = freshVerdictCache.get(url);
+  if (at === undefined) return false;
+  if (Date.now() - at >= SEARCH_CACHE_MS) {
+    freshVerdictCache.delete(url);
+    return false;
+  }
+  return true;
+}
+
 async function pipelineSearch(
   type: 'movie' | 'series',
   imdbId: string,
@@ -399,32 +433,56 @@ async function pipelineSearch(
         const discTitleRe = /\b(bdiso|bdmv|br[-._ ]?disk|complete[-._ ]?blu[-._ ]?ray|full[-._ ]?blu[-._ ]?ray|iso)\b/i;
         const discImageUrls = new Set<string>();
         const candidateByUrl = new Map<string, any>(topCandidates.map((r: any) => [r.link, r] as [string, any]));
+        // A verdict is only actionable when the check actually completed.
+        // status 'error' means "couldn't verify" (unreachable provider, dropped
+        // socket, unexpected NNTP code, NZB download failure) — it carries
+        // playable:false, so gating on `playable === false` here was writing
+        // permanent dead-cache entries for releases nothing was ever learned
+        // about. Gate on the explicit 'blocked' status instead.
+        let unverifiedCount = 0;
         for (const [url, v] of verdicts.entries()) {
-          // Reputation: log every verdict as a release-level observation
           const cand = candidateByUrl.get(url);
-          if (cand) {
+          const isDead = v?.status === 'blocked';
+          const isUnverified = !v || v.status === 'error';
+          if (isUnverified) unverifiedCount++;
+          // Reputation: only record verdicts that established something.
+          // Recording an unverified check as a health failure teaches the
+          // engine that whichever indexer happened to be selected while a
+          // provider was flaky produces dead releases.
+          if (cand && !isUnverified) {
             try {
               recordHealthCheck(
                 cand.title || 'Unknown release',
                 cand.indexer || cand.indexerName || null,
-                !(v && v.playable === false),
+                !isDead,
                 v?.message,
               );
             } catch { /* noop — reputation must never break search */ }
           }
-          if (v && v.playable === false) {
+          if (isDead) {
             deadUrls.add(url);
             try { addDeadNzbByUrl(url, 'newznab search verification'); } catch { /* noop */ }
+          // Disc-image exclusion still applies to unverified verdicts: the
+          // payload was read from the parsed NZB, so that evidence stands
+          // regardless of whether the segment check completed. It removes the
+          // result from this response without any dead-cache write.
           } else if (!allowDiscImages && v?.containerType === 'ISO' && cand && !discTitleRe.test(cand.title || '')) {
             discImageUrls.add(url);
             console.log(`\u{1F6AB} Newznab: excluding "${cand.title}" — payload is a disc image but the title doesn't declare it (set NEWZNAB_ALLOW_DISC_IMAGES=on to keep these)`);
           }
         }
+        // Remember the healthy verdicts so t=get doesn't re-run the same check
+        // minutes later on the release the client picked. Same TTL as the
+        // search cache these results are being stored under.
+        for (const [url, v] of verdicts.entries()) {
+          if (v && v.playable === true) recordFreshVerdict(url);
+        }
+        const unverifiedNote = unverifiedCount > 0 ? `, ${unverifiedCount} unverified (kept)` : '';
         if (deadUrls.size > 0) {
           saveCacheToDisk();
-          console.log(`\u{1FA7A} Newznab: removed ${deadUrls.size} dead NZB(s) from results`);
+          console.log(`\u{1FA7A} Newznab: removed ${deadUrls.size} dead NZB(s) from results${unverifiedNote}`);
         } else {
-          console.log(`\u{1FA7A} Newznab: all verified candidates healthy`);
+          console.log(`\u{1FA7A} Newznab: no dead NZBs among verified candidates${unverifiedNote}`);
         }
         if (deadUrls.size > 0 || discImageUrls.size > 0) {
           healthyResults = healthyResults.filter((r: any) => !deadUrls.has(r?.link) && !discImageUrls.has(r?.link));
@@ -554,17 +612,35 @@ export function createNewznabRoutes(): Router {
             return errorXml(res, 410, 'NZB previously verified dead by health checks', 404);
           }
           const ua = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
-          try {
-            const verdict = await Promise.race([
-              performHealthCheck(target, hcProviders, ua, { archiveInspection: false, sampleCount: 3 }),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
-            ]);
-            if (verdict && verdict.playable === false) {
-              addDeadNzbByUrl(target, 'newznab t=get grab');
-              saveCacheToDisk();
-              return errorXml(res, 410, `NZB failed health check: ${verdict.message}`, 404);
-            }
-          } catch { /* best-effort: verification errors never block serving */ }
+          if (hasFreshVerdict(target)) {
+            // Verified during the search that produced this result, within the
+            // search cache's own lifetime. Nothing about the NZB or the
+            // providers has changed since; re-checking only delays the grab.
+            console.log(`\u{1FA7A} Newznab t=get: reusing fresh search-time verification, skipping re-check`);
+          } else {
+            try {
+              const verdict = await Promise.race([
+                performHealthCheck(target, hcProviders, ua, { archiveInspection: false, sampleCount: 3 }),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+              ]);
+              // Only a confirmed-blocked verdict may refuse the grab and mark
+              // the NZB dead. 'error' means the check couldn't complete —
+              // previously that also carried playable:false, so a flaky
+              // provider or a dropped socket turned a healthy release into a
+              // failed grab AND a permanent dead-cache entry. Serve it instead
+              // and let the download client be the judge.
+              if (verdict?.status === 'blocked') {
+                addDeadNzbByUrl(target, 'newznab t=get grab');
+                saveCacheToDisk();
+                return errorXml(res, 410, `NZB failed health check: ${verdict.message}`, 404);
+              }
+              if (!verdict) {
+                console.warn(`\u{1FA7A} Newznab t=get: verification timed out after 20s — serving unverified`);
+              } else if (verdict.status === 'error') {
+                console.warn(`\u{1FA7A} Newznab t=get: could not verify (${verdict.message}) — serving unverified`);
+              }
+            } catch { /* best-effort: verification errors never block serving */ }
+          }
           const cachedNzb = getCachedNzbContent(target);
           if (typeof cachedNzb === 'string' && cachedNzb.length > 0) {
             res.status(200).setHeader('Content-Type', 'application/x-nzb');

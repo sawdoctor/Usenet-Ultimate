@@ -12,22 +12,40 @@ import type { UsenetProvider } from '../types.js';
 import { connectToUsenet, NntpConnectionPool } from './nntpConnection.js';
 
 /**
+ * Per-provider article check outcome.
+ *
+ * `missing` means the server explicitly answered 430 (no such article) — that
+ * is the ONLY positive evidence of absence NNTP gives us. `unknown` means the
+ * check produced no usable answer for that article: an unexpected response
+ * code (480 auth-required on a stale pooled socket, 452, 502...), or a socket
+ * that closed before the article's response arrived. Unknown is NOT absence,
+ * and callers must never treat it as such — a wrong "missing" verdict writes
+ * the release to the dead-NZB cache, which is effectively permanent.
+ */
+export interface ArticleCheckOutcome {
+  existing: string[];
+  missing: string[];
+  unknown: string[];
+}
+
+/**
  * Check which articles exist on a Usenet connection
- * Returns lists of existing and missing message IDs
+ * Returns lists of existing, missing (explicit 430) and unknown message IDs
  */
 export async function checkArticlesDetailed(
   socket: net.Socket | tls.TLSSocket,
   messageIds: string[],
   timeoutMs: number = 30000
-): Promise<{ existing: string[]; missing: string[] }> {
+): Promise<ArticleCheckOutcome> {
   return new Promise((resolve, reject) => {
     if (messageIds.length === 0) {
-      resolve({ existing: [], missing: [] });
+      resolve({ existing: [], missing: [], unknown: [] });
       return;
     }
 
     const existing: string[] = [];
     const missing: string[] = [];
+    const unknown: string[] = [];
     let checked = 0;
     let buffer = '';
     let resolved = false;
@@ -67,10 +85,13 @@ export async function checkArticlesDetailed(
           missing.push(currentId);
           checked++;
         }
-        // Handle any other NNTP response code as missing
+        // Any other NNTP response code is an UNKNOWN result, never a missing
+        // one. 480 (auth required, e.g. after a pooled socket went stale), 452,
+        // 502 and friends say nothing about whether the article exists — the
+        // server simply didn't answer the question we asked.
         else if (/^\d{3}\s/.test(line)) {
-          console.warn(`⚠️  Unexpected NNTP response during article check: ${line}`);
-          missing.push(currentId);
+          console.warn(`⚠️  Unexpected NNTP response during article check (treated as unverified): ${line}`);
+          unknown.push(currentId);
           checked++;
         }
 
@@ -78,7 +99,7 @@ export async function checkArticlesDetailed(
         if (checked >= messageIds.length && !resolved) {
           resolved = true;
           cleanup();
-          resolve({ existing, missing });
+          resolve({ existing, missing, unknown });
           return;
         }
       }
@@ -99,11 +120,18 @@ export async function checkArticlesDetailed(
       if (!resolved) {
         resolved = true;
         cleanup();
-        // Treat unchecked articles as missing and resolve with what we have
-        for (let i = checked; i < messageIds.length; i++) {
-          missing.push(messageIds[i]);
+        // Articles whose response never arrived are UNVERIFIED, not missing.
+        // The server dropping the connection is a statement about the
+        // connection, not about the articles — the previous behaviour turned
+        // one mid-check disconnect into a permanent dead-cache entry for a
+        // release that may be perfectly healthy.
+        if (checked < messageIds.length) {
+          console.warn(`⚠️  Connection closed after ${checked}/${messageIds.length} article checks — remaining treated as unverified`);
         }
-        resolve({ existing, missing });
+        for (let i = checked; i < messageIds.length; i++) {
+          unknown.push(messageIds[i]);
+        }
+        resolve({ existing, missing, unknown });
       }
     };
 
@@ -132,7 +160,7 @@ export async function checkArticlesOnProvider(
   provider: UsenetProvider,
   messageIds: string[],
   pool?: NntpConnectionPool
-): Promise<{ existing: string[]; missing: string[] }> {
+): Promise<ArticleCheckOutcome> {
   if (pool) {
     const socket = await pool.acquire(provider);
     try {
@@ -152,15 +180,53 @@ export async function checkArticlesOnProvider(
   }
 }
 
+export interface MultiProviderCheckResult {
+  totalExists: number;
+  /** Articles every reachable provider explicitly answered 430 for. */
+  totalMissing: number;
+  /** Articles no provider gave a usable answer for — absence NOT established. */
+  totalUnknown: number;
+  missingIds: string[];
+  unknownIds: string[];
+  providersUsed: Array<{ id: string; name: string; type: 'pool' | 'backup'; found: number; total: number }>;
+  /** Enabled providers that could not be checked at all (connect/auth failure). */
+  providersFailed: number;
+}
+
 /**
- * Check articles across multiple providers with fallback
- * Pool providers are checked first, then backup providers for missing articles
+ * When an enabled provider can't be reached at all, a "missing" verdict from
+ * the providers that DID answer is not trustworthy: the unreachable provider
+ * is exactly the one that might have carried the article. Default is to
+ * downgrade every unfound article to unknown in that case (fail open).
+ *
+ * Set HEALTH_REQUIRE_ALL_PROVIDERS=off to revert to "verdict stands on
+ * whichever providers answered" — faster to reach blocked verdicts, at the
+ * cost of dead-cache writes whenever a provider is flaky.
+ */
+function requireAllProviders(): boolean {
+  const v = (process.env.HEALTH_REQUIRE_ALL_PROVIDERS || '').toLowerCase();
+  if (v === 'off' || v === 'false' || v === '0') return false;
+  return true;
+}
+
+/**
+ * Check articles across multiple providers with fallback.
+ * Pool providers are checked first, then backup providers for articles the
+ * pool didn't confirm.
+ *
+ * Aggregation rule — an article is only `missing` when the evidence is
+ * positive and complete:
+ *   - found on any provider                      → exists
+ *   - not found, at least one explicit 430,
+ *     no provider left it unanswered             → missing
+ *   - anything else (unexpected codes, mid-check
+ *     disconnects, unreachable providers)        → unknown
  */
 export async function checkArticlesMultiProvider(
   providers: UsenetProvider[],
   messageIds: string[],
   pool?: NntpConnectionPool
-): Promise<{ totalExists: number; totalMissing: number; missingIds: string[]; providersUsed: Array<{ id: string; name: string; type: 'pool' | 'backup'; found: number; total: number }> }> {
+): Promise<MultiProviderCheckResult> {
   const poolProviders = providers.filter(p => p.enabled && p.type === 'pool');
   const backupProviders = providers.filter(p => p.enabled && p.type === 'backup');
 
@@ -169,8 +235,19 @@ export async function checkArticlesMultiProvider(
   }
 
   const foundIds = new Set<string>();
+  /** Ids some provider explicitly answered 430 for. */
+  const deniedIds = new Set<string>();
+  /** Ids some provider failed to answer for. */
+  const unansweredIds = new Set<string>();
   const providersUsed: Array<{ id: string; name: string; type: 'pool' | 'backup'; found: number; total: number }> = [];
   let providersChecked = 0;
+  let providersFailed = 0;
+
+  const absorb = (result: ArticleCheckOutcome) => {
+    for (const id of result.existing) foundIds.add(id);
+    for (const id of result.missing) deniedIds.add(id);
+    for (const id of result.unknown) unansweredIds.add(id);
+  };
 
   // Check ALL pool providers in PARALLEL with the same full set of IDs
   if (poolProviders.length > 0) {
@@ -188,10 +265,12 @@ export async function checkArticlesMultiProvider(
         if (result.existing.length > 0) {
           providersUsed.push({ id: provider.id, name: provider.name, type: provider.type, found: result.existing.length, total: messageIds.length });
         }
-        for (const id of result.existing) {
-          foundIds.add(id);
+        if (result.unknown.length > 0) {
+          console.warn(`  [provider] ${provider.name}: ${result.unknown.length}/${messageIds.length} article(s) unverified`);
         }
+        absorb(result);
       } else {
+        providersFailed++;
         console.warn(`  [provider] Pool check failed: ${outcome.reason}`);
       }
     }
@@ -200,7 +279,7 @@ export async function checkArticlesMultiProvider(
   // Compute remaining IDs not found by any pool provider
   let remainingIds = messageIds.filter(id => !foundIds.has(id));
 
-  // If segments are still missing, check ALL backup providers in PARALLEL
+  // If articles are still unconfirmed, check ALL backup providers in PARALLEL
   if (remainingIds.length > 0 && backupProviders.length > 0) {
     const backupResults = await Promise.allSettled(
       backupProviders.map(async (provider) => {
@@ -216,10 +295,12 @@ export async function checkArticlesMultiProvider(
         if (result.existing.length > 0) {
           providersUsed.push({ id: provider.id, name: provider.name, type: provider.type, found: result.existing.length, total: remainingIds.length });
         }
-        for (const id of result.existing) {
-          foundIds.add(id);
+        if (result.unknown.length > 0) {
+          console.warn(`  [provider] ${provider.name}: ${result.unknown.length}/${remainingIds.length} article(s) unverified`);
         }
+        absorb(result);
       } else {
+        providersFailed++;
         console.warn(`  [provider] Backup check failed: ${outcome.reason}`);
       }
     }
@@ -232,10 +313,29 @@ export async function checkArticlesMultiProvider(
     throw new Error('All providers failed to connect');
   }
 
+  // An unreachable provider makes every negative verdict unsafe.
+  const strictQuorum = providersFailed > 0 && requireAllProviders();
+  if (strictQuorum) {
+    console.warn(`  [provider] ${providersFailed} enabled provider(s) unreachable — negative verdicts downgraded to unverified (HEALTH_REQUIRE_ALL_PROVIDERS=off to disable)`);
+  }
+
+  const missingIds: string[] = [];
+  const unknownIds: string[] = [];
+  for (const id of remainingIds) {
+    if (strictQuorum || unansweredIds.has(id) || !deniedIds.has(id)) {
+      unknownIds.push(id);
+    } else {
+      missingIds.push(id);
+    }
+  }
+
   return {
     totalExists: foundIds.size,
-    totalMissing: remainingIds.length,
-    missingIds: remainingIds,
-    providersUsed
+    totalMissing: missingIds.length,
+    totalUnknown: unknownIds.length,
+    missingIds,
+    unknownIds,
+    providersUsed,
+    providersFailed
   };
 }

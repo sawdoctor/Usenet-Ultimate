@@ -71,7 +71,11 @@ function pruneFilterConfig(fc: any, flags: ClientProfileFlags): any {
     delete out.enabledPriorities.visualTag;
     // Size preferences are quality taste too — arrs enforce their own
     // per-quality size limits, so these ride with the source toggle.
-    delete out.minSize; delete out.maxSize;
+    // Keys must match what applyQualityFilters reads (filters.ts): the
+    // individual-file bounds are minFileSize/maxFileSize. Deleting
+    // minSize/maxSize here was a silent no-op — source filters were reported
+    // as off while the configured size limits kept culling results.
+    delete out.minFileSize; delete out.maxFileSize;
     delete out.minSeasonPackSize; delete out.maxSeasonPackSize;
     delete out.minSeasonPackEpisodeSize; delete out.maxSeasonPackEpisodeSize;
   }

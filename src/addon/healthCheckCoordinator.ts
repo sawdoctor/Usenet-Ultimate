@@ -331,7 +331,7 @@ export async function coordinateHealthChecks(
         for (const [nzbUrl, result] of batchResults.entries()) {
           const originalLink = resolveOriginalLink(nzbUrl);
           const resultTitle = allResults.find(r => r.link === originalLink)?.title || 'Unknown';
-          const icon = isVerifiedStatus(result.status) ? '✅' : '🚫';
+          const icon = isVerifiedStatus(result.status) ? '✅' : (result.status === 'error' ? '❔' : '🚫');
           console.log(`  ${icon} ${resultTitle.substring(0, 60)}...`);
         }
 
@@ -445,7 +445,7 @@ export async function coordinateHealthChecks(
       for (const [nzbUrl, result] of usenetResults.entries()) {
         const originalLink = resolveOriginalLink(nzbUrl);
         const resultTitle = allResults.find(r => r.link === originalLink)?.title || 'Unknown';
-        const icon = isVerifiedStatus(result.status) ? '✅' : '🚫';
+        const icon = isVerifiedStatus(result.status) ? '✅' : (result.status === 'error' ? '❔' : '🚫');
         console.log(`  ${icon} ${resultTitle.substring(0, 60)}...`);
       }
     }
@@ -491,17 +491,26 @@ export async function coordinateHealthChecks(
   }
   if (deadWrites > 0) saveCacheToDisk();
 
-  // Filter out blocked/error NZBs if hideBlocked is enabled
+  // Filter out confirmed-blocked NZBs if hideBlocked is enabled.
+  // 'error' verdicts are NOT filtered: they mean the check couldn't complete
+  // (unreachable provider, dropped socket, unexpected NNTP code), which is no
+  // evidence against the release. Hiding those silently deleted healthy
+  // results whenever a provider hiccuped — the same false-negative the
+  // fail-open classification exists to prevent. An unverified result is left
+  // in place exactly like the results that were never checked at all.
   if (config.healthChecks.hideBlocked) {
     const beforeCount = allResults.length;
     allResults = allResults.filter(r => {
       const health = healthResults.get(r.link);
-      // Keep results that weren't checked or that aren't blocked/error
-      return !health || (health.status !== 'blocked' && health.status !== 'error');
+      return !health || health.status !== 'blocked';
     });
     const filteredCount = beforeCount - allResults.length;
     if (filteredCount > 0) {
-      console.log(`🚫 Filtered out ${filteredCount} blocked/error NZB(s)`);
+      console.log(`🚫 Filtered out ${filteredCount} blocked NZB(s)`);
+    }
+    const unverifiedCount = allResults.filter(r => healthResults.get(r.link)?.status === 'error').length;
+    if (unverifiedCount > 0) {
+      console.log(`❔ Kept ${unverifiedCount} unverified NZB(s) — check could not complete, not treated as dead`);
     }
   }
 
