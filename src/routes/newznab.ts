@@ -28,7 +28,7 @@ import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProces
 import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent } from '../health/index.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { recordHealthCheck, recordGrab, recordDeadCacheEvidence, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
+import { recordHealthCheck, recordPasswordEvidence, recordGrab, recordDeadCacheEvidence, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
 import { trackGrab } from '../statsTracker.js';
 
 const MAX_RESULTS = 100;
@@ -417,7 +417,7 @@ async function pipelineSearch(
           hcSearchProviders,
           hcUa,
           Math.min(Number(hc.maxConnections) || 3, topCandidates.length),
-          { archiveInspection: false, sampleCount: hc.sampleCount === 7 ? 7 : 3 },
+          { archiveInspection: false, sampleCount: hc.sampleCount === 7 ? 7 : 3, segmentChecks: false },
         );
         const deadUrls = new Set<string>();
         // Undeclared disc images: the payload is an .iso/.img or BDMV/VIDEO_TS
@@ -445,6 +445,17 @@ async function pipelineSearch(
           const isDead = v?.status === 'blocked';
           const isUnverified = !v || v.status === 'error';
           if (isUnverified) unverifiedCount++;
+
+          // Password metadata is deterministic NZB parse evidence.
+          if (cand && v?.password) {
+            try {
+              recordPasswordEvidence(
+                cand.title || 'Unknown release',
+                cand.indexer || cand.indexerName || null,
+              );
+            } catch { /* reputation must never break search */ }
+          }
+
           // Reputation: only record verdicts that established something.
           // Recording an unverified check as a health failure teaches the
           // engine that whichever indexer happened to be selected while a
@@ -484,7 +495,7 @@ async function pipelineSearch(
           saveCacheToDisk();
           console.log(`\u{1FA7A} Newznab: removed ${deadUrls.size} dead NZB(s) from results${unverifiedNote}`);
         } else {
-          console.log(`\u{1FA7A} Newznab: no dead NZBs among verified candidates${unverifiedNote}`);
+          console.log(`\u{1FA7A} Newznab: no blocked NZBs among parsed candidates${unverifiedNote}`);
         }
         if (deadUrls.size > 0 || discImageUrls.size > 0) {
           healthyResults = healthyResults.filter((r: any) => !deadUrls.has(r?.link) && !discImageUrls.has(r?.link));
@@ -612,36 +623,6 @@ export function createNewznabRoutes(): Router {
         if ((config as any).healthChecks?.enabled && hcProviders.length > 0) {
           if (isDeadNzbByUrl(target)) {
             return errorXml(res, 410, 'NZB previously verified dead by health checks', 404);
-          }
-          const ua = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
-          if (hasFreshVerdict(target)) {
-            // Verified during the search that produced this result, within the
-            // search cache's own lifetime. Nothing about the NZB or the
-            // providers has changed since; re-checking only delays the grab.
-            console.log(`\u{1FA7A} Newznab t=get: reusing fresh search-time verification, skipping re-check`);
-          } else {
-            try {
-              const verdict = await Promise.race([
-                performHealthCheck(target, hcProviders, ua, { archiveInspection: false, sampleCount: 3 }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
-              ]);
-              // Only a confirmed-blocked verdict may refuse the grab and mark
-              // the NZB dead. 'error' means the check couldn't complete —
-              // previously that also carried playable:false, so a flaky
-              // provider or a dropped socket turned a healthy release into a
-              // failed grab AND a permanent dead-cache entry. Serve it instead
-              // and let the download client be the judge.
-              if (verdict?.status === 'blocked') {
-                addDeadNzbByUrl(target, 'newznab t=get grab');
-                saveCacheToDisk();
-                return errorXml(res, 410, `NZB failed health check: ${verdict.message}`, 404);
-              }
-              if (!verdict) {
-                console.warn(`\u{1FA7A} Newznab t=get: verification timed out after 20s — serving unverified`);
-              } else if (verdict.status === 'error') {
-                console.warn(`\u{1FA7A} Newznab t=get: could not verify (${verdict.message}) — serving unverified`);
-              }
-            } catch { /* best-effort: verification errors never block serving */ }
           }
           const cachedNzb = getCachedNzbContent(target);
           if (typeof cachedNzb === 'string' && cachedNzb.length > 0) {

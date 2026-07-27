@@ -33,4 +33,5 @@ export interface NzbParseResult {
 export interface HealthCheckOptions {
   archiveInspection: boolean;
   sampleCount: 3 | 7;
+  segmentChecks?: boolean;
 }

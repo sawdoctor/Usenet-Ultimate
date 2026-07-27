@@ -252,6 +252,30 @@ export function recordHealthCheck(
 }
 
 /**
+ * Record deterministic password evidence obtained by parsing an NZB.
+ *
+ * This evidence is independent of the provider-dependent NNTP verdict.
+ */
+export function recordPasswordEvidence(
+  title: string,
+  indexer: string | null,
+): void {
+  const rec = getOrCreateRelease(title, indexer);
+
+  if (rec.passworded) return;
+
+  rec.passworded = true;
+
+  const g = aggFor(data.groups, rec.releaseGroup);
+  if (g) g.passworded++;
+
+  const i = aggFor(data.indexers, rec.indexer);
+  if (i) i.passworded++;
+
+  scheduleSave();
+}
+
+/**
  * A t=get download of an NZB. Only requests from Sonarr/Radarr-family
  * user agents count as real grabs with a pending outcome; anything else
  * (UU's own verification, curl tests) is logged but not awaited.

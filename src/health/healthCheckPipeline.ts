@@ -264,6 +264,20 @@ export async function performHealthCheck(
       }
     }
 
+    // NZB parsing and optional archive inspection are complete.
+    // Skip provider-dependent NNTP segment checks while preserving
+    // parse-derived password and container evidence.
+    if (options.segmentChecks === false) {
+      log('→ Unverified: segment checks disabled');
+      return {
+        status: 'error',
+        message: 'Segment checks disabled — parse evidence only',
+        playable: false,
+        password,
+        containerType,
+      };
+    }
+
     // Sample articles from the selected file
     const segments = fileToCheck.segments;
 
