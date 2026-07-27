@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.7.4] - 2026-07-27
+
+### Fixed
+
+- Synchronise the frontend package version with the application release version so the dashboard displays the correct release badge.
+
 ## [1.7.3] - 2026-07-27
 
 ### Critical fixes
