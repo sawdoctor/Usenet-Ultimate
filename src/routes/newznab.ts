@@ -461,7 +461,9 @@ async function pipelineSearch(
           }
           if (isDead) {
             deadUrls.add(url);
-            try { addDeadNzbByUrl(url, 'newznab search verification'); } catch { /* noop */ }
+            // The central health-check coordinator persists confirmed blocked
+            // NZBs with their real title, indexer and size. Do not write a
+            // duplicate placeholder entry from the Newznab response path.
           // Disc-image exclusion still applies to unverified verdicts: the
           // payload was read from the parsed NZB, so that evidence stands
           // regardless of whether the segment check completed. It removes the
