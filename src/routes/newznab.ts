@@ -26,6 +26,7 @@ import { resolveTitle } from '../addon/titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from '../addon/searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProcessor.js';
 import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent, cacheNzbContent, getNzbCacheStats } from '../health/index.js';
+import { parseNzbXml, classifyNzbFiles } from '../health/nzbParser.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { recordHealthCheck, recordPasswordEvidence, recordGrab, recordDeadCacheEvidence, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
@@ -215,6 +216,123 @@ async function fetchNzbCoalesced(target: string): Promise<{ buf: Buffer } | { er
   return p;
 }
 
+/**
+ * Inspect an NZB payload the caller already holds.
+ *
+ * With search-time health checking off, this is the only place password and
+ * disc-image metadata is still discovered — and it runs on the release the
+ * client actually selected rather than on N speculative candidates. The
+ * payload is already in hand (cache hit or the coalesced fetch), so this adds
+ * ZERO upstream requests. Parsing is delegated to the shared nzbParser.
+ *
+ * Returns a rejection reason, or null when the release is acceptable.
+ */
+/**
+ * on|off|true|false|1|0 env flag. Hoisted to module scope so the t=get
+ * inspector and the search-path client profile read the same toggles through
+ * the same parser rather than each implementing their own.
+ */
+function envFlag(name: string, dflt: boolean): boolean {
+  const v = (process.env[name] || '').toLowerCase();
+  if (v === 'on' || v === 'true' || v === '1') return true;
+  if (v === 'off' || v === 'false' || v === '0') return false;
+  return dflt;
+}
+
+async function inspectSelectedNzb(
+  nzbXml: string,
+  target: string,
+  identity: { title: string; indexer: string | null } | null,
+): Promise<string | null> {
+  let parsed;
+  try {
+    parsed = await parseNzbXml(nzbXml, target);
+  } catch (err) {
+    // A malformed payload is not grounds for refusing the grab: the download
+    // client is a better judge of that than a parse failure here.
+    console.warn(`\u{1F50E} Newznab t=get: could not parse NZB for inspection (${(err as Error)?.message || err}) — serving unparsed`);
+    return null;
+  }
+
+  // Password metadata is deterministic parse evidence feeding the existing -3
+  // passworded penalty — NOT a rejection condition. Archive verification can
+  // proceed with a known password, so having one has never disqualified a
+  // release, and inventing that policy here would silently change behaviour.
+  // recordPasswordEvidence is idempotent per release record, so a repeat grab
+  // of the same release cannot double-count.
+  if (parsed.password && identity?.title) {
+    try {
+      recordPasswordEvidence(identity.title, identity.indexer ?? null);
+      console.log(`\u{1F510} Newznab t=get: password metadata present — recorded as reputation evidence for "${identity.title}"`);
+    } catch { /* noop — reputation must never break a grab */ }
+  } else if (parsed.password) {
+    console.log(`\u{1F510} Newznab t=get: password metadata present but grab is uncorrelated — evidence not recorded`);
+  }
+
+  const { containerType, videoCount, archiveCount, discImageCount } = classifyNzbFiles(parsed.files);
+  console.log(`\u{1F50E} Newznab t=get: ${parsed.files.length} files (${videoCount} video, ${archiveCount} archive${discImageCount > 0 ? `, ${discImageCount} disc-image` : ''})${containerType ? ` [${containerType}]` : ''}`);
+
+  // Same policy as the search path: a disc image is only rejected when the
+  // title fails to declare it. A release honestly labelled BDMV/ISO is a
+  // deliberate choice by whoever configured the profile.
+  const allowDiscImages = envFlag('NEWZNAB_ALLOW_DISC_IMAGES', false);
+  const discTitleRe = /\b(bdiso|bdmv|br[-._ ]?disk|complete[-._ ]?blu[-._ ]?ray|full[-._ ]?blu[-._ ]?ray|iso)\b/i;
+  if (!allowDiscImages && containerType === 'ISO' && !discTitleRe.test(identity?.title || '')) {
+    return `payload is a disc image but the title doesn't declare it (set NEWZNAB_ALLOW_DISC_IMAGES=on to keep these)`;
+  }
+
+  return null;
+}
+
+/**
+ * Durable grab correlation: NZB URL -> the identity that was known when the
+ * result was generated.
+ *
+ * The search-results cache cannot serve this purpose. It expires in 10 minutes
+ * and is cleared WHOLESALE at 500 entries, but an arr routinely grabs long
+ * after the search that produced the result — so recordGrab fell through to
+ * `unknown:<url tail>`, a key that can never match a real release and always
+ * ages out as lost, silently discarding the import outcome that is the
+ * reputation engine's strongest signal.
+ *
+ * Deliberately separate from searchCache: results go stale in minutes, but a
+ * URL's identity never changes. Bounded and TTL'd independently.
+ */
+const GRAB_IDENTITY_TTL_MS = 24 * 60 * 60 * 1000;
+const GRAB_IDENTITY_MAX = 5000;
+const grabIdentityCache = new Map<string, { title: string; indexer: string | null; at: number }>();
+
+function rememberGrabIdentity(url: string, title: string, indexer: string | null): void {
+  if (!url || !title) return;
+  // Re-inserting moves the key to the end of Map iteration order, which is
+  // what makes the eviction below least-recently-SEEN rather than oldest.
+  grabIdentityCache.delete(url);
+  grabIdentityCache.set(url, { title, indexer, at: Date.now() });
+
+  if (grabIdentityCache.size > GRAB_IDENTITY_MAX) {
+    const cutoff = Date.now() - GRAB_IDENTITY_TTL_MS;
+    for (const [k, v] of grabIdentityCache) {
+      if (v.at < cutoff) grabIdentityCache.delete(k);
+    }
+    // Still over: drop oldest-inserted until under the cap. Never unbounded.
+    while (grabIdentityCache.size > GRAB_IDENTITY_MAX) {
+      const oldest = grabIdentityCache.keys().next().value;
+      if (oldest === undefined) break;
+      grabIdentityCache.delete(oldest);
+    }
+  }
+}
+
+function lookupGrabIdentity(url: string): { title: string; indexer: string | null } | null {
+  const hit = grabIdentityCache.get(url);
+  if (!hit) return null;
+  if (Date.now() - hit.at > GRAB_IDENTITY_TTL_MS) {
+    grabIdentityCache.delete(url);
+    return null;
+  }
+  return { title: hit.title, indexer: hit.indexer };
+}
+
 const searchCache = new Map<string, { at: number; results: any[] }>();
 const SEARCH_CACHE_MS = 10 * 60 * 1000;
 
@@ -301,12 +419,7 @@ async function pipelineSearch(
   // source preference is what starved Radarr HD while Radarr4K thrived).
   // Env overrides: NEWZNAB_RESOLUTION_FILTERS / NEWZNAB_SOURCE_FILTERS /
   // NEWZNAB_STREAM_LIMITS = on|off.
-  const flag = (name: string, dflt: boolean): boolean => {
-    const v = (process.env[name] || '').toLowerCase();
-    if (v === 'on' || v === 'true' || v === '1') return true;
-    if (v === 'off' || v === 'false' || v === '0') return false;
-    return dflt;
-  };
+  const flag = envFlag;
   const clientProfile = {
     resolutionFilters: flag('NEWZNAB_RESOLUTION_FILTERS', true),
     sourceFilters: flag('NEWZNAB_SOURCE_FILTERS', false),
@@ -566,6 +679,11 @@ async function pipelineSearch(
       }
     }
   }
+  // Record identity for every result we hand out — including ones served from
+  // the search cache path — so a grab arriving hours later still resolves.
+  for (const r of healthyResults) {
+    if (r?.link) rememberGrabIdentity(r.link, r.title || '', r.indexer || r.indexerName || null);
+  }
   searchCache.set(cacheKey, { at: Date.now(), results: healthyResults });
   if (searchCache.size > 500) searchCache.clear();
   return healthyResults;
@@ -671,13 +789,24 @@ export function createNewznabRoutes(): Router {
         // grabs with a pending outcome; anything else is logged but not awaited.
         const grabUa = req.get('user-agent') || '';
         const isArrGrab = /sonarr|radarr|lidarr|whisparr|prowlarr/i.test(grabUa);
-        try {
-          const cached = findCachedResultByUrl(target);
-          recordGrab(target, cached, isArrGrab, grabUa);
-          if (isArrGrab && cached) {
-            trackGrab(cached.indexer || 'Unknown', cached.title); // stats.json parity with Stremio path
-          }
-        } catch { /* noop — reputation must never block a grab */ }
+        // Durable identity first; the 10-minute search cache is only a fallback.
+        const grabIdentity = lookupGrabIdentity(target) || findCachedResultByUrl(target);
+        // NOTE: grab bookkeeping deliberately does NOT happen here. A release
+        // UU itself refuses — known-dead, or rejected on inspection — never
+        // reaches the download client, so recording it as a grab would leave a
+        // pending arr outcome for something nothing ever received. See
+        // recordDeliveredGrab(), called only on the delivery paths below.
+        let grabRecorded = false;
+        const recordDeliveredGrab = (): void => {
+          if (grabRecorded) return;
+          grabRecorded = true;
+          try {
+            recordGrab(target, grabIdentity, isArrGrab, grabUa);
+            if (isArrGrab && grabIdentity) {
+              trackGrab(grabIdentity.indexer || 'Unknown', grabIdentity.title); // stats.json parity with Stremio path
+            }
+          } catch { /* noop — reputation must never block a grab */ }
+        };
         // Verify NZB health with UU's engine before handing to the download client.
         // Governed by the existing Health Checks toggle; disabled = passthrough.
         const hcProviders = (config as any).healthChecks?.providers?.filter((p: any) => p.enabled) || [];
@@ -695,6 +824,12 @@ export function createNewznabRoutes(): Router {
         const cachedNzb = getCachedNzbContent(target);
         if (typeof cachedNzb === 'string' && cachedNzb.length > 0) {
           console.log(`\u{1F4E6} Newznab t=get: payload cache HIT (${cachedNzb.length} bytes) — no upstream fetch`);
+          const reject = await inspectSelectedNzb(cachedNzb, target, grabIdentity);
+          if (reject) {
+            console.log(`\u{1F6AB} Newznab t=get: refusing "${grabIdentity?.title || target.slice(0, 60)}" — ${reject}`);
+            return errorXml(res, 300, `Release rejected on inspection: ${reject}`, 404);
+          }
+          recordDeliveredGrab();
           res.status(200).setHeader('Content-Type', 'application/x-nzb');
           res.setHeader('Content-Disposition', 'attachment; filename="release.nzb"');
           res.setHeader('Cache-Control', 'no-store');
@@ -704,6 +839,14 @@ export function createNewznabRoutes(): Router {
         const fetched = await fetchNzbCoalesced(target);
         if ('error' in fetched) return errorXml(res, 300, fetched.error, fetched.status);
         const buf = fetched.buf;
+        // Inspect the payload we just fetched. Coalesced joiners each inspect
+        // the shared buffer — parsing is local, so this costs no extra request.
+        const rejectFresh = await inspectSelectedNzb(buf.toString('utf8'), target, grabIdentity);
+        if (rejectFresh) {
+          console.log(`\u{1F6AB} Newznab t=get: refusing "${grabIdentity?.title || target.slice(0, 60)}" — ${rejectFresh}`);
+          return errorXml(res, 300, `Release rejected on inspection: ${rejectFresh}`, 404);
+        }
+        recordDeliveredGrab();
         res.status(200)
           .setHeader('Content-Type', 'application/x-nzb');
         res.setHeader('Content-Disposition', 'attachment; filename="release.nzb"');

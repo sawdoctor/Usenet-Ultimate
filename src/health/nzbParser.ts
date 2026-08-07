@@ -6,6 +6,7 @@
  * from NZB metadata, URL patterns, and query parameters.
  */
 
+import { isVideoFile, isCompressedArchive, isDiscImageFile, getVideoContainerType } from './fileClassifier.js';
 import { parseStringPromise } from 'xml2js';
 import { proxyFetch, verifyProxyCircuit, ProxyCircuitAbortError } from '../proxy.js';
 import type { NzbFile, NzbParseResult } from './types.js';
@@ -55,6 +56,18 @@ export async function downloadAndParseNzb(nzbUrl: string, userAgent: string, ind
     // Cache raw NZB XML so other consumers can reuse it without re-downloading
     cacheNzbContent(nzbUrl, nzbXml);
   }
+  return parseNzbXml(nzbXml, nzbUrl);
+}
+
+/**
+ * Parse NZB XML that the caller already has in hand.
+ *
+ * Split out of downloadAndParseNzb so consumers holding a payload — the
+ * Newznab t=get route, which must fetch the selected NZB anyway — can extract
+ * password and file metadata without triggering another indexer request.
+ * downloadAndParseNzb delegates here, so there is exactly one parser.
+ */
+export async function parseNzbXml(nzbXml: string, nzbUrl: string): Promise<NzbParseResult> {
   const parsed = await parseStringPromise(nzbXml);
 
   // Extract password from NZB <head> metadata
@@ -111,4 +124,37 @@ export async function downloadAndParseNzb(nzbUrl: string, userAgent: string, ind
   }
 
   return { files, password };
+}
+
+/**
+ * Container classification from a parsed NZB file list.
+ *
+ * Extracted from healthCheckPipeline so the pipeline and the t=get inspector
+ * cannot drift apart. 'ISO' means the payload is a disc image with no playable
+ * video container — these are routinely mislabeled as ordinary BluRay encodes,
+ * so the payload is the only reliable signal.
+ */
+export function classifyNzbFiles(files: NzbFile[]): {
+  containerType?: string;
+  videoCount: number;
+  archiveCount: number;
+  discImageCount: number;
+} {
+  const videoFiles = files.filter(f => isVideoFile(f.subject));
+  const archiveFiles = files.filter(f => isCompressedArchive(f.subject));
+  const discImageFiles = files.filter(f => isDiscImageFile(f.subject));
+
+  let containerType: string | undefined;
+  if (videoFiles.length > 0) {
+    containerType = getVideoContainerType(videoFiles[0].subject);
+  } else if (discImageFiles.length > 0) {
+    containerType = 'ISO';
+  }
+
+  return {
+    containerType,
+    videoCount: videoFiles.length,
+    archiveCount: archiveFiles.length,
+    discImageCount: discImageFiles.length,
+  };
 }

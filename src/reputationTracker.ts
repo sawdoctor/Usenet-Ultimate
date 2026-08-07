@@ -318,7 +318,17 @@ export function recordGrab(
   isArr: boolean,
   userAgent?: string,
 ): void {
-  const title = meta?.title || `unknown:${nzbUrl.slice(-40)}`;
+  // No identity means no reputation record. The previous fallback minted a key
+  // from the last 40 characters of the URL — a string that can never match a
+  // real release title, so the record sat unmatched until it aged out as
+  // "lost", contributing nothing and burying the real signal in noise. With
+  // durable grab correlation upstream this should now be rare; when it does
+  // happen, recording nothing is strictly better than recording a fiction.
+  if (!meta?.title) {
+    console.warn(`\u{1F4C8} Reputation: grab could not be correlated to a known result — not recorded (${nzbUrl.slice(0, 60)}...)`);
+    return;
+  }
+  const title = meta.title;
   const rec = getOrCreateRelease(title, meta?.indexer ?? null, nzbUrl);
   rec.grabs.push({ timestamp: now(), source: isArr ? 'arr' : 'other', userAgent: userAgent?.slice(0, 60) });
   if (rec.grabs.length > 20) rec.grabs.shift();
