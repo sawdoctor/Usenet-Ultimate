@@ -25,7 +25,7 @@ import { config } from '../config/index.js';
 import { resolveTitle } from '../addon/titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from '../addon/searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProcessor.js';
-import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent } from '../health/index.js';
+import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent, cacheNzbContent, getNzbCacheStats } from '../health/index.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { recordHealthCheck, recordPasswordEvidence, recordGrab, recordDeadCacheEvidence, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
@@ -171,6 +171,50 @@ function mapPipelineResults(
 // Search via the full UU pipeline (title resolution → orchestrator → filters)
 // ---------------------------------------------------------------------------
 
+/**
+ * In-flight upstream NZB downloads, keyed by target URL.
+ *
+ * The payload cache only helps once a fetch has COMPLETED. An upstream fetch
+ * may run for up to 120s, and an arr retrying a failed grab can re-request the
+ * same release inside that window — so two requests both miss the cache and
+ * both open a download. Coalescing makes any concurrent request await the
+ * single fetch already in progress.
+ */
+const inflightNzbFetches = new Map<string, Promise<{ buf: Buffer } | { error: string; status: number }>>();
+
+async function fetchNzbCoalesced(target: string): Promise<{ buf: Buffer } | { error: string; status: number }> {
+  const existing = inflightNzbFetches.get(target);
+  if (existing) {
+    console.log(`\u{1F4E6} Newznab t=get: joining in-flight upstream fetch — no second download`);
+    return existing;
+  }
+  const p = (async (): Promise<{ buf: Buffer } | { error: string; status: number }> => {
+    try {
+      const upstream = await fetch(target, {
+        redirect: 'follow',
+        signal: AbortSignal.timeout(120_000),
+        headers: { Accept: 'application/x-nzb, application/xml, text/xml, */*', 'User-Agent': 'uu-newznab/1.0' },
+      });
+      if (!upstream.ok) return { error: `Upstream returned ${upstream.status}`, status: 502 };
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      if (buf.length === 0 || buf.length > NZB_MAX_BYTES) return { error: 'Upstream NZB empty or too large', status: 502 };
+      const head = buf.subarray(0, 512).toString('utf8').toLowerCase();
+      if (!head.includes('<nzb') && !head.includes('<?xml')) return { error: 'Upstream did not return an NZB', status: 502 };
+      // Cache before returning, so a joiner and every later retry are served
+      // from memory. Keyed on `target` — the same key the read above and
+      // nzbParser.ts use, so search, grab and retry share one entry.
+      try { cacheNzbContent(target, buf.toString('utf8')); } catch { /* noop — caching must never break a grab */ }
+      return { buf };
+    } catch (err) {
+      return { error: `NZB download failed: ${(err as Error)?.message || err}`, status: 502 };
+    } finally {
+      inflightNzbFetches.delete(target);
+    }
+  })();
+  inflightNzbFetches.set(target, p);
+  return p;
+}
+
 const searchCache = new Map<string, { at: number; results: any[] }>();
 const SEARCH_CACHE_MS = 10 * 60 * 1000;
 
@@ -294,17 +338,34 @@ async function pipelineSearch(
       } catch { /* noop — reputation must never break search */ }
       return false;
     });
-    const inspectCount = Math.min(Number(hc.nzbsToInspect) || 6, healthyResults.length);
+    // Indexers excluded from search-time verification: still searched,
+    // ranked and returned, and still grabbable via t=get — only the
+    // speculative pre-fetch is skipped. NZBFinder flagged exactly that
+    // pattern (170 downloads / 73 unique IDs in 12h).
+    // NOTE: excluded indexers get no NZB parse, so no password (-3) signal
+    // and no ISO/disc-image exclusion for their releases. Lift once cache
+    // hit rates confirm the retention fix works.
+    const verifyExcluded = (process.env.HEALTH_CHECK_EXCLUDE_INDEXERS || '')
+      .split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean);
+    const verifiablePool = verifyExcluded.length === 0 ? healthyResults : healthyResults.filter((r: any) => {
+      const name = String(r.indexer || r.indexerName || '').toLowerCase();
+      return !verifyExcluded.some((x: string) => name.includes(x));
+    });
+    if (verifiablePool.length !== healthyResults.length) {
+      console.log(`\u{1F6E1}\u{FE0F}  Verification exclusion: ${healthyResults.length - verifiablePool.length} result(s) returned but not pre-fetched [${verifyExcluded.join(', ')}]`);
+    }
+
+    const inspectCount = Math.min(Number(hc.nzbsToInspect) || 6, verifiablePool.length);
 
     // Reputation chooses which releases receive the scarce verification slots,
     // without discarding the existing quality/profile order. Limit selection to
     // a nearby candidate window so a highly reputed low-quality release cannot
     // leapfrog the entire result set. Unknown releases remain neutral.
     const candidateWindowSize = Math.min(
-      healthyResults.length,
+      verifiablePool.length,
       Math.max(inspectCount, inspectCount * 3),
     );
-    const candidateWindow = healthyResults.slice(0, candidateWindowSize);
+    const candidateWindow = verifiablePool.slice(0, candidateWindowSize);
     const repMult = getReputationWeightMultiplier();
 
     let topCandidates: any[];
@@ -620,28 +681,29 @@ export function createNewznabRoutes(): Router {
         // Verify NZB health with UU's engine before handing to the download client.
         // Governed by the existing Health Checks toggle; disabled = passthrough.
         const hcProviders = (config as any).healthChecks?.providers?.filter((p: any) => p.enabled) || [];
+        // Dead check FIRST. A cached payload proves only that UU downloaded
+        // this XML before — never that the release is still healthy — so the
+        // cache must not serve something verification already rejected.
         if ((config as any).healthChecks?.enabled && hcProviders.length > 0) {
           if (isDeadNzbByUrl(target)) {
             return errorXml(res, 410, 'NZB previously verified dead by health checks', 404);
           }
-          const cachedNzb = getCachedNzbContent(target);
-          if (typeof cachedNzb === 'string' && cachedNzb.length > 0) {
-            res.status(200).setHeader('Content-Type', 'application/x-nzb');
-            res.setHeader('Content-Disposition', 'attachment; filename="release.nzb"');
-            res.setHeader('Cache-Control', 'no-store');
-            return res.send(Buffer.from(cachedNzb, 'utf8'));
-          }
         }
-        const upstream = await fetch(target, {
-          redirect: 'follow',
-          signal: AbortSignal.timeout(120_000),
-          headers: { Accept: 'application/x-nzb, application/xml, text/xml, */*', 'User-Agent': 'uu-newznab/1.0' },
-        });
-        if (!upstream.ok) return errorXml(res, 300, `Upstream returned ${upstream.status}`, 502);
-        const buf = Buffer.from(await upstream.arrayBuffer());
-        if (buf.length === 0 || buf.length > NZB_MAX_BYTES) return errorXml(res, 300, 'Upstream NZB empty or too large', 502);
-        const head = buf.subarray(0, 512).toString('utf8').toLowerCase();
-        if (!head.includes('<nzb') && !head.includes('<?xml')) return errorXml(res, 300, 'Upstream did not return an NZB', 502);
+        // Payload cache, read unconditionally and exactly once. Nothing
+        // between here and the fetch can populate it, so a second read would
+        // be a guaranteed second miss and would double-count the stats.
+        const cachedNzb = getCachedNzbContent(target);
+        if (typeof cachedNzb === 'string' && cachedNzb.length > 0) {
+          console.log(`\u{1F4E6} Newznab t=get: payload cache HIT (${cachedNzb.length} bytes) — no upstream fetch`);
+          res.status(200).setHeader('Content-Type', 'application/x-nzb');
+          res.setHeader('Content-Disposition', 'attachment; filename="release.nzb"');
+          res.setHeader('Cache-Control', 'no-store');
+          return res.send(Buffer.from(cachedNzb, 'utf8'));
+        }
+        console.log(`\u{1F4E6} Newznab t=get: payload cache MISS — fetching upstream`);
+        const fetched = await fetchNzbCoalesced(target);
+        if ('error' in fetched) return errorXml(res, 300, fetched.error, fetched.status);
+        const buf = fetched.buf;
         res.status(200)
           .setHeader('Content-Type', 'application/x-nzb');
         res.setHeader('Content-Disposition', 'attachment; filename="release.nzb"');
@@ -721,7 +783,7 @@ export function createNewznabRoutes(): Router {
 
       if (t === 'uu-reputation') {
         // Inspection endpoint (not part of Newznab spec — behind manifest-key auth)
-        return res.status(200).json(getReputationData());
+        return res.status(200).json({ ...getReputationData(), nzbCache: getNzbCacheStats() });
       }
 
       return errorXml(res, 202, `Unsupported function: ${t || '(none)'}`);

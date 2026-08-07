@@ -93,6 +93,13 @@ export async function submitNzb(
     throw nzbdavError(`Invalid NZB content received (${nzbContent.length} bytes)`);
   }
 
+  // Cache a freshly downloaded payload once validated. prefetchNzb already
+  // does this; submitNzb's direct-download fallback did not, so a retried
+  // grab re-fetched the same NZB from the indexer every time.
+  if (freshlyDownloaded) {
+    try { cacheNzbContent(nzbUrl, nzbContent); } catch { /* noop */ }
+  }
+
   // Single grab-tracking chokepoint. Cache hits skip this; invalid NZBs throw above.
   // EasyNews is tracked one layer up in the /nzb route, because its real indexer
   // fetch happens inside that route's POST to easynews.com, not in submitNzb's

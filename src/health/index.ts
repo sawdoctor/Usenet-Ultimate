@@ -9,7 +9,7 @@
 export type { HealthStatus, HealthCheckResult, NzbFile, NzbParseResult, HealthCheckOptions } from './types.js';
 
 // NZB content cache
-export { cacheNzbContent, getCachedNzbContent } from './nzbContentCache.js';
+export { cacheNzbContent, getCachedNzbContent, getNzbCacheStats, clearNzbContentCache } from './nzbContentCache.js';
 
 // NZB parsing
 export { CircuitChangedError, downloadAndParseNzb } from './nzbParser.js';
