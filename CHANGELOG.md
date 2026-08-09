@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.7.8] - 2026-08-09
+
+### Fixed
+
+- Prevent repeated upstream NZB downloads during Arr retries and concurrent
+  `t=get` requests by caching selected NZB payloads and coalescing in-flight
+  requests for the same URL.
+- Keep delayed Arr grabs correlated with their original title and indexer using
+  a bounded 24-hour identity cache.
+- Remove synthetic `unknown:<URL>` reputation identities. Genuinely
+  uncorrelated grabs are ignored rather than poisoning reputation data.
+- Record Arr grabs only after selected-NZB inspection passes and the payload is
+  actually delivered.
+- Keep password metadata as diagnostic information without applying an
+  automatic negative reputation penalty. Real Arr/InfiniDysk outcomes remain
+  authoritative.
+- Rename shared password-parser log labels from `[health-check]` to
+  `[NZB parser]`.
+
+### Arr / Newznab
+
+- With Health Checks OFF, inspect the already-fetched selected NZB at grab time
+  with zero additional indexer requests.
+- Detect password metadata and obvious bare or misleadingly labelled
+  disc-image payloads before delivery.
+- Preserve search parsing, filtering, deduplication and reputation intelligence
+  when Health Checks are disabled.
+- Health Checks ON remains the stronger opt-in pre-response verification mode
+  and may perform additional candidate-NZB/provider checks.
+
+### Limitations
+
+- Grab payload and identity caches are in-memory/per-process and reset when
+  Usenet Ultimate restarts.
+- Health Checks OFF does not perform NNTP segment availability checks and does
+  not inspect inside RAR archives for hidden disc images.
+
+
 ## [1.7.4] - 2026-07-27
 
 ### Fixed

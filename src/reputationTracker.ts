@@ -252,9 +252,11 @@ export function recordHealthCheck(
 }
 
 /**
- * Record deterministic password evidence obtained by parsing an NZB.
+ * Record deterministic password metadata obtained by parsing an NZB.
  *
- * This evidence is independent of the provider-dependent NNTP verdict.
+ * Stored for diagnostics and failure classification only. Password metadata
+ * does not lower reputation by itself; actual Arr/download outcomes remain
+ * the authoritative success/failure signal.
  */
 export function recordPasswordEvidence(
   title: string,
@@ -666,7 +668,7 @@ export function startReputationReconciler(): void {
 // download costs the user more than a good one saves):
 //   import success +1.0   import failure   -2.0
 //   stream success +1.0   stream failure   -1.5
-//   passworded     -3.0
+//   password metadata is diagnostic only (no direct score penalty)
 //   health alive   +0.1   health dead      -0.25   (weak evidence: pre-download)
 // ---------------------------------------------------------------------------
 
@@ -693,7 +695,7 @@ function scoreAggregate(a: AggregateStats | undefined): ReputationScore {
   if (!a) return { score: 0, successRate: null, samples: 0, confidence: 0, stars: 3 };
   const n = normalizeAggregate(a);
   const S = n.successes + n.streamSuccesses + n.healthAlive * 0.1;
-  const F = n.failures * 2 + n.streamFailures * 1.5 + n.passworded * 3 + n.healthDead * 0.25;
+  const F = n.failures * 2 + n.streamFailures * 1.5 + n.healthDead * 0.25;
   const samples = S + F;
   const outcomes = n.successes + n.failures + n.streamSuccesses + n.streamFailures;
   const successRate = outcomes > 0

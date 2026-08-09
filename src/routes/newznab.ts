@@ -254,19 +254,18 @@ async function inspectSelectedNzb(
     return null;
   }
 
-  // Password metadata is deterministic parse evidence feeding the existing -3
-  // passworded penalty — NOT a rejection condition. Archive verification can
-  // proceed with a known password, so having one has never disqualified a
-  // release, and inventing that policy here would silently change behaviour.
-  // recordPasswordEvidence is idempotent per release record, so a repeat grab
-  // of the same release cannot double-count.
+  // Password metadata is deterministic diagnostic metadata, not a rejection
+  // condition and not a reputation penalty. InfiniDysk/NzbDAV can successfully
+  // handle releases with a known password, so actual Arr/download outcomes
+  // remain the authoritative success/failure signal. recordPasswordEvidence is
+  // idempotent per release record, so repeats do not double-count metadata.
   if (parsed.password && identity?.title) {
     try {
       recordPasswordEvidence(identity.title, identity.indexer ?? null);
-      console.log(`\u{1F510} Newznab t=get: password metadata present — recorded as reputation evidence for "${identity.title}"`);
+      console.log(`\u{1F510} Newznab t=get: password metadata present — recorded as diagnostic metadata for "${identity.title}"`);
     } catch { /* noop — reputation must never break a grab */ }
   } else if (parsed.password) {
-    console.log(`\u{1F510} Newznab t=get: password metadata present but grab is uncorrelated — evidence not recorded`);
+    console.log(`\u{1F510} Newznab t=get: password metadata present but grab is uncorrelated — diagnostic identity not recorded`);
   }
 
   const { containerType, videoCount, archiveCount, discImageCount } = classifyNzbFiles(parsed.files);
@@ -620,7 +619,7 @@ async function pipelineSearch(
           const isUnverified = !v || v.status === 'error';
           if (isUnverified) unverifiedCount++;
 
-          // Password metadata is deterministic NZB parse evidence.
+          // Password metadata is deterministic diagnostic NZB metadata.
           if (cand && v?.password) {
             try {
               recordPasswordEvidence(

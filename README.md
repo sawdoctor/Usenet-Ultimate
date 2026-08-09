@@ -40,6 +40,70 @@
 
 ---
 
+## What's New in v1.7.8
+
+Version 1.7.8 hardens the Newznab/Arr path for reliable grabs with substantially
+lower indexer traffic.
+
+### Low-indexer-traffic Arr mode
+
+For Sonarr and Radarr users, **Health Checks OFF is now a first-class mode**.
+
+Usenet Ultimate still resolves titles, searches configured sources, parses
+release metadata, filters unsuitable results, deduplicates releases and applies
+its reputation intelligence. Sonarr or Radarr then chooses the release it wants.
+
+When the client requests that selected NZB, Usenet Ultimate inspects the same
+payload already being fetched for delivery. This selected-grab inspection does
+**not** require another indexer download.
+
+It can:
+
+- detect password metadata for diagnostics;
+- inspect the visible NZB file list;
+- reject detectable bare or misleadingly labelled disc-image releases;
+- record the grab only after inspection succeeds and the NZB is actually delivered.
+
+Password metadata by itself is **not a negative reputation signal**. InfiniDysk
+(formerly NzbDAV) can successfully handle password-protected content, so actual
+Arr/InfiniDysk success or failure remains the authoritative outcome.
+
+> **Health Checks OFF no longer means no validation.** It means selected-grab
+> validation instead of speculative pre-response verification.
+
+With Health Checks OFF, Usenet Ultimate does **not** perform NNTP segment
+availability verification and cannot inspect inside RAR archives for a hidden
+ISO or other nested content.
+
+### Duplicate NZB protection
+
+Selected NZB payloads are now held in a bounded in-memory cache. Concurrent
+requests for the same NZB are coalesced onto one upstream fetch, so Arr retries
+and overlapping requests do not repeatedly download the same NZB from the
+indexer.
+
+### Reliable late-grab reputation correlation
+
+A separate bounded 24-hour URL-to-identity cache preserves the release title
+and indexer long enough for delayed Arr grabs to be correlated correctly.
+
+The old synthetic `unknown:<URL>` reputation identity has been removed.
+Genuinely uncorrelated grabs are ignored instead of contaminating reputation
+history.
+
+### Health Checks ON
+
+Health Checks ON remains available for users who prefer stronger pre-response
+verification. It can inspect multiple candidates before the Arr chooses one and
+perform provider-side verification, but this necessarily uses more indexer and
+Usenet-provider traffic.
+
+For indexer-limited Arr installations, the recommended mode is:
+
+**UU intelligence/filtering/reputation ON + Health Checks OFF.**
+
+---
+
 ## What's New in v1.7.2
 
 Version 1.7.2 expands Usenet Ultimate's built-in Newznab server with multi-Arr intelligence and more accurate category-aware searching.
@@ -209,8 +273,9 @@ When Sonarr, Radarr, Prowlarr, or another Newznab client searches Usenet Ultimat
 2. Usenet Ultimate searches the configured upstream sources
 3. Results are parsed, filtered, deduplicated, ordered, and optionally health-checked
 4. The client receives a standard Newznab RSS response
-5. A real Arr grab is recorded as a pending reputation outcome
-6. Sonarr and Radarr history are checked periodically to resolve the grab as imported, failed, or ignored
+5. On `t=get`, the one selected NZB is cached/reused and inspected before delivery
+6. A successfully delivered Arr grab is recorded as a pending reputation outcome
+7. Sonarr and Radarr history are checked periodically to resolve the grab as imported, failed, or ignored
 
 ---
 
@@ -339,7 +404,7 @@ The reputation engine builds a persistent evidence record from real activity acr
 It records:
 
 - Search-time health verdicts
-- Password or encryption warnings
+- Password or encryption metadata (diagnostic only; not a negative score by itself)
 - Arr grabs made through the Newznab `t=get` path
 - Successful and failed Stremio streams
 - Successful Sonarr and Radarr imports
