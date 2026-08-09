@@ -1012,7 +1012,7 @@ function App() {
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-lg md:text-xl font-bold tracking-tight bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent">Usenet Ultimate</h1>
                   <a
-                    href="https://github.com/DSmart33/Usenet-Ultimate"
+                    href={`https://github.com/sawdoctor/Usenet-Ultimate/releases/tag/v${__APP_VERSION__}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-[10px] text-amber-400 font-mono bg-slate-800/80 px-1.5 py-0.5 rounded-md border border-amber-500/30 hover:bg-slate-700/80 hover:border-amber-500/50 transition-colors"
