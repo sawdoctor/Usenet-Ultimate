@@ -78,7 +78,7 @@ export async function parseNzbXml(nzbXml: string, nzbUrl: string): Promise<NzbPa
       if (meta.$?.type === 'password' || meta.$?.name === 'password') {
         password = typeof meta === 'string' ? meta : (meta._ || '');
         if (password) {
-          console.log(`  [health-check] NZB contains password metadata`);
+          console.log(`  [NZB parser] NZB contains password metadata`);
         }
       }
     }
@@ -89,14 +89,14 @@ export async function parseNzbXml(nzbXml: string, nzbUrl: string): Promise<NzbPa
     const braceMatch = nzbUrl.match(/\{\{(.+?)\}\}/);
     if (braceMatch) {
       password = braceMatch[1];
-      console.log(`  [health-check] NZB URL contains password pattern`);
+      console.log(`  [NZB parser] NZB URL contains password pattern`);
     } else {
       try {
         const urlObj = new URL(nzbUrl);
         const urlPassword = urlObj.searchParams.get('password');
         if (urlPassword) {
           password = urlPassword;
-          console.log(`  [health-check] NZB URL contains password parameter`);
+          console.log(`  [NZB parser] NZB URL contains password parameter`);
         }
       } catch { /* ignore invalid URLs */ }
     }
