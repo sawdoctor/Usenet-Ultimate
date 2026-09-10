@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "start": "node dist/server.js",
     "release:patch": "bash release.sh patch",
     "release:minor": "bash release.sh minor",
