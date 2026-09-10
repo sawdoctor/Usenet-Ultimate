@@ -93,14 +93,15 @@ history.
 
 ### Health Checks ON
 
-Health Checks ON remains available for users who prefer stronger pre-response
-verification. It can inspect multiple candidates before the Arr chooses one and
-perform provider-side verification, but this necessarily uses more indexer and
-Usenet-provider traffic.
+For Newznab/Arr clients, Health Checks ON verifies only the release selected by
+the client. Search responses never pre-download candidate NZBs. On `t=get`, the
+selected payload is fetched once, cached, inspected, and reused for NNTP article
+verification, so enabling health checks adds no speculative indexer grabs.
 
-For indexer-limited Arr installations, the recommended mode is:
-
-**UU intelligence/filtering/reputation ON + Health Checks OFF.**
+Concurrent retries join the same upstream fetch and NNTP check. Recent verified
+and inconclusive verdicts are also reused to prevent retry storms. Only a
+conclusive blocked verdict refuses the grab; provider errors and timeouts fail
+open and do not enter the dead-NZB cache.
 
 ---
 
@@ -271,9 +272,9 @@ When Sonarr, Radarr, Prowlarr, or another Newznab client searches Usenet Ultimat
 
 1. The client calls the built-in Newznab endpoint
 2. Usenet Ultimate searches the configured upstream sources
-3. Results are parsed, filtered, deduplicated, ordered, and optionally health-checked
+3. Results are parsed, filtered, deduplicated, ordered, and checked against the known-dead cache
 4. The client receives a standard Newznab RSS response
-5. On `t=get`, the one selected NZB is cached/reused and inspected before delivery
+5. On `t=get`, the one selected NZB is cached/reused, inspected, and optionally NNTP-verified before delivery
 6. A successfully delivered Arr grab is recorded as a pending reputation outcome
 7. Sonarr and Radarr history are checked periodically to resolve the grab as imported, failed, or ignored
 
