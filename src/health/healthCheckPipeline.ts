@@ -113,6 +113,7 @@ export async function performHealthCheck(
     // Try each enabled provider until one succeeds (pool providers first, then backups)
     // Archive inspection can be disabled for faster checks
     let archiveInfo = null;
+    let archiveInspectionSucceeded = false;
     if (options.archiveInspection && fileType === 'archive' && fileToCheck.segments.length > 0) {
       const inspectionProviders = [
         ...providers.filter(p => p.enabled && p.type === 'pool'),
@@ -152,6 +153,7 @@ export async function performHealthCheck(
           }
 
           archiveInfo = inspectArchive(headerData);
+          archiveInspectionSucceeded = true;
 
           // For 7z archives, fetch end-of-archive metadata for full file listing
           // Must use ALL segments from ALL parts (in order) since the 7z end header
@@ -252,6 +254,21 @@ export async function performHealthCheck(
           warn(`⚠️ Archive inspection failed (${inspectionProvider.name}): ${(err as Error).message}`);
         }
       }
+    }
+
+    // Segment availability alone cannot prove an archive is usable when the
+    // requested content inspection failed on every provider. Keep it
+    // unverified and fail open; never turn a provider outage into a false
+    // healthy verdict or a permanent dead-cache entry.
+    if (options.archiveInspection && fileType === 'archive' && !archiveInspectionSucceeded) {
+      log('→ Unverified: archive inspection could not be completed');
+      return {
+        status: 'error',
+        message: 'Archive inspection could not be completed',
+        playable: false,
+        password,
+        containerType,
+      };
     }
 
     // NZB parsing and optional archive inspection are complete.
