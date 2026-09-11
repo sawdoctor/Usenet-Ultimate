@@ -40,6 +40,51 @@
 
 ---
 
+## What's New in v1.7.10
+
+Version 1.7.10 repairs the Newznab/Arr health-check path so strong selected-release
+verification no longer means pre-downloading and checking every search result.
+
+### Selected-grab health checks
+
+Newznab searches no longer prefetch candidate NZBs for live health checks. Sonarr,
+Radarr and other Arr clients receive the filtered search results first and choose
+the release they actually want.
+
+When Health Checks are ON, the selected NZB is verified only when the client
+requests it through `t=get`. The payload is fetched once, cached, inspected and
+reused for NNTP article verification. A conclusive blocked verdict refuses the
+grab; provider errors, disconnects, timeouts and unexpected NNTP replies remain
+unverified and fail open instead of poisoning the dead-NZB cache.
+
+### Lower indexer traffic and retry protection
+
+- Identical Newznab searches are served from UU's search cache rather than
+  repeating the upstream Prowlarr/EasyNews work.
+- Concurrent requests for the same selected NZB join one upstream fetch.
+- Concurrent selected-grab health checks for the same NZB are coalesced.
+- Recent verified and inconclusive verdicts are reused to suppress retry storms.
+- Candidate NZB prefetching during search is disabled.
+
+### Selected-NZB inspection
+
+The selected payload is still inspected before delivery. UU records password
+metadata for diagnostics, validates the visible NZB file list, rejects malformed
+or empty NZBs, and can reject detectable undeclared disc-image releases.
+Password metadata by itself is not treated as a failure.
+
+With Health Checks OFF, this selected-payload inspection still runs, but UU does
+not perform NNTP segment availability verification.
+
+### Validation before release
+
+The v1.7.10 path was tested with a live Seerr → Sonarr → UU/Prowlarr → InfiniDysk
+workflow, including an eight-episode acquisition at normal speed, repeated-search
+cache behaviour, a healthy selected NZB verified 3/3, and a deliberately invalid
+selected payload being refused before delivery.
+
+---
+
 ## What's New in v1.7.8
 
 Version 1.7.8 hardens the Newznab/Arr path for reliable grabs with substantially
