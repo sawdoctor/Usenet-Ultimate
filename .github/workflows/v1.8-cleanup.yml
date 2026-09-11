@@ -1,0 +1,73 @@
+name: v1.8 cleanup patch
+
+on:
+  push:
+    branches: [v1.8.0-beta]
+    paths:
+      - .github/workflows/v1.8-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.8.0-beta
+      - name: Remove stale release badge and upstream support links
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          app_path = Path('ui/src/App.tsx')
+          app = app_path.read_text()
+          badge = re.compile(
+              r'\n\s*<a\n\s*href=\{`https://github\.com/sawdoctor/Usenet-Ultimate/releases/tag/v\$\{__APP_VERSION__\}`\}.*?</a>',
+              re.S,
+          )
+          app, n = badge.subn('', app, count=1)
+          if n != 1:
+              raise SystemExit('release badge block not found exactly once')
+          app_path.write_text(app)
+
+          readme_path = Path('README.md')
+          readme = readme_path.read_text()
+
+          support_badges = re.compile(
+              r'\n<p align="center">\n\s*<a href="https://discord\.gg/6RPVSeg56v".*?</p>\n',
+              re.S,
+          )
+          readme, n = support_badges.subn('\n', readme, count=1)
+          if n != 1:
+              raise SystemExit('README support badge block not found exactly once')
+
+          community = re.compile(
+              r'## Community & Support\n\n.*?\n---\n\n## Installation and Setup',
+              re.S,
+          )
+          replacement = '''## Project Links\n\n- **Repository** — [sawdoctor/Usenet-Ultimate](https://github.com/sawdoctor/Usenet-Ultimate)\n- **Releases** — [GitHub releases](https://github.com/sawdoctor/Usenet-Ultimate/releases)\n\n---\n\n## Installation and Setup'''
+          readme, n = community.subn(replacement, readme, count=1)
+          if n != 1:
+              raise SystemExit('README Community & Support section not found exactly once')
+
+          readme = readme.replace(
+              'git clone https://github.com/DSmart33/Usenet-Ultimate.git',
+              'git clone https://github.com/sawdoctor/Usenet-Ultimate.git',
+          )
+
+          lowered = readme.lower()
+          if 'discord.gg/6rpvseg56v' in lowered or 'ko-fi.com/dsmart33' in lowered:
+              raise SystemExit('upstream support links still remain in README')
+          readme_path.write_text(readme)
+          PY
+
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md ui/src/App.tsx
+          git commit -m "chore: remove stale badge and upstream support links"
+          git push origin HEAD:v1.8.0-beta
