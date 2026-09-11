@@ -12,7 +12,7 @@
  *   t=movie     (imdbid)          — movies via full UU pipeline
  *   t=movie     (no ids)          — RSS: recent movies via Prowlarr passthrough
  *   t=search    (no ids)          — RSS: recent (both categories)
- *   t=get&d=<base64url NZB URL>   — proxy the original NZB
+ *   t=get&d=<signed NZB reference>  — proxy the original NZB
  *
  * Pipeline reuse: resolveTitle → SearchContext → indexManagerSearch +
  * easynewsSearch → deduplicateAndPreFilter → applyUserFilters. Results
@@ -32,6 +32,7 @@ import { getLatestVersions } from '../versionFetcher.js';
 import { SingleFlight } from '../utils/singleFlight.js';
 import { recordHealthCheck, recordPasswordEvidence, recordGrab, recordDeadCacheEvidence, getReputationData } from '../reputationTracker.js';
 import { trackGrab } from '../statsTracker.js';
+import { generateNewznabReference, verifyNewznabReference } from '../auth/auth.js';
 
 const MAX_RESULTS = 100;
 const RSS_LIMIT = 100;
@@ -92,7 +93,7 @@ function capsXml(): string {
   ].join('\n');
 }
 
-function itemsXml(items: NewznabItem[], baseUrl: string, offset = 0, total = items.length): string {
+function itemsXml(items: NewznabItem[], baseUrl: string, manifestKey: string, offset = 0, total = items.length): string {
   const lines: string[] = [
     '<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">',
     '<channel>',
@@ -102,7 +103,8 @@ function itemsXml(items: NewznabItem[], baseUrl: string, offset = 0, total = ite
     `<newznab:response offset="${offset}" total="${total}"/>`,
   ];
   for (const it of items) {
-    const dl = `${baseUrl}/api?t=get&amp;d=${encodeURIComponent(Buffer.from(it.nzbUrl, 'utf8').toString('base64url'))}`;
+    const reference = generateNewznabReference(it.nzbUrl, manifestKey);
+    const dl = `${baseUrl}/api?t=get&amp;d=${encodeURIComponent(reference)}`;
     lines.push('<item>');
     lines.push(`<title>${esc(it.title)}</title>`);
     lines.push(`<guid isPermaLink="false">${esc(it.guid)}</guid>`);
@@ -632,16 +634,16 @@ export function createNewznabRoutes(): Router {
   router.get('/api', async (req: Request, res: Response) => {
     const t = String(req.query.t ?? '').toLowerCase();
     const baseUrl = `${req.protocol}://${req.get('host')}${req.baseUrl}`;
+    const manifestKey = String(req.params.manifestKey ?? '');
 
     try {
       if (t === 'caps') return xml(res, capsXml());
 
       if (t === 'get') {
         console.log(`\u{1F4E5} Newznab t=get request received`);
-        const encoded = String(req.query.d ?? '');
-        let target = '';
-        try { target = Buffer.from(encoded, 'base64url').toString('utf8'); } catch { /* noop */ }
-        if (!/^https?:\/\//i.test(target)) return errorXml(res, 300, 'Bad or missing NZB reference');
+        const reference = String(req.query.d ?? '');
+        const target = verifyNewznabReference(reference, manifestKey);
+        if (!target) return errorXml(res, 300, 'Bad, expired, or unsigned NZB reference');
         // Reputation: record the grab. Only *arr user agents count as real
         // grabs with a pending outcome; anything else is logged but not awaited.
         const grabUa = req.get('user-agent') || '';
@@ -733,7 +735,7 @@ export function createNewznabRoutes(): Router {
         if (!imdbId && !tvdbId && season === undefined && !qParam) {
           const items = await prowlarrRecent([5000]);
           const { page, offset } = pageItems(items, req);
-          return xml(res, itemsXml(page, baseUrl, offset, items.length));
+          return xml(res, itemsXml(page, baseUrl, manifestKey, offset, items.length));
         }
 
         // Title-text fallback search (q + season, no ids): UU has no text→ID
@@ -745,12 +747,12 @@ export function createNewznabRoutes(): Router {
         // (it was previously re-requesting offset 0..2900+ against the
         // same recent-list content every time).
         if (!imdbId && !tvdbId) {
-          return xml(res, itemsXml([], baseUrl));
+          return xml(res, itemsXml([], baseUrl, manifestKey));
         }
 
         const results = await pipelineSearch('series', imdbId, tvdbId, season, episode);
         const items = mapPipelineResults(results, 'series', { imdbId: imdbId || undefined, tvdbId, season, episode });
-        return xml(res, itemsXml(items, baseUrl));
+        return xml(res, itemsXml(items, baseUrl, manifestKey));
       }
 
       if (t === 'movie') {
@@ -760,12 +762,12 @@ export function createNewznabRoutes(): Router {
         if (!imdbId) {
           const items = await prowlarrRecent([2000]);
           const { page, offset } = pageItems(items, req);
-          return xml(res, itemsXml(page, baseUrl, offset, items.length));
+          return xml(res, itemsXml(page, baseUrl, manifestKey, offset, items.length));
         }
 
         const results = await pipelineSearch('movie', imdbId, undefined, undefined, undefined);
         const items = mapPipelineResults(results, 'movie', { imdbId });
-        return xml(res, itemsXml(items, baseUrl));
+        return xml(res, itemsXml(items, baseUrl, manifestKey));
       }
 
       if (t === 'search') {
@@ -788,7 +790,7 @@ export function createNewznabRoutes(): Router {
           : [2000, 5000];
         const items = await prowlarrRecent(cats);
         const { page, offset } = pageItems(items, req);
-        return xml(res, itemsXml(page, baseUrl, offset, items.length));
+        return xml(res, itemsXml(page, baseUrl, manifestKey, offset, items.length));
       }
 
       if (t === 'uu-reputation') {

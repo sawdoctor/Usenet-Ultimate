@@ -180,6 +180,44 @@ export function verifyToken(token: string): { userId: string; username: string }
   }
 }
 
+// ── Signed Newznab NZB references ─────────────────────────────────────
+//
+// Newznab download links are reachable with a manifest key, so the raw
+// upstream NZB URL must never be accepted from the caller. Search results
+// receive a short-lived server-signed reference instead. The reference is
+// bound to the manifest that issued it, preventing cross-manifest replay.
+const NEWZNAB_REFERENCE_TTL = '24h';
+
+interface NewznabReferencePayload {
+  purpose: 'newznab-nzb';
+  target: string;
+  manifestKey: string;
+}
+
+export function generateNewznabReference(target: string, manifestKey: string): string {
+  if (!/^https?:\/\//i.test(target)) {
+    throw new Error('Newznab reference target must be HTTP(S)');
+  }
+  return jwt.sign(
+    { purpose: 'newznab-nzb', target, manifestKey } satisfies NewznabReferencePayload,
+    usersData.jwtSecret,
+    { algorithm: 'HS256', expiresIn: NEWZNAB_REFERENCE_TTL },
+  );
+}
+
+export function verifyNewznabReference(reference: string, manifestKey: string): string | null {
+  if (!reference || !manifestKey) return null;
+  try {
+    const payload = jwt.verify(reference, usersData.jwtSecret, { algorithms: ['HS256'] }) as Partial<NewznabReferencePayload>;
+    if (payload.purpose !== 'newznab-nzb') return null;
+    if (payload.manifestKey !== manifestKey) return null;
+    if (typeof payload.target !== 'string' || !/^https?:\/\//i.test(payload.target)) return null;
+    return payload.target;
+  } catch {
+    return null;
+  }
+}
+
 // ── Manifest CRUD ────────────────────────────────────────────────────
 
 export function getManifests(userId: string): Manifest[] {
