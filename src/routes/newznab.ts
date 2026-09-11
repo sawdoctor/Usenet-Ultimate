@@ -25,11 +25,12 @@ import { config } from '../config/index.js';
 import { resolveTitle } from '../addon/titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from '../addon/searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from '../addon/resultProcessor.js';
-import { performHealthCheck, performBatchHealthChecks, getCachedNzbContent, cacheNzbContent, getNzbCacheStats } from '../health/index.js';
+import { performHealthCheck, getCachedNzbContent, cacheNzbContent, getNzbCacheStats, type HealthCheckResult } from '../health/index.js';
 import { parseNzbXml, classifyNzbFiles } from '../health/nzbParser.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { recordHealthCheck, recordPasswordEvidence, recordGrab, recordDeadCacheEvidence, getReputationData, explainReputationRank, getReputationWeightMultiplier } from '../reputationTracker.js';
+import { SingleFlight } from '../utils/singleFlight.js';
+import { recordHealthCheck, recordPasswordEvidence, recordGrab, recordDeadCacheEvidence, getReputationData } from '../reputationTracker.js';
 import { trackGrab } from '../statsTracker.js';
 
 const MAX_RESULTS = 100;
@@ -181,15 +182,10 @@ function mapPipelineResults(
  * both open a download. Coalescing makes any concurrent request await the
  * single fetch already in progress.
  */
-const inflightNzbFetches = new Map<string, Promise<{ buf: Buffer } | { error: string; status: number }>>();
+const inflightNzbFetches = new SingleFlight<string, { buf: Buffer } | { error: string; status: number }>();
 
 async function fetchNzbCoalesced(target: string): Promise<{ buf: Buffer } | { error: string; status: number }> {
-  const existing = inflightNzbFetches.get(target);
-  if (existing) {
-    console.log(`\u{1F4E6} Newznab t=get: joining in-flight upstream fetch — no second download`);
-    return existing;
-  }
-  const p = (async (): Promise<{ buf: Buffer } | { error: string; status: number }> => {
+  return inflightNzbFetches.run(target, async (): Promise<{ buf: Buffer } | { error: string; status: number }> => {
     try {
       const upstream = await fetch(target, {
         redirect: 'follow',
@@ -208,12 +204,10 @@ async function fetchNzbCoalesced(target: string): Promise<{ buf: Buffer } | { er
       return { buf };
     } catch (err) {
       return { error: `NZB download failed: ${(err as Error)?.message || err}`, status: 502 };
-    } finally {
-      inflightNzbFetches.delete(target);
     }
-  })();
-  inflightNzbFetches.set(target, p);
-  return p;
+  }, () => {
+    console.log(`\u{1F4E6} Newznab t=get: joining in-flight upstream fetch — no second download`);
+  });
 }
 
 /**
@@ -346,6 +340,15 @@ const SEARCH_CACHE_MS = 10 * 60 * 1000;
  */
 const freshVerdictCache = new Map<string, number>();
 
+// Coalesce selected-grab verification just like upstream NZB downloads. Arr
+// can retry t=get while the first request is still running; every retry must
+// join the same NNTP check instead of opening another one. The NZB payload is
+// already cached before this runs, so verification costs zero extra indexer
+// downloads.
+const inflightSelectedHealthChecks = new SingleFlight<string, HealthCheckResult>();
+const recentUnverifiedChecks = new Map<string, { at: number; result: HealthCheckResult }>();
+const UNVERIFIED_RETRY_TTL_MS = 60_000;
+
 function recordFreshVerdict(url: string): void {
   freshVerdictCache.set(url, Date.now());
   if (freshVerdictCache.size > 1000) {
@@ -367,6 +370,89 @@ function hasFreshVerdict(url: string): boolean {
     return false;
   }
   return true;
+}
+
+async function verifySelectedGrab(
+  target: string,
+  providers: any[],
+  identity: { title: string; indexer: string | null } | null,
+): Promise<HealthCheckResult> {
+  if (hasFreshVerdict(target)) {
+    return { status: 'verified', message: 'Recent selected-grab verification', playable: true };
+  }
+
+  const recentUnverified = recentUnverifiedChecks.get(target);
+  if (recentUnverified) {
+    if (Date.now() - recentUnverified.at < UNVERIFIED_RETRY_TTL_MS) {
+      console.log(`\u{1FA7A} Newznab t=get: reusing recent unverified verdict — no repeated NNTP check`);
+      return recentUnverified.result;
+    }
+    recentUnverifiedChecks.delete(target);
+  }
+
+  const hc = (config as any).healthChecks;
+  const ua = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
+  return inflightSelectedHealthChecks.run(target, async () => {
+    const result = await performHealthCheck(
+      target,
+      providers,
+      ua,
+      {
+        archiveInspection: hc?.archiveInspection ?? true,
+        sampleCount: hc?.sampleCount === 7 ? 7 : 3,
+        segmentChecks: true,
+      },
+      undefined,
+      identity?.indexer || undefined,
+    );
+    const blocked = result.status === 'blocked';
+
+    if (result.playable === true) {
+      recordFreshVerdict(target);
+    } else if (result.status === 'error') {
+      // Fail open on provider trouble, but suppress immediate retry storms.
+      recentUnverifiedChecks.set(target, { at: Date.now(), result });
+    }
+
+    if (result.status !== 'error' && identity?.title) {
+      try {
+        recordHealthCheck(identity.title, identity.indexer, !blocked, result.message);
+      } catch { /* reputation must never break a grab */ }
+    }
+
+    if (blocked) {
+      addDeadNzbByUrl(
+        target,
+        identity?.title || 'Newznab selected-grab verification',
+        identity?.indexer || undefined,
+      );
+      saveCacheToDisk();
+    }
+
+    return result;
+  }, () => {
+    console.log(`\u{1FA7A} Newznab t=get: joining in-flight selected-grab health check`);
+  });
+}
+
+async function selectedGrabBlockReason(
+  target: string,
+  providers: any[],
+  identity: { title: string; indexer: string | null } | null,
+): Promise<string | null> {
+  if (!(config as any).healthChecks?.enabled || providers.length === 0) return null;
+  try {
+    const result = await verifySelectedGrab(target, providers, identity);
+    if (result.status === 'blocked') return result.message;
+    if (result.status === 'error') {
+      console.warn(`\u{1FA7A} Newznab t=get: health check inconclusive — serving selected NZB (${result.message})`);
+    } else {
+      console.log(`\u{1FA7A} Newznab t=get: selected NZB ${result.status} — ${result.message}`);
+    }
+  } catch (err) {
+    console.warn(`\u{1FA7A} Newznab t=get: health check failed unexpectedly — serving selected NZB (${(err as Error)?.message || err})`);
+  }
+  return null;
 }
 
 async function pipelineSearch(
@@ -428,12 +514,10 @@ async function pipelineSearch(
     preFiltered, type, Date.now(), titleInfo.runtime, deprioritizedPacks, { quiet: true, clientProfile },
   );
   console.log(`\u{1F4F0} Newznab: client-profile mode (resolution=${clientProfile.resolutionFilters ? 'on' : 'off'}, source=${clientProfile.sourceFilters ? 'on' : 'off'}, limits=${clientProfile.streamLimits ? 'on' : 'off'}) — returning ${finalResults.length} result(s) for the client's own profile to rank`);
-  // Keep the existing quality/profile ordering intact. Reputation is applied
-  // below when selecting the limited health-check budget, where UU's ordering
-  // has a direct operational effect. Arr applications perform their own final
-  // quality ranking, so globally replacing quality order here would be unsafe.
-  // Search-side health verification: remove dead NZBs before Sonarr/Radarr
-  // ever sees them. Reuses UU's batch health engine and dead-NZB database.
+  // Keep the existing quality/profile ordering intact. Arr applications
+  // perform their own final quality ranking, so globally replacing quality
+  // order here would be unsafe. Search responses only filter the persistent
+  // known-dead cache; live checks run after the arr selects one result.
   const hc = (config as any).healthChecks;
   const hcSearchProviders = hc?.providers?.filter((p: any) => p.enabled) || [];
   let healthyResults = finalResults;
@@ -450,233 +534,7 @@ async function pipelineSearch(
       } catch { /* noop — reputation must never break search */ }
       return false;
     });
-    // Indexers excluded from search-time verification: still searched,
-    // ranked and returned, and still grabbable via t=get — only the
-    // speculative pre-fetch is skipped. NZBFinder flagged exactly that
-    // pattern (170 downloads / 73 unique IDs in 12h).
-    // NOTE: excluded indexers get no NZB parse, so no password (-3) signal
-    // and no ISO/disc-image exclusion for their releases. Lift once cache
-    // hit rates confirm the retention fix works.
-    const verifyExcluded = (process.env.HEALTH_CHECK_EXCLUDE_INDEXERS || '')
-      .split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean);
-    const verifiablePool = verifyExcluded.length === 0 ? healthyResults : healthyResults.filter((r: any) => {
-      const name = String(r.indexer || r.indexerName || '').toLowerCase();
-      return !verifyExcluded.some((x: string) => name.includes(x));
-    });
-    if (verifiablePool.length !== healthyResults.length) {
-      console.log(`\u{1F6E1}\u{FE0F}  Verification exclusion: ${healthyResults.length - verifiablePool.length} result(s) returned but not pre-fetched [${verifyExcluded.join(', ')}]`);
-    }
-
-    const inspectCount = Math.min(Number(hc.nzbsToInspect) || 6, verifiablePool.length);
-
-    // Reputation chooses which releases receive the scarce verification slots,
-    // without discarding the existing quality/profile order. Limit selection to
-    // a nearby candidate window so a highly reputed low-quality release cannot
-    // leapfrog the entire result set. Unknown releases remain neutral.
-    const candidateWindowSize = Math.min(
-      verifiablePool.length,
-      Math.max(inspectCount, inspectCount * 3),
-    );
-    const candidateWindow = verifiablePool.slice(0, candidateWindowSize);
-    const repMult = getReputationWeightMultiplier();
-
-    let topCandidates: any[];
-    if (repMult > 0) {
-      const scored = candidateWindow.map((r: any, i: number) => ({
-        r,
-        i,
-        ex: explainReputationRank(r?.title || '', r?.indexer || r?.indexerName),
-      }));
-
-      // Diversity guard against exposure bias.
-      //
-      // Health evidence only accrues to candidates that get verified, so
-      // reputation-driven selection feeds itself: an indexer that ranks well
-      // early wins more slots, gathers more evidence, and keeps winning, while
-      // a poorly-ranked one may never get another slot to prove otherwise.
-      // Dead-cache backfill records negatives outside selection but offers no
-      // equivalent route for positives, so it doesn't break the loop on its own.
-      //
-      // Cap any one indexer at ceil(slots / 2), then fill any shortfall in a
-      // second uncapped pass — a search where only one indexer returned usable
-      // results must not end up verifying fewer NZBs than it otherwise would.
-      // Reputation scores are untouched; this only affects which candidates
-      // occupy the slots.
-      const perIndexerCap = Math.ceil(inspectCount / 2);
-      const byBoost = scored
-        .slice()
-        .sort((a: any, b: any) => (b.ex.boost - a.ex.boost) || (a.i - b.i));
-
-      const indexerOf = (x: any): string =>
-        String(x.r?.indexer || x.r?.indexerName || 'unknown').toLowerCase();
-
-      const perIndexerCount = new Map<string, number>();
-      const picked: any[] = [];
-      for (const x of byBoost) {
-        if (picked.length >= inspectCount) break;
-        const key = indexerOf(x);
-        const used = perIndexerCount.get(key) || 0;
-        if (used >= perIndexerCap) continue;
-        perIndexerCount.set(key, used + 1);
-        picked.push(x);
-      }
-      const cappedOut = picked.length < inspectCount;
-      if (cappedOut) {
-        const already = new Set(picked.map((x: any) => x.i));
-        for (const x of byBoost) {
-          if (picked.length >= inspectCount) break;
-          if (already.has(x.i)) continue;
-          picked.push(x);
-        }
-      }
-      const selected = picked.sort((a: any, b: any) => a.i - b.i);
-
-      // Visibility: without this, "reputation has no data yet" and
-      // "reputation is silently broken" produce identical logs.
-      const withEvidence = scored.filter((x: any) => !x.ex.unknown);
-      const baselineIdx = candidateWindow.slice(0, inspectCount).map((_: any, i: number) => i);
-      const selectedIdx = selected.map((x: any) => x.i);
-      const changed = selectedIdx.join(',') !== baselineIdx.join(',');
-
-      if (process.env.REPUTATION_DEBUG === '1' || process.env.REPUTATION_DEBUG === 'true') {
-        console.log(`\u{1F4C8} Reputation: health-check candidate scores (weight=${(process.env.REPUTATION_WEIGHT || 'low').toLowerCase()}, window=${candidateWindow.length}, slots=${inspectCount})`);
-        for (const x of scored) {
-          const chosen = selectedIdx.includes(x.i) ? '✔' : ' ';
-          const grp = (x.ex.group || 'no-group').padEnd(16).slice(0, 16);
-          const bst = (x.ex.boost >= 0 ? `+${x.ex.boost}` : `${x.ex.boost}`).padStart(4);
-          const detail = x.ex.unknown
-            ? 'no evidence yet'
-            : `group=${x.ex.groupScore >= 0 ? '+' : ''}${x.ex.groupScore} indexer=${x.ex.indexerScore >= 0 ? '+' : ''}${x.ex.indexerScore} samples=${x.ex.samples} conf=${x.ex.confidence}`;
-          console.log(`   ${chosen} #${String(x.i).padStart(2)} ${grp} boost=${bst}  ${detail}`);
-        }
-      }
-
-      // Report the two evidence dimensions separately. Indexer history fills
-      // up within a few searches (there are only a handful of indexers), while
-      // group history needs one grab per group across thousands of groups — so
-      // a combined count reads as though the engine knows far more than it does.
-      const groupHistory = scored.filter((x: any) => x.ex.hasGroupHistory).length;
-      const indexerHistory = scored.filter((x: any) => x.ex.hasIndexerHistory).length;
-      const evidence = `${groupHistory}/${candidateWindow.length} with group history, ${indexerHistory}/${candidateWindow.length} with indexer history`;
-
-      // Show the indexer spread of the chosen slots — the whole point of the
-      // cap is that this shouldn't collapse to one source.
-      const spread = new Map<string, number>();
-      for (const x of selected) spread.set(indexerOf(x), (spread.get(indexerOf(x)) || 0) + 1);
-      const spreadStr = [...spread.entries()].map(([k, n]) => `${k}×${n}`).join(', ');
-      console.log(`\u{1F4C8} Reputation: verification slots by indexer — ${spreadStr} (cap ${perIndexerCap}/indexer${cappedOut ? ', relaxed to fill remaining slots' : ''})`);
-
-      if (withEvidence.length === 0) {
-        console.log(`\u{1F4C8} Reputation: ${candidateWindow.length} candidate(s), none with recorded history yet — health-check selection unchanged (neutral)`);
-      } else if (changed) {
-        const promoted = selectedIdx.filter((i: number) => !baselineIdx.includes(i));
-        console.log(`\u{1F4C8} Reputation: influenced health-check selection — promoted ${promoted.length} candidate(s) [${promoted.map((i: number) => `#${i} ${scored[i]?.ex.group || 'no-group'}`).join(', ')}] over default order (${evidence})`);
-      } else {
-        console.log(`\u{1F4C8} Reputation: ${evidence}; selection matches default order`);
-      }
-
-      topCandidates = selected.map((x: any) => x.r);
-    } else {
-      console.log('\u{1F4C8} Reputation: health-check selection disabled (weight=off)');
-      topCandidates = candidateWindow.slice(0, inspectCount);
-    }
-    topCandidates = topCandidates.filter((r: any) => /^https?:\/\//i.test(r?.link));
-    if (topCandidates.length > 0) {
-      const hcUa = (config as any).userAgents?.nzbDownload || getLatestVersions().chrome;
-      try {
-        console.log(`\u{1FA7A} Newznab: verifying top ${topCandidates.length} result(s) before responding...`);
-        const { results: verdicts } = await performBatchHealthChecks(
-          topCandidates.map((r: any) => r.link),
-          hcSearchProviders,
-          hcUa,
-          Math.min(Number(hc.maxConnections) || 3, topCandidates.length),
-          { archiveInspection: false, sampleCount: hc.sampleCount === 7 ? 7 : 3, segmentChecks: false },
-        );
-        const deadUrls = new Set<string>();
-        // Undeclared disc images: the payload is an .iso/.img or BDMV/VIDEO_TS
-        // structure but the title carries no disc marker (BDISO, BR-DISK,
-        // COMPLETE.BLURAY...). Arr clients classify releases by TITLE, so these
-        // import as the wrong quality (a "1080p BluRay" that is actually a
-        // BR-DISK). They are healthy — not dead — so they are excluded from the
-        // response without being added to the dead-NZB cache, and the exclusion
-        // only covers verified candidates (payload knowledge requires fetching
-        // the NZB). Titles that DO declare a disc are passed through: the arr's
-        // profile can judge those honestly.
-        const allowDiscImages = flag('NEWZNAB_ALLOW_DISC_IMAGES', false);
-        const discTitleRe = /\b(bdiso|bdmv|br[-._ ]?disk|complete[-._ ]?blu[-._ ]?ray|full[-._ ]?blu[-._ ]?ray|iso)\b/i;
-        const discImageUrls = new Set<string>();
-        const candidateByUrl = new Map<string, any>(topCandidates.map((r: any) => [r.link, r] as [string, any]));
-        // A verdict is only actionable when the check actually completed.
-        // status 'error' means "couldn't verify" (unreachable provider, dropped
-        // socket, unexpected NNTP code, NZB download failure) — it carries
-        // playable:false, so gating on `playable === false` here was writing
-        // permanent dead-cache entries for releases nothing was ever learned
-        // about. Gate on the explicit 'blocked' status instead.
-        let unverifiedCount = 0;
-        for (const [url, v] of verdicts.entries()) {
-          const cand = candidateByUrl.get(url);
-          const isDead = v?.status === 'blocked';
-          const isUnverified = !v || v.status === 'error';
-          if (isUnverified) unverifiedCount++;
-
-          // Password metadata is deterministic diagnostic NZB metadata.
-          if (cand && v?.password) {
-            try {
-              recordPasswordEvidence(
-                cand.title || 'Unknown release',
-                cand.indexer || cand.indexerName || null,
-              );
-            } catch { /* reputation must never break search */ }
-          }
-
-          // Reputation: only record verdicts that established something.
-          // Recording an unverified check as a health failure teaches the
-          // engine that whichever indexer happened to be selected while a
-          // provider was flaky produces dead releases.
-          if (cand && !isUnverified) {
-            try {
-              recordHealthCheck(
-                cand.title || 'Unknown release',
-                cand.indexer || cand.indexerName || null,
-                !isDead,
-                v?.message,
-              );
-            } catch { /* noop — reputation must never break search */ }
-          }
-          if (isDead) {
-            deadUrls.add(url);
-            // The central health-check coordinator persists confirmed blocked
-            // NZBs with their real title, indexer and size. Do not write a
-            // duplicate placeholder entry from the Newznab response path.
-          // Disc-image exclusion still applies to unverified verdicts: the
-          // payload was read from the parsed NZB, so that evidence stands
-          // regardless of whether the segment check completed. It removes the
-          // result from this response without any dead-cache write.
-          } else if (!allowDiscImages && v?.containerType === 'ISO' && cand && !discTitleRe.test(cand.title || '')) {
-            discImageUrls.add(url);
-            console.log(`\u{1F6AB} Newznab: excluding "${cand.title}" — payload is a disc image but the title doesn't declare it (set NEWZNAB_ALLOW_DISC_IMAGES=on to keep these)`);
-          }
-        }
-        // Remember the healthy verdicts so t=get doesn't re-run the same check
-        // minutes later on the release the client picked. Same TTL as the
-        // search cache these results are being stored under.
-        for (const [url, v] of verdicts.entries()) {
-          if (v && v.playable === true) recordFreshVerdict(url);
-        }
-        const unverifiedNote = unverifiedCount > 0 ? `, ${unverifiedCount} unverified (kept)` : '';
-        if (deadUrls.size > 0) {
-          saveCacheToDisk();
-          console.log(`\u{1FA7A} Newznab: removed ${deadUrls.size} dead NZB(s) from results${unverifiedNote}`);
-        } else {
-          console.log(`\u{1FA7A} Newznab: no blocked NZBs among parsed candidates${unverifiedNote}`);
-        }
-        if (deadUrls.size > 0 || discImageUrls.size > 0) {
-          healthyResults = healthyResults.filter((r: any) => !deadUrls.has(r?.link) && !discImageUrls.has(r?.link));
-        }
-      } catch (e) {
-        console.warn('\u{1FA7A} Newznab: verification skipped:', e instanceof Error ? e.message : e);
-      }
-    }
+    console.log(`\u{1FA7A} Newznab: selected-grab health mode — candidate NZB prefetch disabled`);
   }
   // Record identity for every result we hand out — including ones served from
   // the search cache path — so a grab arriving hours later still resolves.
@@ -828,6 +686,11 @@ export function createNewznabRoutes(): Router {
             console.log(`\u{1F6AB} Newznab t=get: refusing "${grabIdentity?.title || target.slice(0, 60)}" — ${reject}`);
             return errorXml(res, 300, `Release rejected on inspection: ${reject}`, 404);
           }
+          const healthReject = await selectedGrabBlockReason(target, hcProviders, grabIdentity);
+          if (healthReject) {
+            console.log(`\u{1F6AB} Newznab t=get: refusing "${grabIdentity?.title || target.slice(0, 60)}" — ${healthReject}`);
+            return errorXml(res, 300, `Release rejected by health checks: ${healthReject}`, 404);
+          }
           recordDeliveredGrab();
           res.status(200).setHeader('Content-Type', 'application/x-nzb');
           res.setHeader('Content-Disposition', 'attachment; filename="release.nzb"');
@@ -844,6 +707,11 @@ export function createNewznabRoutes(): Router {
         if (rejectFresh) {
           console.log(`\u{1F6AB} Newznab t=get: refusing "${grabIdentity?.title || target.slice(0, 60)}" — ${rejectFresh}`);
           return errorXml(res, 300, `Release rejected on inspection: ${rejectFresh}`, 404);
+        }
+        const healthReject = await selectedGrabBlockReason(target, hcProviders, grabIdentity);
+        if (healthReject) {
+          console.log(`\u{1F6AB} Newznab t=get: refusing "${grabIdentity?.title || target.slice(0, 60)}" — ${healthReject}`);
+          return errorXml(res, 300, `Release rejected by health checks: ${healthReject}`, 404);
         }
         recordDeliveredGrab();
         res.status(200)
