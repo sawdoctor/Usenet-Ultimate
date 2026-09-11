@@ -53,6 +53,13 @@
     overflow: hidden;
   }
 
+  /* The old header release badge is intentionally hidden. Version truth lives
+     in package metadata, /health and GitHub releases; keeping a baked UI badge
+     visible made stale browser/PWA assets look like a running-version mismatch. */
+  a[href*="github.com/sawdoctor/Usenet-Ultimate/releases/tag/v"] {
+    display: none;
+  }
+
   /* Modern Blink/WebKit auto-promote scrolling layers; the legacy translateZ
      hack kept every overflow container in a permanent GPU layer and held the
      compositor hot. Mobile remains untouched (was never promoted there). */
