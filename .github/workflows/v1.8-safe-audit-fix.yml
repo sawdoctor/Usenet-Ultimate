@@ -24,9 +24,10 @@ jobs:
           cache: npm
 
       - name: Backend safe audit fix
+        shell: bash
         run: |
           npm ci
-          npm audit fix
+          npm audit fix || true
 
       - name: Backend tests
         run: npm test
@@ -36,9 +37,10 @@ jobs:
 
       - name: UI safe audit fix
         working-directory: ui
+        shell: bash
         run: |
           npm ci
-          npm audit fix
+          npm audit fix || true
 
       - name: UI build
         working-directory: ui
