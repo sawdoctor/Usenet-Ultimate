@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an improvement for Usenet Ultimate
+title: "[Feature]: "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful change you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Compatibility / workflow impact
+      description: Note any effect on Sonarr, Radarr, Prowlarr, InfiniDysk/NzbDAV, Stremio or provider traffic.
