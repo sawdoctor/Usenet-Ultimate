@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible problem in Usenet Ultimate
+title: "[Bug]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please remove API keys, passwords, manifest keys, provider credentials and private URLs from logs before posting.
+  - type: input
+    id: version
+    attributes:
+      label: Usenet Ultimate version
+      placeholder: e.g. v1.8.0-beta
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact credentials, manifest keys and sensitive URLs.
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Docker image/tag, architecture, reverse proxy, and relevant Arr/InfiniDysk/Prowlarr versions.
