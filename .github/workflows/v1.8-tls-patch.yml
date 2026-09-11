@@ -1,0 +1,52 @@
+name: v1.8 TLS patch (temporary)
+
+on:
+  push:
+    branches:
+      - v1.8.0-beta
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.8.0-beta
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply TLS verification patch
+        run: python3 scripts/apply_v18_tls.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit tested patch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/types.ts src/health/nntpConnection.ts src/routes/healthCheck.ts ui/src/types/index.ts ui/src/components/shared/ProviderManager.tsx test/nntpTls.test.ts
+          git diff --cached --check
+          git commit -m "security: verify NNTP TLS certificates by default"
+          git push origin HEAD:v1.8.0-beta
