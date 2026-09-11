@@ -12,11 +12,6 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" /></a>
 </p>
 
-<p align="center">
-  <a href="https://discord.gg/6RPVSeg56v"><img src="https://img.shields.io/badge/Discord-Join%20the%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
-  &nbsp;&nbsp;
-  <a href="https://ko-fi.com/dsmart33"><img src="https://img.shields.io/badge/Ko--fi-Support%20Development-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Ko-fi" /></a>
-</p>
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/e63a6bf4-08a6-4a2f-aa08-88d231508c26" width="200" alt="Dashboard">
@@ -226,13 +221,10 @@ environment:
 ---
 
 
-## Community & Support
+## Project Links
 
-Have questions, need help, or want to follow development?
-
-- **Discord** — [Join the community](https://discord.gg/6RPVSeg56v) for help, feature discussion, and updates
-- **Ko-fi** — [Support development](https://ko-fi.com/dsmart33) if you find this project useful
-- **Issues** — [Open an issue](../../issues) to report bugs or request features
+- **Repository** — [sawdoctor/Usenet-Ultimate](https://github.com/sawdoctor/Usenet-Ultimate)
+- **Releases** — [GitHub releases](https://github.com/sawdoctor/Usenet-Ultimate/releases)
 
 ---
 
@@ -678,7 +670,7 @@ Then open `http://localhost:1337` in your browser. On first run you'll be prompt
 
 ```bash
 # Clone and install
-git clone https://github.com/DSmart33/Usenet-Ultimate.git
+git clone https://github.com/sawdoctor/Usenet-Ultimate.git
 cd usenet-ultimate
 npm install
 
