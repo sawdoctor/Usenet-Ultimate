@@ -16,6 +16,14 @@ interface EasynewsProxyDeps {
   getLatestVersions: () => { chrome: string };
 }
 
+function setAxiosResponseHeader(res: any, name: string, value: unknown): void {
+  if (typeof value === 'string' || typeof value === 'number') {
+    res.setHeader(name, value);
+  } else if (Array.isArray(value)) {
+    res.setHeader(name, value.map(String));
+  }
+}
+
 export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
   const router = Router({ mergeParams: true });
   const { config, getLatestVersions } = deps;
@@ -66,9 +74,9 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
         }
 
         // No redirect — pipe content directly
-        if (resolveResp.headers['content-type']) res.setHeader('Content-Type', resolveResp.headers['content-type']);
-        if (resolveResp.headers['content-length']) res.setHeader('Content-Length', resolveResp.headers['content-length']);
-        if (resolveResp.headers['accept-ranges']) res.setHeader('Accept-Ranges', resolveResp.headers['accept-ranges']);
+        setAxiosResponseHeader(res, 'Content-Type', resolveResp.headers['content-type']);
+        setAxiosResponseHeader(res, 'Content-Length', resolveResp.headers['content-length']);
+        setAxiosResponseHeader(res, 'Accept-Ranges', resolveResp.headers['accept-ranges']);
         resolveResp.data.pipe(res);
       } catch (err: any) {
         // axios throws on redirect statuses even with validateStatus when maxRedirects is 0 in some versions
@@ -90,9 +98,9 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
           maxRedirects: 5,
           timeout: 30000,
         });
-        if (streamResp.headers['content-type']) res.setHeader('Content-Type', streamResp.headers['content-type']);
-        if (streamResp.headers['content-length']) res.setHeader('Content-Length', streamResp.headers['content-length']);
-        if (streamResp.headers['accept-ranges']) res.setHeader('Accept-Ranges', streamResp.headers['accept-ranges']);
+        setAxiosResponseHeader(res, 'Content-Type', streamResp.headers['content-type']);
+        setAxiosResponseHeader(res, 'Content-Length', streamResp.headers['content-length']);
+        setAxiosResponseHeader(res, 'Accept-Ranges', streamResp.headers['accept-ranges']);
         streamResp.data.pipe(res);
       }
     } catch (error: any) {
@@ -144,7 +152,7 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
 
       res.setHeader('Content-Type', 'application/x-nzb');
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}.nzb"`);
-      if (nzbResp.headers['content-length']) res.setHeader('Content-Length', nzbResp.headers['content-length']);
+      setAxiosResponseHeader(res, 'Content-Length', nzbResp.headers['content-length']);
       res.send(Buffer.from(nzbResp.data));
 
       const trackedTitle = filename?.trim() || '(untitled)';
