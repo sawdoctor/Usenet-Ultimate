@@ -12,7 +12,12 @@ const IDS = [
 type ServerHandler = (socket: net.Socket) => void;
 
 async function withNntpServer<T>(handler: ServerHandler, run: (socket: net.Socket) => Promise<T>): Promise<T> {
-  const server = net.createServer(handler);
+  const peers = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    peers.add(socket);
+    socket.once('close', () => peers.delete(socket));
+    handler(socket);
+  });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => resolve());
@@ -31,6 +36,7 @@ async function withNntpServer<T>(handler: ServerHandler, run: (socket: net.Socke
     return await run(socket);
   } finally {
     socket.destroy();
+    for (const peer of peers) peer.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
