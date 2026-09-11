@@ -29,6 +29,9 @@ jobs:
       - name: Apply internal Stremio router replacement
         run: python3 scripts/apply_stremio_sdk_removal.py
 
+      - name: Correct null-prototype querystring assertion
+        run: sed -i "s/assert.deepEqual(extra, { foo:/assert.deepEqual({ ...extra }, { foo:/" test/stremioRouter.test.ts
+
       - name: Remove stremio-addon-sdk dependency
         run: npm uninstall stremio-addon-sdk
 
