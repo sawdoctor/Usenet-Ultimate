@@ -3,7 +3,7 @@ from pathlib import Path
 p = Path('src/routes/easynewsProxy.ts')
 s = p.read_text()
 
-anchor = "export function createEasynewsProxyRouter(config: Config): Router {"
+anchor = "export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {"
 helper = """function setAxiosResponseHeader(res: any, name: string, value: unknown): void {\n  if (typeof value === 'string' || typeof value === 'number') {\n    res.setHeader(name, value);\n  } else if (Array.isArray(value)) {\n    res.setHeader(name, value.map(String));\n  }\n}\n\n"""
 assert anchor in s, 'router function marker not found'
 if helper not in s:
