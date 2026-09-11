@@ -66,6 +66,7 @@ export interface UsenetProvider {
   host: string;
   port: number;
   useTLS: boolean;
+  allowSelfSigned?: boolean;
   username: string;
   password: string;
   enabled: boolean;

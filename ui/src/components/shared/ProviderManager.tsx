@@ -26,7 +26,7 @@ export function ProviderManager({ providers, onProvidersChange, apiFetch, accent
   // Local state for provider management
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [newProvider, setNewProvider] = useState<Omit<UsenetProvider, 'id'>>({
-    name: '', host: '', port: 563, useTLS: true, username: '', password: '',
+    name: '', host: '', port: 563, useTLS: true, allowSelfSigned: false, username: '', password: '',
     enabled: true, type: 'pool'
   });
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export function ProviderManager({ providers, onProvidersChange, apiFetch, accent
   const [deleteProviderConfirm, setDeleteProviderConfirm] = useState<{ show: boolean; providerId: string }>({ show: false, providerId: '' });
 
   // Provider handlers
-  const testProviderConnection = async (provider: { host: string; port: number; useTLS: boolean; username: string; password: string }, id: string) => {
+  const testProviderConnection = async (provider: { host: string; port: number; useTLS: boolean; allowSelfSigned?: boolean; username: string; password: string }, id: string) => {
     setProviderTestStatus(prev => ({ ...prev, [id]: 'testing' }));
     setProviderTestMessage(prev => ({ ...prev, [id]: '' }));
     try {
@@ -49,6 +49,7 @@ export function ProviderManager({ providers, onProvidersChange, apiFetch, accent
           host: provider.host,
           port: provider.port,
           useTLS: provider.useTLS,
+          allowSelfSigned: provider.allowSelfSigned === true,
           username: provider.username,
           password: provider.password
         })
@@ -77,7 +78,7 @@ export function ProviderManager({ providers, onProvidersChange, apiFetch, accent
       if (response.ok) {
         const provider = await response.json();
         onProvidersChange([...providers, provider]);
-        setNewProvider({ name: '', host: '', port: 563, useTLS: true, username: '', password: '', enabled: true, type: 'pool' });
+        setNewProvider({ name: '', host: '', port: 563, useTLS: true, allowSelfSigned: false, username: '', password: '', enabled: true, type: 'pool' });
         setShowAddProvider(false);
         const existingStatus = providerTestStatus['new'];
         if (existingStatus === 'success' || existingStatus === 'error') {
@@ -316,6 +317,12 @@ export function ProviderManager({ providers, onProvidersChange, apiFetch, accent
                       <input type="checkbox" checked={providerEditForm.useTLS} onChange={(e) => setProviderEditForm({ ...providerEditForm, useTLS: e.target.checked })} className={`w-4 h-4 rounded border-slate-600 bg-slate-700 ${colors.checkbox} focus:ring-offset-slate-800`} />
                       <span className="text-sm text-slate-300">SSL/TLS</span>
                     </label>
+                    {providerEditForm.useTLS && (
+                      <label className="flex items-center gap-2 cursor-pointer" title="Advanced: only enable for a provider that intentionally uses a self-signed certificate">
+                        <input type="checkbox" checked={providerEditForm.allowSelfSigned === true} onChange={(e) => setProviderEditForm({ ...providerEditForm, allowSelfSigned: e.target.checked })} className={`w-4 h-4 rounded border-slate-600 bg-slate-700 ${colors.checkbox} focus:ring-offset-slate-800`} />
+                        <span className="text-sm text-amber-300">Allow self-signed certificate (advanced)</span>
+                      </label>
+                    )}
                     <div className="flex items-center gap-2">
                       <label className="text-sm text-slate-300">Type:</label>
                       <select
@@ -427,6 +434,12 @@ export function ProviderManager({ providers, onProvidersChange, apiFetch, accent
                 <input type="checkbox" checked={newProvider.useTLS} onChange={(e) => setNewProvider({ ...newProvider, useTLS: e.target.checked })} className={`w-4 h-4 rounded border-slate-600 bg-slate-700 ${colors.checkbox} focus:ring-offset-slate-800`} />
                 <span className="text-sm text-slate-300">SSL/TLS</span>
               </label>
+              {newProvider.useTLS && (
+                <label className="flex items-center gap-2 cursor-pointer" title="Advanced: only enable for a provider that intentionally uses a self-signed certificate">
+                  <input type="checkbox" checked={newProvider.allowSelfSigned === true} onChange={(e) => setNewProvider({ ...newProvider, allowSelfSigned: e.target.checked })} className={`w-4 h-4 rounded border-slate-600 bg-slate-700 ${colors.checkbox} focus:ring-offset-slate-800`} />
+                  <span className="text-sm text-amber-300">Allow self-signed certificate (advanced)</span>
+                </label>
+              )}
               <div className="flex items-center gap-2">
                 <label className="text-sm text-slate-300">Type:</label>
                 <select

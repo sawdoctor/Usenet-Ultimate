@@ -343,6 +343,7 @@ export interface UsenetProvider {
   host: string;                  // Usenet provider hostname
   port: number;                  // Usenet provider port (typically 119 or 563)
   useTLS: boolean;               // Use SSL/TLS for secure connection
+  allowSelfSigned?: boolean;     // Advanced override: disable certificate verification for this provider
   username: string;              // Usenet account username
   password: string;              // Usenet account password
   enabled: boolean;              // Can turn providers on/off

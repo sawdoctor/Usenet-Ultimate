@@ -29,7 +29,7 @@ export function createHealthCheckRoutes(deps: HealthCheckDeps): Router {
   // Usenet provider connection test endpoint
   router.post('/test', async (req, res) => {
     try {
-      const { host, port, useTLS, username, password } = req.body;
+      const { host, port, useTLS, allowSelfSigned, username, password } = req.body;
 
       if (!host || !port) {
         return res.status(400).json({ success: false, message: 'Host and port are required' });
@@ -51,7 +51,12 @@ export function createHealthCheckRoutes(deps: HealthCheckDeps): Router {
         let buffer = '';
 
         socket = useTLS
-          ? tlsModule.connect({ host, port, rejectUnauthorized: false })
+          ? tlsModule.connect({
+              host,
+              port,
+              rejectUnauthorized: allowSelfSigned !== true,
+              servername: netModule.isIP(host) ? undefined : host,
+            })
           : netModule.connect({ host, port });
 
         socket.on('data', (data: Buffer) => {
@@ -129,7 +134,7 @@ export function createHealthCheckRoutes(deps: HealthCheckDeps): Router {
 
   router.post('/providers', (req, res) => {
     try {
-      const { name, host, port, useTLS, username, password, enabled, type } = req.body;
+      const { name, host, port, useTLS, allowSelfSigned, username, password, enabled, type } = req.body;
 
       if (!name || !host) {
         return res.status(400).json({ error: 'Name and host are required' });
@@ -140,6 +145,7 @@ export function createHealthCheckRoutes(deps: HealthCheckDeps): Router {
         host,
         port: port || 563,
         useTLS: useTLS ?? true,
+        allowSelfSigned: allowSelfSigned === true,
         username: username || '',
         password: password || '',
         enabled: enabled ?? true,

@@ -11,7 +11,7 @@ import * as tls from 'tls';
 /**
  * Connect to Usenet and authenticate
  */
-export async function connectToUsenet(provider: { host: string; port: number; useTLS: boolean; username: string; password: string }): Promise<net.Socket | tls.TLSSocket> {
+export async function connectToUsenet(provider: { host: string; port: number; useTLS: boolean; allowSelfSigned?: boolean; username: string; password: string }): Promise<net.Socket | tls.TLSSocket> {
   return new Promise((resolve, reject) => {
     let resolved = false;
 
@@ -26,7 +26,12 @@ export async function connectToUsenet(provider: { host: string; port: number; us
     let buffer = '';
 
     const socket = provider.useTLS
-      ? tls.connect({ host: provider.host, port: provider.port, rejectUnauthorized: false })
+      ? tls.connect({
+          host: provider.host,
+          port: provider.port,
+          rejectUnauthorized: provider.allowSelfSigned !== true,
+          servername: net.isIP(provider.host) ? undefined : provider.host,
+        })
       : net.connect({ host: provider.host, port: provider.port });
     socket.setNoDelay(true);
 
@@ -119,7 +124,7 @@ export class NntpConnectionPool {
     return `${provider.host}:${provider.port}:${provider.username}`;
   }
 
-  async acquire(provider: { host: string; port: number; useTLS: boolean; username: string; password: string }): Promise<net.Socket | tls.TLSSocket> {
+  async acquire(provider: { host: string; port: number; useTLS: boolean; allowSelfSigned?: boolean; username: string; password: string }): Promise<net.Socket | tls.TLSSocket> {
     const k = this.key(provider);
     const stack = this.pools.get(k);
     if (stack && stack.length > 0) {
