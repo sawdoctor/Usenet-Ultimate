@@ -10,7 +10,6 @@ import './logBuffer.js';
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import addonSDK from 'stremio-addon-sdk';
 import addon, { clearSearchCache, addonManifest } from './addon/index.js';
 import { config, getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderIndexers, reorderSyncedIndexers, updateSettings, getProviders, addProvider, updateProvider, deleteProvider, reorderProviders } from './config/index.js';
 import { getLogBuffer, subscribeToLogs } from './logBuffer.js';
@@ -46,11 +45,11 @@ import { createStatsRoutes } from './routes/stats.js';
 import { createLogRoutes } from './routes/logs.js';
 import { createRulesRoutes } from './routes/rules.js';
 import { createNewznabRoutes } from './routes/newznab.js';
+import { createStremioRouter } from './routes/stremio.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const { getRouter } = addonSDK;
 const PORT = process.env.PORT || 1337;
 
 const app = express();
@@ -196,7 +195,7 @@ stremioRouter.get('/manifest.json', (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify({ ...addonManifest, logo: `${baseUrl}/pwa-512x512.png` }));
 });
-stremioRouter.use(getRouter(addon));
+stremioRouter.use(createStremioRouter(addon));
 
 const contextMiddleware = (pathPrefix: string) => (req: express.Request, _res: express.Response, next: express.NextFunction) => {
   requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: resolveBaseUrl(req), pathPrefix }, () => next());

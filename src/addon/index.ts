@@ -18,7 +18,6 @@
  */
 
 import { createRequire } from 'node:module';
-import { addonBuilder } from 'stremio-addon-sdk';
 
 const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
@@ -66,7 +65,6 @@ const manifest = {
   },
 };
 
-const builder = addonBuilder(manifest);
 
 /**
  * Build the manifest-scoped search cache key. Single source of truth for the
@@ -191,7 +189,7 @@ async function resolveTitleAndBuildSearchCtx(args: {
 }
 
 // Stream handler - called when user wants to watch something
-builder.defineStreamHandler(async ({ type, id }) => {
+const streamHandler = async ({ type, id }: { type: string; id: string }) => {
   try {
     // Check if addon is disabled
     if (!config.addonEnabled) {
@@ -601,7 +599,17 @@ builder.defineStreamHandler(async ({ type, id }) => {
     console.error('❌ Stream handler error:', error);
     return { streams: [] };
   }
-});
+};
+
+const addon = {
+  manifest,
+  async get(resource: string, type: string, id: string, _extra: Record<string, unknown> = {}, _config: Record<string, unknown> = {}) {
+    if (resource !== 'stream') {
+      return Promise.reject({ message: `No handler for ${resource}`, noHandler: true });
+    }
+    return streamHandler({ type, id });
+  },
+};
 
 export { manifest as addonManifest };
-export default builder.getInterface();
+export default addon;

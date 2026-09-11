@@ -32,7 +32,6 @@
     "https-proxy-agent": "^7.0.6",
     "jsonwebtoken": "^9.0.3",
     "node-cache": "^5.1.2",
-    "stremio-addon-sdk": "^1.6.10",
     "uuid": "^13.0.0",
     "webdav": "^5.8.0",
     "xml2js": "^0.6.2"
