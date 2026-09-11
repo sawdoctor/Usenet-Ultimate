@@ -1,0 +1,28 @@
+name: Apply v1.7.10 README update
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/update-readme-v1.7.10-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - name: Update README
+        env:
+          SECTION_B64: LS0tCgojIyBXaGF0J3MgTmV3IGluIHYxLjcuMTAKClZlcnNpb24gMS43LjEwIHJlcGFpcnMgdGhlIE5ld3puYWIvQXJyIGhlYWx0aC1jaGVjayBwYXRoIHNvIHN0cm9uZyBzZWxlY3RlZC1yZWxlYXNlCnZlcmlmaWNhdGlvbiBubyBsb25nZXIgbWVhbnMgcHJlLWRvd25sb2FkaW5nIGFuZCBjaGVja2luZyBldmVyeSBzZWFyY2ggcmVzdWx0LgoKIyMjIFNlbGVjdGVkLWdyYWIgaGVhbHRoIGNoZWNrcwoKTmV3em5hYiBzZWFyY2hlcyBubyBsb25nZXIgcHJlZmV0Y2ggY2FuZGlkYXRlIE5aQnMgZm9yIGxpdmUgaGVhbHRoIGNoZWNrcy4gU29uYXJyLApSYWRhcnIgYW5kIG90aGVyIEFyciBjbGllbnRzIHJlY2VpdmUgdGhlIGZpbHRlcmVkIHNlYXJjaCByZXN1bHRzIGZpcnN0IGFuZCBjaG9vc2UKdGhlIHJlbGVhc2UgdGhleSBhY3R1YWxseSB3YW50LgoKV2hlbiBIZWFsdGggQ2hlY2tzIGFyZSBPTiwgdGhlIHNlbGVjdGVkIE5aQiBpcyB2ZXJpZmllZCBvbmx5IHdoZW4gdGhlIGNsaWVudApyZXF1ZXN0cyBpdCB0aHJvdWdoIGB0PWdldGAuIFRoZSBwYXlsb2FkIGlzIGZldGNoZWQgb25jZSwgY2FjaGVkLCBpbnNwZWN0ZWQgYW5kCnJldXNlZCBmb3IgTk5UUCBhcnRpY2xlIHZlcmlmaWNhdGlvbi4gQSBjb25jbHVzaXZlIGJsb2NrZWQgdmVyZGljdCByZWZ1c2VzIHRoZQpncmFiOyBwcm92aWRlciBlcnJvcnMsIGRpc2Nvbm5lY3RzLCB0aW1lb3V0cyBhbmQgdW5leHBlY3RlZCBOTlRQIHJlcGxpZXMgcmVtYWluCnVudmVyaWZpZWQgYW5kIGZhaWwgb3BlbiBpbnN0ZWFkIG9mIHBvaXNvbmluZyB0aGUgZGVhZC1OWkIgY2FjaGUuCgojIyMgTG93ZXIgaW5kZXhlciB0cmFmZmljIGFuZCByZXRyeSBwcm90ZWN0aW9uCgotIElkZW50aWNhbCBOZXd6bmFiIHNlYXJjaGVzIGFyZSBzZXJ2ZWQgZnJvbSBVVSdzIHNlYXJjaCBjYWNoZSByYXRoZXIgdGhhbgogIHJlcGVhdGluZyB0aGUgdXBzdHJlYW0gUHJvd2xhcnIvRWFzeU5ld3Mgd29yay4KLSBDb25jdXJyZW50IHJlcXVlc3RzIGZvciB0aGUgc2FtZSBzZWxlY3RlZCBOWkIgam9pbiBvbmUgdXBzdHJlYW0gZmV0Y2guCi0gQ29uY3VycmVudCBzZWxlY3RlZC1ncmFiIGhlYWx0aCBjaGVja3MgZm9yIHRoZSBzYW1lIE5aQiBhcmUgY29hbGVzY2VkLgotIFJlY2VudCB2ZXJpZmllZCBhbmQgaW5jb25jbHVzaXZlIHZlcmRpY3RzIGFyZSByZXVzZWQgdG8gc3VwcHJlc3MgcmV0cnkgc3Rvcm1zLgotIENhbmRpZGF0ZSBOWkIgcHJlZmV0Y2hpbmcgZHVyaW5nIHNlYXJjaCBpcyBkaXNhYmxlZC4KCiMjIyBTZWxlY3RlZC1OWkIgaW5zcGVjdGlvbgoKVGhlIHNlbGVjdGVkIHBheWxvYWQgaXMgc3RpbGwgaW5zcGVjdGVkIGJlZm9yZSBkZWxpdmVyeS4gVVUgcmVjb3JkcyBwYXNzd29yZAptZXRhZGF0YSBmb3IgZGlhZ25vc3RpY3MsIHZhbGlkYXRlcyB0aGUgdmlzaWJsZSBOWkIgZmlsZSBsaXN0LCByZWplY3RzIG1hbGZvcm1lZApvciBlbXB0eSBOWkJzLCBhbmQgY2FuIHJlamVjdCBkZXRlY3RhYmxlIHVuZGVjbGFyZWQgZGlzYy1pbWFnZSByZWxlYXNlcy4KUGFzc3dvcmQgbWV0YWRhdGEgYnkgaXRzZWxmIGlzIG5vdCB0cmVhdGVkIGFzIGEgZmFpbHVyZS4KCldpdGggSGVhbHRoIENoZWNrcyBPRkYsIHRoaXMgc2VsZWN0ZWQtcGF5bG9hZCBpbnNwZWN0aW9uIHN0aWxsIHJ1bnMsIGJ1dCBVVSBkb2VzCm5vdCBwZXJmb3JtIE5OVFAgc2VnbWVudCBhdmFpbGFiaWxpdHkgdmVyaWZpY2F0aW9uLgoKIyMjIFZhbGlkYXRpb24gYmVmb3JlIHJlbGVhc2UKClRoZSB2MS43LjEwIHBhdGggd2FzIHRlc3RlZCB3aXRoIGEgbGl2ZSBTZWVyciDihpIgU29uYXJyIOKGkiBVVS9Qcm93bGFyciDihpIgSW5maW5pRHlzawp3b3JrZmxvdywgaW5jbHVkaW5nIGFuIGVpZ2h0LWVwaXNvZGUgYWNxdWlzaXRpb24gYXQgbm9ybWFsIHNwZWVkLCByZXBlYXRlZC1zZWFyY2gKY2FjaGUgYmVoYXZpb3VyLCBhIGhlYWx0aHkgc2VsZWN0ZWQgTlpCIHZlcmlmaWVkIDMvMywgYW5kIGEgZGVsaWJlcmF0ZWx5IGludmFsaWQKc2VsZWN0ZWQgcGF5bG9hZCBiZWluZyByZWZ1c2VkIGJlZm9yZSBkZWxpdmVyeS4KCg==
+        run: |
+          python -c 'import base64,os; from pathlib import Path; p=Path("README.md"); t=p.read_text(); m="---\n\n## What\x27s New in v1.7.8"; s=base64.b64decode(os.environ["SECTION_B64"]).decode(); assert "## What\x27s New in v1.7.10" not in t; assert m in t; p.write_text(t.replace(m,s+m,1))'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: add v1.7.10 release notes to README"
+          git push origin master
