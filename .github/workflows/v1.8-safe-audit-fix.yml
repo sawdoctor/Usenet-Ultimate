@@ -1,0 +1,68 @@
+name: v1.8 safe dependency fixes (temporary)
+
+on:
+  push:
+    branches:
+      - v1.8.0-beta
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.8.0-beta
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Backend safe audit fix
+        run: |
+          npm ci
+          npm audit fix
+
+      - name: Backend tests
+        run: npm test
+
+      - name: Backend build
+        run: npm run build
+
+      - name: UI safe audit fix
+        working-directory: ui
+        run: |
+          npm ci
+          npm audit fix
+
+      - name: UI build
+        working-directory: ui
+        run: npm run build
+
+      - name: Audit summary after safe fixes
+        shell: bash
+        run: |
+          echo '===== BACKEND AFTER ====='
+          npm audit || true
+          echo '===== UI AFTER ====='
+          cd ui
+          npm audit || true
+
+      - name: Commit tested safe dependency fixes
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add package.json package-lock.json ui/package.json ui/package-lock.json
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No dependency changes to commit.'
+          else
+            git commit -m "chore: apply safe dependency security updates"
+            git push origin HEAD:v1.8.0-beta
+          fi
