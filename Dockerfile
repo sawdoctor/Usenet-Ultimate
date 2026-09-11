@@ -27,7 +27,7 @@ ARG VERSION=dev
 LABEL org.opencontainers.image.title="Usenet Ultimate"
 LABEL org.opencontainers.image.description="Modern Usenet streaming addon for Stremio"
 LABEL org.opencontainers.image.version="${VERSION}"
-LABEL org.opencontainers.image.source="https://github.com/DSmart33/Usenet-Ultimate"
+LABEL org.opencontainers.image.source="https://github.com/sawdoctor/Usenet-Ultimate"
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
