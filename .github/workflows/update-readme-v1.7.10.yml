@@ -17,7 +17,7 @@ jobs:
         with:
           ref: master
       - name: Insert v1.7.10 release notes into README
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
 
