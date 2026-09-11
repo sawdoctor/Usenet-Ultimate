@@ -29,6 +29,9 @@ jobs:
           npm ci
           npm audit fix || true
 
+      - name: Apply compatibility adjustment for updated Axios types
+        run: python3 scripts/apply_safe_dependency_compat.py
+
       - name: Backend tests
         run: npm test
 
@@ -60,7 +63,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add package.json package-lock.json ui/package.json ui/package-lock.json
+          git add package.json package-lock.json ui/package.json ui/package-lock.json src/routes/easynewsProxy.ts
           git diff --cached --check
           if git diff --cached --quiet; then
             echo 'No dependency changes to commit.'
