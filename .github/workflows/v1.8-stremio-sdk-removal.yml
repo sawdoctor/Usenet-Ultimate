@@ -1,0 +1,58 @@
+name: v1.8 Stremio SDK removal (temporary)
+
+on:
+  push:
+    branches:
+      - v1.8.0-beta
+
+permissions:
+  contents: write
+
+jobs:
+  replace:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.8.0-beta
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install current dependencies
+        run: npm ci
+
+      - name: Apply internal Stremio router replacement
+        run: python3 scripts/apply_stremio_sdk_removal.py
+
+      - name: Remove stremio-addon-sdk dependency
+        run: npm uninstall stremio-addon-sdk
+
+      - name: Backend tests
+        run: npm test
+
+      - name: Backend build
+        run: npm run build
+
+      - name: UI install and build
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Backend audit after SDK removal
+        run: npm audit || true
+
+      - name: Commit tested Stremio SDK removal
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add package.json package-lock.json src/addon/index.ts src/server.ts src/routes/stremio.ts test/stremioRouter.test.ts
+          git diff --cached --check
+          git commit -m "security: replace vulnerable Stremio SDK router"
+          git push origin HEAD:v1.8.0-beta
