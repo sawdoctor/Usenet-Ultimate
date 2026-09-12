@@ -282,6 +282,51 @@ export async function findVideoFile(
  * Find video file in WebDAV after job completion.
  * Single scan — job completion is confirmed before this runs.
  */
+/**
+ * Briefly poll WebDAV immediately after NZB submission. InfiniDysk/NZBDav may
+ * expose a virtual media file before its SAB-style queue entry reaches
+ * "completed". Stremio can start as soon as that virtual file is visible.
+ *
+ * This is deliberately bounded. If no virtual file appears quickly, the caller
+ * falls back to the existing queue/history completion path unchanged.
+ */
+export async function waitForEarlyVideoFile(
+  nzoId: string,
+  title: string,
+  config: NZBDavConfig,
+  episodePattern?: string,
+  contentType?: string,
+  episodesInSeason?: number,
+  logPrefix = '',
+  timeoutMs = 15_000,
+  pollIntervalMs = 500,
+): Promise<{ path: string; size: number } | null> {
+  const client = getWebdavClient(config);
+  const category = resolveCategory(config, contentType);
+  const paths = [
+    `/content/${category}/${title}`,
+    `/.ids/${nzoId}`,
+  ];
+  const deadline = Date.now() + timeoutMs;
+
+  console.log(`${logPrefix}  ⚡ Checking for early WebDAV exposure (${Math.round(timeoutMs / 1000)}s window)...`);
+
+  while (Date.now() < deadline) {
+    for (const p of paths) {
+      const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
+      if (video) {
+        const sizeMB = Math.round(video.size / 1024 / 1024);
+        console.log(`${logPrefix}  ⚡ Video exposed before queue completion: ${video.path} (${sizeMB}MB)`);
+        return video;
+      }
+    }
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+  }
+
+  console.log(`${logPrefix}  ↪️ No early WebDAV file yet — falling back to normal NZBDav completion wait`);
+  return null;
+}
+
 export async function waitForVideoFile(
   nzoId: string,
   title: string,

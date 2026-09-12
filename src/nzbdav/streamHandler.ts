@@ -12,7 +12,7 @@ import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
-import { waitForVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';
+import { waitForVideoFile, waitForEarlyVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';
 import { searchLibrary } from './librarySearch.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken, markVideoPathBroken, clearVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
@@ -207,12 +207,21 @@ export async function prepareStream(
   const nzoId = await submitNzb(nzbUrl, title, config, contentType, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart), logPrefix, indexerName, searchExitIp);
   console.log(`${logPrefix}  \u23F1\uFE0F NZB submitted → ${remaining()}s remaining`);
 
-  // Step 2: Wait for job to complete (or fail) — remaining budget
-  await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType, logPrefix);
-  console.log(`${logPrefix}  \u23F1\uFE0F Job done → ${remaining()}s remaining`);
+  // Step 2: Stremio fast path — InfiniDysk/NZBDav may expose a virtual WebDAV
+  // file while the SAB-compatible queue still says "downloading". Give that
+  // path a short chance first. If it is not available, preserve the existing
+  // completion semantics unchanged.
+  let video = await waitForEarlyVideoFile(
+    nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix,
+  );
 
-  // Step 3: Find the video file — remaining budget
-  const video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);
+  if (!video) {
+    await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType, logPrefix);
+    console.log(`${logPrefix}  \u23F1\uFE0F Job done → ${remaining()}s remaining`);
+
+    // Step 3: Find the video file after normal queue completion.
+    video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);
+  }
 
   // Step 4: Verify the video is actually servable via WebDAV (GET first byte).
   // HEAD isn't reliable — NZBDav returns 200 for HEAD even when content is gone.
