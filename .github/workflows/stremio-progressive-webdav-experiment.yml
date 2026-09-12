@@ -1,0 +1,128 @@
+name: Stremio progressive WebDAV experiment
+
+on:
+  push:
+    branches:
+      - fix/stremio-progressive-webdav
+
+permissions:
+  contents: write
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stremio-progressive-webdav
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Apply progressive WebDAV experiment
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          vd = Path('src/nzbdav/videoDiscovery.ts')
+          text = vd.read_text()
+          marker = '''/**\n * Find video file in WebDAV after job completion.\n * Single scan — job completion is confirmed before this runs.\n */\nexport async function waitForVideoFile('''
+          if marker not in text:
+              raise SystemExit('videoDiscovery insertion marker not found')
+
+          helper = r'''/**
+ * Briefly poll WebDAV immediately after NZB submission. InfiniDysk/NZBDav can
+ * expose a virtual media file before its SAB-style queue entry reaches
+ * "completed". Stremio can start as soon as that file is visible and servable,
+ * so do not force every playback to wait for queue completion first.
+ *
+ * This helper is deliberately bounded. If the virtual file is not exposed
+ * quickly, the caller falls back to the existing queue/history completion path.
+ */
+export async function waitForEarlyVideoFile(
+  nzoId: string,
+  title: string,
+  config: NZBDavConfig,
+  episodePattern?: string,
+  contentType?: string,
+  episodesInSeason?: number,
+  logPrefix = '',
+  timeoutMs = 15_000,
+  pollIntervalMs = 500,
+): Promise<{ path: string; size: number } | null> {
+  const client = getWebdavClient(config);
+  const category = resolveCategory(config, contentType);
+  const paths = [
+    `/content/${category}/${title}`,
+    `/.ids/${nzoId}`,
+  ];
+  const deadline = Date.now() + timeoutMs;
+
+  console.log(`${logPrefix}  ⚡ Checking for early WebDAV exposure (${Math.round(timeoutMs / 1000)}s window)...`);
+
+  while (Date.now() < deadline) {
+    for (const p of paths) {
+      const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
+      if (video) {
+        const sizeMB = Math.round(video.size / 1024 / 1024);
+        console.log(`${logPrefix}  ⚡ Video exposed before queue completion: ${video.path} (${sizeMB}MB)`);
+        return video;
+      }
+    }
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+  }
+
+  console.log(`${logPrefix}  ↪️ No early WebDAV file yet — falling back to normal NZBDav completion wait`);
+  return null;
+}
+
+'''
+          text = text.replace(marker, helper + marker, 1)
+          vd.write_text(text)
+
+          sh = Path('src/nzbdav/streamHandler.ts')
+          text = sh.read_text()
+          old_import = "import { waitForVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';"
+          new_import = "import { waitForVideoFile, waitForEarlyVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';"
+          if old_import not in text:
+              raise SystemExit('streamHandler import marker not found')
+          text = text.replace(old_import, new_import, 1)
+
+          old_block = '''  // Step 2: Wait for job to complete (or fail) — remaining budget\n  await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType, logPrefix);\n  console.log(`${logPrefix}  ⏱️ Job done → ${remaining()}s remaining`);\n\n  // Step 3: Find the video file — remaining budget\n  const video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);'''
+          new_block = '''  // Step 2: Stremio fast path — InfiniDysk/NZBDav may expose a virtual WebDAV\n  // file while the SAB-compatible queue still says "downloading". Give that\n  // path a short chance first. If it is not available, preserve the existing\n  // completion semantics unchanged.\n  let video = await waitForEarlyVideoFile(\n    nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix,\n  );\n\n  if (!video) {\n    await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType, logPrefix);\n    console.log(`${logPrefix}  ⏱️ Job done → ${remaining()}s remaining`);\n\n    // Step 3: Find the video file after normal queue completion.\n    video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);\n  }'''
+          if old_block not in text:
+              raise SystemExit('streamHandler pipeline marker not found')
+          text = text.replace(old_block, new_block, 1)
+          sh.write_text(text)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run backend tests
+        run: npm test
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
+
+      - name: Commit experiment and remove temporary workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/stremio-progressive-webdav-experiment.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nzbdav/videoDiscovery.ts src/nzbdav/streamHandler.ts .github/workflows/stremio-progressive-webdav-experiment.yml
+          git commit -m "fix: try WebDAV before Stremio queue completion"
+          git push origin HEAD:fix/stremio-progressive-webdav
