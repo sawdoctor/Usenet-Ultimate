@@ -1,0 +1,98 @@
+name: Stremio beta.5 candidate
+
+on:
+  push:
+    branches:
+      - fix/stremio-progressive-webdav
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stremio-progressive-webdav
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Apply bounded Stremio candidate policy
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          vd = Path('src/nzbdav/videoDiscovery.ts')
+          text = vd.read_text()
+          text = text.replace('timeoutMs = 15_000,', 'timeoutMs = 20_000,', 1)
+          text = text.replace(
+              '  console.log(`${logPrefix}  ↪️ No early WebDAV file yet — falling back to normal NZBDav completion wait`);',
+              '  console.log(`${logPrefix}  ↪️ No early WebDAV file within ${Math.round(timeoutMs / 1000)}s — rejecting this Stremio candidate`);',
+              1,
+          )
+          vd.write_text(text)
+
+          sh = Path('src/nzbdav/streamHandler.ts')
+          text = sh.read_text()
+          old = '''  if (!video) {\n    await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType, logPrefix);\n    console.log(`${logPrefix}  ⏱️ Job done → ${remaining()}s remaining`);\n\n    // Step 3: Find the video file after normal queue completion.\n    video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);\n  }'''
+          new = '''  if (!video) {\n    // Stremio must not sit on an unbounded SAB-style completion wait. A release\n    // that has not exposed a playable WebDAV file within the bounded early\n    // window is a poor streaming candidate. Reject it transiently so fallback\n    // logic can move on (or a manual user-pick can fail cleanly) without\n    // poisoning the persistent dead-NZB database.\n    throw new Error(`No playable WebDAV file exposed within 20s: ${title}`);\n  }'''
+          if old not in text:
+              raise SystemExit('bounded-policy pipeline marker not found')
+          text = text.replace(old, new, 1)
+          sh.write_text(text)
+          PY
+
+      - name: Set beta.5 version
+        shell: bash
+        run: |
+          npm version 1.8.0-beta.5 --no-git-tag-version
+          cd ui
+          npm version 1.8.0-beta.5 --no-git-tag-version
+
+      - name: Backend install, tests and build
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: UI install and build
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push beta.5 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/sawdoctor/usenet-ultimate:v1.8.0-beta.5
+            ghcr.io/sawdoctor/usenet-ultimate:beta
+
+      - name: Commit tested beta.5 version and remove temporary workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/stremio-beta5-candidate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nzbdav/videoDiscovery.ts src/nzbdav/streamHandler.ts package.json package-lock.json ui/package.json ui/package-lock.json .github/workflows/stremio-beta5-candidate.yml
+          git commit -m "fix: bound Stremio candidate preparation"
+          git push origin HEAD:fix/stremio-progressive-webdav
