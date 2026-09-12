@@ -1,0 +1,41 @@
+name: Stremio playback repair
+
+on:
+  push:
+    paths:
+      - '.github/workflows/stremio-playback-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.8.0-beta
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply repair
+        run: python3 scripts/apply-stremio-playback-repair.py
+
+      - name: Verify
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Commit repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/stremio-playback-repair.yml scripts/apply-stremio-playback-repair.py
+          git add src/nzbdav/streamHandler.ts src/nzbdav/streamCache.ts test/stremioPending.test.ts
+          git commit -m "fix: keep Stremio playback requests single-flight"
+          git push origin HEAD:v1.8.0-beta
