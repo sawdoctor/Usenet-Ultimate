@@ -425,23 +425,16 @@ export async function getOrCreateStream(
 
   const promise = prepareFn(nzbUrl, title, config, filePattern, contentType, episodesInSeason, isSeasonPack, logPrefix, indexerName, searchExitIp);
 
-  // Set as pending with a TTL — if the promise hangs, the entry expires and
-  // subsequent requests can retry instead of hanging forever.  When UF is
-  // off (no budget), the promise handlers (.then/.catch) clean up the entry so
-  // no TTL-based expiry is needed.
-  const ur = globalConfig.ultimateFallback;
-  const maxTimeout = ur?.enabled === true
-    ? Math.max(
-        ur.priorityMoviesTimeoutSeconds, ur.priorityTvTimeoutSeconds, ur.prioritySeasonPackTimeoutSeconds,
-        ur.speedMoviesTimeoutSeconds, ur.speedTvTimeoutSeconds, ur.speedSeasonPackTimeoutSeconds,
-      )
-    : 0;
-  const pendingTTLMs = maxTimeout > 0 ? (maxTimeout + 30) * 1000 : Infinity;
-  pendingCache.set(cacheKey, {
-    status: 'pending',
-    promise,
-    expiresAt: Date.now() + pendingTTLMs,
-  });
+  // Keep the pending entry authoritative until the preparation itself settles.
+// Stremio reconnects while slow NZBDav jobs are still running; expiring this
+// entry on an unrelated Ultimate-Fallback timeout can make a reconnect submit
+// the same NZB again while the original job is still alive. Promise settlement
+// below is the cleanup boundary, so reconnects always join the same work.
+pendingCache.set(cacheKey, {
+  status: 'pending',
+  promise,
+  expiresAt: Infinity,
+});
 
   promise.then((data) => {
     pendingCache.delete(cacheKey);
