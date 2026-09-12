@@ -11,6 +11,7 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,11 +26,14 @@ jobs:
       - name: Apply repair
         run: python3 scripts/apply-stremio-playback-repair.py
 
-      - name: Verify
-        run: |
-          npm ci
-          npm test
-          npm run build
+      - name: Install dependencies
+        run: timeout 5m npm ci
+
+      - name: Run tests
+        run: timeout 5m npm test
+
+      - name: Build
+        run: timeout 5m npm run build
 
       - name: Commit repair
         run: |
