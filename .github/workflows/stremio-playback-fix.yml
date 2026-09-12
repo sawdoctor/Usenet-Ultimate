@@ -1,0 +1,230 @@
+name: Stremio playback fix validation
+
+on:
+  push:
+    branches:
+      - fix/stremio-playback-keepalive
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stremio-playback-keepalive
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply narrow Stremio playback fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cache = Path('src/nzbdav/streamCache.ts')
+          text = cache.read_text()
+          old = """  // Set as pending with a TTL — if the promise hangs, the entry expires and
+  // subsequent requests can retry instead of hanging forever.  When UF is
+  // off (no budget), the promise handlers (.then/.catch) clean up the entry so
+  // no TTL-based expiry is needed.
+  const ur = globalConfig.ultimateFallback;
+  const maxTimeout = ur?.enabled === true
+    ? Math.max(
+        ur.priorityMoviesTimeoutSeconds, ur.priorityTvTimeoutSeconds, ur.prioritySeasonPackTimeoutSeconds,
+        ur.speedMoviesTimeoutSeconds, ur.speedTvTimeoutSeconds, ur.speedSeasonPackTimeoutSeconds,
+      )
+    : 0;
+  const pendingTTLMs = maxTimeout > 0 ? (maxTimeout + 30) * 1000 : Infinity;
+  pendingCache.set(cacheKey, {
+    status: 'pending',
+    promise,
+    expiresAt: Date.now() + pendingTTLMs,
+  });
+"""
+          new = """  // Keep the pending entry authoritative until the preparation itself settles.
+  // Stremio reconnects while slow NZBDav jobs are still running; expiring this
+  // entry by an unrelated UF timeout lets a reconnect submit the same NZB again
+  // while the original promise is still alive. Promise settlement below is the
+  // cleanup boundary, so reconnects always join the same in-flight preparation.
+  pendingCache.set(cacheKey, {
+    status: 'pending',
+    promise,
+    expiresAt: Infinity,
+  });
+"""
+          if old not in text:
+              raise SystemExit('streamCache pending-TTL block not found')
+          cache.write_text(text.replace(old, new, 1))
+
+          handler = Path('src/nzbdav/streamHandler.ts')
+          text = handler.read_text()
+          old_import = "import { getCachedTitleByImdb } from '../idResolver.js';\nimport type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';\n"
+          new_import = "import { getCachedTitleByImdb } from '../idResolver.js';\nimport { waitForStremioPreparation } from './stremioWait.js';\nimport type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';\n"
+          if old_import not in text:
+              raise SystemExit('streamHandler import anchor not found')
+          text = text.replace(old_import, new_import, 1)
+
+          old_redirected = """        let exoTimerId: ReturnType<typeof setTimeout>;
+        streamData = await Promise.race([
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp)
+            .finally(() => clearTimeout(exoTimerId)),
+          new Promise<never>((_, reject) => {
+            exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
+          })
+        ]);
+"""
+          new_redirected = """        streamData = await waitForStremioPreparation(
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp),
+          waitMs,
+          'ExoPlayer safety timeout',
+        );
+"""
+          if old_redirected not in text:
+              raise SystemExit('post-redirect wait block not found')
+          text = text.replace(old_redirected, new_redirected, 1)
+
+          old_initial = """        // On the initial request, race against the remaining Stremio window when
+        // the attempt budget would exceed it. If the stream isn't ready in time,
+        // self-redirect so the post-redirect ExoPlayer race takes over.
+        const elapsed = Date.now() - streamStartTime;
+        const stremioRemainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
+        if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
+          let stremioTimerId: ReturnType<typeof setTimeout>;
+          streamData = await Promise.race([
+            getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp)
+              .finally(() => clearTimeout(stremioTimerId)),
+            new Promise<never>((_, reject) => {
+              stremioTimerId = setTimeout(() => reject(Object.assign(new Error('Stremio timeout redirect'), { isExoTimeout: true })), stremioRemainingMs);
+            })
+          ]);
+        } else {
+"""
+          new_initial = """        // The NZBDav preparation may legitimately outlive one Stremio HTTP
+        // request. Bound the client-facing wait independently of the preparation
+        // lifetime: the underlying single-flight promise keeps running in
+        // streamCache, while the timeout below triggers a self-redirect so the
+        // player reconnects and rejoins that same work instead of hanging.
+        const elapsed = Date.now() - streamStartTime;
+        const stremioRemainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
+        if (stremioRemainingMs > 0 && !req.socket.destroyed) {
+          streamData = await waitForStremioPreparation(
+            getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp),
+            stremioRemainingMs,
+            'Stremio timeout redirect',
+          );
+        } else {
+"""
+          if old_initial not in text:
+              raise SystemExit('initial Stremio wait block not found')
+          handler.write_text(text.replace(old_initial, new_initial, 1))
+
+          Path('src/nzbdav/stremioWait.ts').write_text("""/**
+ * Bound how long one Stremio HTTP request waits for an existing preparation.
+ * The supplied work promise is intentionally not cancelled when the client wait
+ * expires; streamCache owns that single-flight preparation and reconnects join it.
+ */
+export async function waitForStremioPreparation<T>(
+  work: Promise<T>,
+  waitMs: number,
+  message = 'Stremio timeout redirect',
+): Promise<T> {
+  if (!Number.isFinite(waitMs) || waitMs <= 0) return work;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(Object.assign(new Error(message), { isExoTimeout: true })),
+          waitMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+""")
+
+          Path('test/stremioPlaybackGuard.test.ts').write_text("""import test from 'node:test';
+import assert from 'node:assert/strict';
+import { waitForStremioPreparation } from '../src/nzbdav/stremioWait.js';
+import { getOrCreateStream, setPrepareFn } from '../src/nzbdav/streamCache.js';
+
+test('Stremio wait timeout does not cancel the underlying preparation', async () => {
+  let resolveWork!: (value: string) => void;
+  const work = new Promise<string>(resolve => { resolveWork = resolve; });
+
+  await assert.rejects(
+    waitForStremioPreparation(work, 5, 'client window expired'),
+    (err: any) => err?.isExoTimeout === true && err?.message === 'client window expired',
+  );
+
+  resolveWork('ready');
+  assert.equal(await work, 'ready');
+});
+
+test('reconnects keep joining one in-flight stream preparation even after a long wall-clock gap', async () => {
+  const realNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+
+  let calls = 0;
+  let resolvePrepare!: (value: any) => void;
+  setPrepareFn(() => {
+    calls++;
+    return new Promise(resolve => { resolvePrepare = resolve; });
+  });
+
+  const config = {} as any;
+  const first = getOrCreateStream('https://example.invalid/test.nzb', 'Regression.Test.Release', config, undefined, undefined, 'series');
+
+  // Longer than the old UF-derived pending TTL that caused the real Android
+  // reconnect to submit a second NZB while the first job was still running.
+  now += 10 * 60_000;
+  const reconnect = getOrCreateStream('https://example.invalid/test.nzb', 'Regression.Test.Release', config, undefined, undefined, 'series');
+
+  assert.equal(calls, 1);
+  const data = { nzoId: 'one-job', videoPath: '/content/test.mkv', videoSize: 123 };
+  resolvePrepare(data);
+  assert.deepEqual(await first, data);
+  assert.deepEqual(await reconnect, data);
+
+  Date.now = realNow;
+});
+""")
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test backend
+        run: npm test
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit validated fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/stremio-playback-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nzbdav/streamCache.ts src/nzbdav/streamHandler.ts src/nzbdav/stremioWait.ts test/stremioPlaybackGuard.test.ts .github/workflows/stremio-playback-fix.yml
+          git commit -m "fix: keep Stremio playback preparation single-flight [skip ci]"
+          git push origin HEAD:fix/stremio-playback-keepalive
