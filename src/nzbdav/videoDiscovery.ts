@@ -298,7 +298,7 @@ export async function waitForEarlyVideoFile(
   contentType?: string,
   episodesInSeason?: number,
   logPrefix = '',
-  timeoutMs = 20_000,
+  timeoutMs = 8_000,
   pollIntervalMs = 500,
 ): Promise<{ path: string; size: number } | null> {
   const client = getWebdavClient(config);

@@ -24,6 +24,7 @@ import { formatBytes } from '../parsers/metadataParsers.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import { getCachedTitleByImdb } from '../idResolver.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
+import { orderEpisodeStreamingCandidates } from './candidateOrder.js';
 
 const pipelineAsync = promisify(pipeline);
 
@@ -239,7 +240,7 @@ export async function prepareStream(
     // release is unsuitable for progressive playback. Cancel this exact job
     // before returning a transient, streaming-only rejection.
     await cancelJob(nzoId, config, 'Stremio progressive WebDAV timeout');
-    const progressiveError = new Error(`No playable WebDAV file exposed within 20s: ${title}`) as Error & { isStremioProgressiveTimeout?: boolean };
+    const progressiveError = new Error(`No playable WebDAV file exposed within 8s: ${title}`) as Error & { isStremioProgressiveTimeout?: boolean };
     progressiveError.isStremioProgressiveTimeout = true;
     throw progressiveError;
   }
@@ -720,8 +721,9 @@ export async function handleStream(
         c => c.nzbUrl === nzbUrl && c.title === title
       );
       if (clickedIdx >= 0) {
-        candidates.push(...group.candidates.slice(clickedIdx));
-        candidates.push(...group.candidates.slice(0, clickedIdx));
+        candidates.push(...orderEpisodeStreamingCandidates(
+          group.candidates, clickedIdx, group.type, group.episode
+        ));
       } else {
         // Clicked NZB not found in group — push sentinel (skip empty for UF tile
         // requests) + all group candidates so the chain still has something to walk.
