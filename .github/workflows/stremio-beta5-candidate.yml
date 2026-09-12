@@ -31,21 +31,24 @@ jobs:
 
           vd = Path('src/nzbdav/videoDiscovery.ts')
           text = vd.read_text()
+          if 'timeoutMs = 15_000,' not in text:
+              raise SystemExit('early WebDAV timeout marker not found')
           text = text.replace('timeoutMs = 15_000,', 'timeoutMs = 20_000,', 1)
           text = text.replace(
-              '  console.log(`${logPrefix}  ↪️ No early WebDAV file yet — falling back to normal NZBDav completion wait`);',
-              '  console.log(`${logPrefix}  ↪️ No early WebDAV file within ${Math.round(timeoutMs / 1000)}s — rejecting this Stremio candidate`);',
+              'No early WebDAV file yet — falling back to normal NZBDav completion wait',
+              'No early WebDAV file within ${Math.round(timeoutMs / 1000)}s — rejecting this Stremio candidate',
               1,
           )
           vd.write_text(text)
 
           sh = Path('src/nzbdav/streamHandler.ts')
           text = sh.read_text()
-          old = '''  if (!video) {\n    await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType, logPrefix);\n    console.log(`${logPrefix}  ⏱️ Job done → ${remaining()}s remaining`);\n\n    // Step 3: Find the video file after normal queue completion.\n    video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);\n  }'''
-          new = '''  if (!video) {\n    // Stremio must not sit on an unbounded SAB-style completion wait. A release\n    // that has not exposed a playable WebDAV file within the bounded early\n    // window is a poor streaming candidate. Reject it transiently so fallback\n    // logic can move on (or a manual user-pick can fail cleanly) without\n    // poisoning the persistent dead-NZB database.\n    throw new Error(`No playable WebDAV file exposed within 20s: ${title}`);\n  }'''
-          if old not in text:
-              raise SystemExit('bounded-policy pipeline marker not found')
-          text = text.replace(old, new, 1)
+          start = text.find('  if (!video) {', text.find('waitForEarlyVideoFile('))
+          end = text.find('  // Step 4: Verify the video is actually servable via WebDAV', start)
+          if start == -1 or end == -1:
+              raise SystemExit(f'bounded-policy structural marker not found start={start} end={end}')
+          new = '''  if (!video) {\n    // Stremio must not sit on an unbounded SAB-style completion wait. A release\n    // that has not exposed a playable WebDAV file within the bounded early\n    // window is a poor streaming candidate. Reject it transiently so fallback\n    // logic can move on (or a manual user-pick can fail cleanly) without\n    // poisoning the persistent dead-NZB database.\n    throw new Error(`No playable WebDAV file exposed within 20s: ${title}`);\n  }\n\n'''
+          text = text[:start] + new + text[end:]
           sh.write_text(text)
           PY
 
