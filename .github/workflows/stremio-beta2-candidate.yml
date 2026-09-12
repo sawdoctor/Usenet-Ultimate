@@ -1,0 +1,79 @@
+name: Stremio playback beta candidate
+
+on:
+  push:
+    branches:
+      - fix/stremio-playback-keepalive
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-candidate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stremio-playback-keepalive
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Clean patch formatting and set beta version
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/nzbdav/streamCache.ts')
+          t = p.read_text()
+          t = t.replace("  // Keep the pending entry authoritative until the preparation itself settles.\n// Stremio reconnects while slow NZBDav jobs are still running; expiring this\n// entry on an unrelated Ultimate-Fallback timeout can make a reconnect submit\n// the same NZB again while the original job is still alive. Promise settlement\n// below is the cleanup boundary, so reconnects always join the same work.\npendingCache.set(cacheKey, {\n  status: 'pending',\n  promise,\n  expiresAt: Infinity,\n});",
+          "  // Keep the pending entry authoritative until the preparation itself settles.\n  // Stremio reconnects while slow NZBDav jobs are still running; expiring this\n  // entry on an unrelated Ultimate-Fallback timeout can make a reconnect submit\n  // the same NZB again while the original job is still alive. Promise settlement\n  // below is the cleanup boundary, so reconnects always join the same work.\n  pendingCache.set(cacheKey, {\n    status: 'pending',\n    promise,\n    expiresAt: Infinity,\n  });")
+          p.write_text(t)
+          PY
+          npm version 1.8.0-beta.2 --no-git-tag-version
+
+      - name: Install and validate backend
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Validate UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push beta candidate
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/sawdoctor/usenet-ultimate:v1.8.0-beta.2
+            ghcr.io/sawdoctor/usenet-ultimate:beta
+
+      - name: Commit exact tested candidate and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/stremio-beta2-candidate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nzbdav/streamCache.ts package.json package-lock.json .github/workflows/stremio-beta2-candidate.yml
+          git commit -m "chore: finalize v1.8.0-beta.2 candidate [skip ci]"
+          git push origin HEAD:fix/stremio-playback-keepalive
