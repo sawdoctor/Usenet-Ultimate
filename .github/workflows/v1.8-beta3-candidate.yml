@@ -1,0 +1,75 @@
+name: v1.8.0-beta.3 candidate (temporary)
+
+on:
+  push:
+    paths:
+      - '.github/workflows/v1.8-beta3-candidate.yml'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.8.0-beta
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set beta version
+        run: |
+          npm version 1.8.0-beta.3 --no-git-tag-version
+          cd ui
+          npm version 1.8.0-beta.3 --no-git-tag-version
+
+      - name: Backend install, tests and build
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: UI install and build
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push beta image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/sawdoctor/usenet-ultimate:v1.8.0-beta.3
+            ghcr.io/sawdoctor/usenet-ultimate:beta
+
+      - name: Commit tested beta version and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/v1.8-beta3-candidate.yml
+          git add package.json package-lock.json ui/package.json ui/package-lock.json
+          git diff --cached --check
+          git commit -m "chore: version v1.8.0-beta.3"
+          git push origin HEAD:v1.8.0-beta
