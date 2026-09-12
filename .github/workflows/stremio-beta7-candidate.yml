@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - fix/stremio-progressive-webdav
-    paths:
-      - .github/workflows/stremio-beta7-candidate.yml
 
 permissions:
   contents: write
@@ -99,8 +97,16 @@ jobs:
           p.write_text(s)
           PY
 
+          grep -q 'Ultimate Library is a normal selected stream' src/nzbdav/streamHandler.ts
+          grep -q 'const inline = !!proxyFn;' src/nzbdav/streamHandler.ts
+          grep -q 'const inline = proxyFn && !lobbyFallbackOn;' src/nzbdav/streamHandler.ts
+
       - name: Set beta.7 version
-        run: npm version 1.8.0-beta.7 --no-git-tag-version
+        shell: bash
+        run: |
+          npm version 1.8.0-beta.7 --no-git-tag-version
+          cd ui
+          npm version 1.8.0-beta.7 --no-git-tag-version
 
       - name: Backend install, tests and build
         run: |
@@ -115,7 +121,6 @@ jobs:
           npm run build
 
       - uses: docker/setup-qemu-action@v3
-
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -130,16 +135,16 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/sawdoctor/usenet-ultimate:v1.8.0-beta.7
+          tags: |
+            ghcr.io/sawdoctor/usenet-ultimate:v1.8.0-beta.7
+            ghcr.io/sawdoctor/usenet-ultimate:beta
 
       - name: Commit tested beta.7 version and remove temporary workflow
         shell: bash
         run: |
-          git config user.name "sawdoctor"
-          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-          git rm .github/workflows/stremio-beta7-candidate.yml
-          git add src/nzbdav/streamHandler.ts package.json package-lock.json
-          if ! git diff --cached --quiet; then
-            git commit -m "fix: keep normal Stremio streams inline with fallback enabled"
-            git push origin HEAD:fix/stremio-progressive-webdav
-          fi
+          rm -f .github/workflows/stremio-beta7-candidate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nzbdav/streamHandler.ts package.json package-lock.json ui/package.json ui/package-lock.json .github/workflows/stremio-beta7-candidate.yml
+          git commit -m "fix: keep normal Stremio streams inline with fallback enabled"
+          git push origin HEAD:fix/stremio-progressive-webdav
