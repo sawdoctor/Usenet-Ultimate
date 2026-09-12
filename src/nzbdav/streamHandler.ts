@@ -216,11 +216,12 @@ export async function prepareStream(
   );
 
   if (!video) {
-    await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType, logPrefix);
-    console.log(`${logPrefix}  \u23F1\uFE0F Job done → ${remaining()}s remaining`);
-
-    // Step 3: Find the video file after normal queue completion.
-    video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);
+    // Stremio must not sit on an unbounded SAB-style completion wait. A release
+    // that has not exposed a playable WebDAV file within the bounded early
+    // window is a poor streaming candidate. Reject it transiently so fallback
+    // logic can move on (or a manual user-pick can fail cleanly) without
+    // poisoning the persistent dead-NZB database.
+    throw new Error(`No playable WebDAV file exposed within 20s: ${title}`);
   }
 
   // Step 4: Verify the video is actually servable via WebDAV (GET first byte).

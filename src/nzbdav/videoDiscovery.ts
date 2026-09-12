@@ -298,7 +298,7 @@ export async function waitForEarlyVideoFile(
   contentType?: string,
   episodesInSeason?: number,
   logPrefix = '',
-  timeoutMs = 15_000,
+  timeoutMs = 20_000,
   pollIntervalMs = 500,
 ): Promise<{ path: string; size: number } | null> {
   const client = getWebdavClient(config);
@@ -323,7 +323,7 @@ export async function waitForEarlyVideoFile(
     await new Promise(r => setTimeout(r, pollIntervalMs));
   }
 
-  console.log(`${logPrefix}  ↪️ No early WebDAV file yet — falling back to normal NZBDav completion wait`);
+  console.log(`${logPrefix}  ↪️ No early WebDAV file within ${Math.round(timeoutMs / 1000)}s — rejecting this Stremio candidate`);
   return null;
 }
 
