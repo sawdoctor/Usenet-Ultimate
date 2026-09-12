@@ -1,0 +1,145 @@
+name: Stremio beta.7 candidate
+
+on:
+  push:
+    branches:
+      - fix/stremio-progressive-webdav
+    paths:
+      - .github/workflows/stremio-beta7-candidate.yml
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stremio-progressive-webdav
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Keep normal Stremio deliveries inline with UF enabled
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/nzbdav/streamHandler.ts')
+          s = p.read_text()
+
+          # 1) Ultimate Library is a normal selected stream, not the UF lobby.
+          old = """    } else if (proxyFn && !lobbyFallbackOn) {
+      await proxyFn(req, res, decoded, mode !== 'proxy');
+    } else {
+"""
+          new = """    } else if (proxyFn) {
+      // Ultimate Library is a normal selected stream. Keep delivery inline even
+      // when Ultimate Fallback is enabled; /v is reserved for the UF lobby and
+      // vetted-backup flow where _fb is needed for mid-stream fallback.
+      await proxyFn(req, res, decoded, mode !== 'proxy');
+    } else {
+"""
+          if s.count(old) != 1:
+              raise SystemExit(f'library delivery anchor count={s.count(old)} (expected 1)')
+          s = s.replace(old, new, 1)
+
+          # 2) Recent-delivery/dedup requests from the same user pick must use
+          # the same transport as the first successful request.
+          old = """        const fallbackOn = globalConfig.ultimateFallback?.enabled === true;
+        const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
+"""
+          new = """        const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
+"""
+          if s.count(old) != 1:
+              raise SystemExit(f'dedup fallback anchor count={s.count(old)} (expected 1)')
+          s = s.replace(old, new, 1)
+
+          old = """        } else if (!fallbackOn && proxyFn) {
+          // Inline proxy — no redirect, matches primary delivery path. Runs
+          // another proxyVideoStream for this request; req.on('close') ensures
+          // cleanup if the client aborts.
+"""
+          new = """        } else if (proxyFn) {
+          // User-picked/dedup streams stay inline even when Ultimate Fallback
+          // is enabled. The /v redirect is reserved for the actual UF
+          // lobby/backup flow, where _fb is required for mid-stream fallback.
+"""
+          if s.count(old) != 1:
+              raise SystemExit(f'dedup inline anchor count={s.count(old)} (expected 1)')
+          s = s.replace(old, new, 1)
+
+          # 3) First successful user-picked delivery follows the same rule.
+          old = """        const inline = !fallbackOn && proxyFn;
+        const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
+"""
+          new = """        // A normal user-picked stream should use the same inline proxy
+        // regardless of whether UF is enabled. UF chooses candidates; it must
+        // not silently switch the winning stream onto a less-compatible /v hop.
+        const inline = !!proxyFn;
+        const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
+"""
+          if s.count(old) != 1:
+              raise SystemExit(f'primary inline anchor count={s.count(old)} (expected 1)')
+          s = s.replace(old, new, 1)
+
+          # Guard: the actual UF lobby and UF backup paths must remain gated so
+          # their /v?_fb=... recovery behavior is untouched.
+          if s.count("const inline = proxyFn && !lobbyFallbackOn;") != 1:
+              raise SystemExit('UF lobby inline gate changed unexpectedly')
+          if s.count("} else if (proxyFn && !lobbyFallbackOn) {") != 1:
+              raise SystemExit('UF backup inline gate changed unexpectedly')
+
+          p.write_text(s)
+          PY
+
+      - name: Set beta.7 version
+        run: npm version 1.8.0-beta.7 --no-git-tag-version
+
+      - name: Backend install, tests and build
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: UI install and build
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push beta.7 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/sawdoctor/usenet-ultimate:v1.8.0-beta.7
+
+      - name: Commit tested beta.7 version and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "sawdoctor"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git rm .github/workflows/stremio-beta7-candidate.yml
+          git add src/nzbdav/streamHandler.ts package.json package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: keep normal Stremio streams inline with fallback enabled"
+            git push origin HEAD:fix/stremio-progressive-webdav
+          fi
