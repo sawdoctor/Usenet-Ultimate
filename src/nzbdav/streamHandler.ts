@@ -593,7 +593,7 @@ export async function handleStream(
       const directUrl = new URL(`${webdavBase}${encodeWebdavPath(decoded)}`);
       if (config.webdavUser) { directUrl.username = config.webdavUser; directUrl.password = config.webdavPassword || ''; }
       res.redirect(302, directUrl.href);
-    } else if (proxyFn && !lobbyFallbackOn) {
+    } else if (proxyFn) {
       await proxyFn(req, res, decoded, mode !== 'proxy');
     } else {
       const proxyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/v`);
@@ -789,7 +789,6 @@ export async function handleStream(
         // no library check, no submission. If the file is gone we fall through
         // to a fresh candidate loop via the live videoPathExists gate above.
         if (verbose) console.log(`📦 Stream dedup hit (delivered ${Math.round((Date.now() - cached.timestamp) / 1000)}s ago)`);
-        const fallbackOn = globalConfig.ultimateFallback?.enabled === true;
         const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
         // Dedup the per-mode delivery log on this videoPath so repeat probes
         // don't spam the same line. lastDeliveryLog is shared with primary delivery.
@@ -806,7 +805,7 @@ export async function handleStream(
           }
           if (shouldLogCachedDelivery) console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}${sizeSuffix}`);
           res.redirect(302, directUrl.href);
-        } else if (!fallbackOn && proxyFn) {
+        } else if (proxyFn) {
           // Inline proxy — no redirect, matches primary delivery path. Runs
           // another proxyVideoStream for this request; req.on('close') ensures
           // cleanup if the client aborts.
@@ -1223,9 +1222,9 @@ export async function handleStream(
       }
 
       // Decide delivery method: pipe/proxy (buffered) or direct redirect.
-      // When fallback is off, the initial-delivery mode still forces proxy for
-      // logging/dedup consistency; /v's proxyVideoStream independently reads
-      // config on each range request, so seeks honor the user's current method.
+      // Normal user-picked streams stay on the inline proxy even when Ultimate
+      // Fallback is enabled. UF chooses candidates; only the actual UF lobby and
+      // vetted-backup flow need the /v redirect and its _fb recovery URL.
       const fallbackOn = globalConfig.ultimateFallback?.enabled === true;
       let mode: 'pipe' | 'proxy' | 'direct' = globalConfig.nzbdavStreamingMethod ?? 'proxy';
       if (!fallbackOn) mode = 'proxy';
@@ -1251,7 +1250,7 @@ export async function handleStream(
 
       const deliverySizeSuffix = streamData.videoSize ? ` (${formatBytes(streamData.videoSize)})` : '';
       if (mode !== 'direct') {
-        const inline = !fallbackOn && proxyFn;
+        const inline = !!proxyFn;
         const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
         if (shouldLogDelivery) console.log(`  ${label}${inline ? '' : ' 302'} streaming: ${streamData.videoPath}${deliverySizeSuffix}`);
         if (inline) {
