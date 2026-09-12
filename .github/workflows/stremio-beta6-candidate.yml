@@ -1,0 +1,144 @@
+name: Stremio beta.6 candidate
+
+on:
+  push:
+    branches:
+      - fix/stremio-progressive-webdav
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stremio-progressive-webdav
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Apply progressive candidate cleanup and retry policy
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/nzbdav/streamHandler.ts')
+          text = p.read_text()
+
+          replacements = []
+
+          old = "import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';"
+          new = "import { submitNzb, waitForJobCompletion, cancelJob } from './nzbdavApi.js';"
+          if old not in text:
+              raise SystemExit('nzbdavApi import marker not found')
+          text = text.replace(old, new, 1)
+
+          old = "const DEDUP_CACHE_TTL_MS = 600_000;      // 10 min — covers a typical play session's seeks/probes without library-check overhead; eviction mid-session self-heals via the broken-path marker + live videoPathExists gate\n"
+          new = old + "const STREMIO_STREAMING_REJECT_TTL_MS = 120_000; // 2 min — prevent Stremio retries from immediately re-submitting a candidate that just failed progressive exposure\n"
+          if old not in text:
+              raise SystemExit('dedup constant marker not found')
+          text = text.replace(old, new, 1)
+
+          old = "interface CachedDelivery { streamData: StreamData; streamingMethod: 'pipe' | 'proxy' | 'direct'; timestamp: number }\nconst recentDeliveries = new Map<string, CachedDelivery>();\n"
+          new = old + "const stremioStreamingRejects = new Map<string, number>(); // dead-cache-shaped key → retry-after timestamp\n"
+          if old not in text:
+              raise SystemExit('recent delivery marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '''function cleanupRecentDeliveries(): void {\n  const now = Date.now();\n  for (const [key, entry] of recentDeliveries) {\n    if (now - entry.timestamp > DEDUP_CACHE_TTL_MS) recentDeliveries.delete(key);\n  }\n}\n'''
+          new = '''function cleanupRecentDeliveries(): void {\n  const now = Date.now();\n  for (const [key, entry] of recentDeliveries) {\n    if (now - entry.timestamp > DEDUP_CACHE_TTL_MS) recentDeliveries.delete(key);\n  }\n  for (const [key, retryAfter] of stremioStreamingRejects) {\n    if (now >= retryAfter) stremioStreamingRejects.delete(key);\n  }\n}\n\nfunction isStremioStreamingRejected(key: string): boolean {\n  const retryAfter = stremioStreamingRejects.get(key);\n  if (retryAfter === undefined) return false;\n  if (Date.now() >= retryAfter) {\n    stremioStreamingRejects.delete(key);\n    return false;\n  }\n  return true;\n}\n\nfunction markStremioStreamingRejected(key: string): void {\n  stremioStreamingRejects.set(key, Date.now() + STREMIO_STREAMING_REJECT_TTL_MS);\n}\n'''
+          if old not in text:
+              raise SystemExit('cleanupRecentDeliveries marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '''  if (!video) {\n    // Stremio must not sit on an unbounded SAB-style completion wait. A release\n    // that has not exposed a playable WebDAV file within the bounded early\n    // window is a poor streaming candidate. Reject it transiently so fallback\n    // logic can move on (or a manual user-pick can fail cleanly) without\n    // poisoning the persistent dead-NZB database.\n    throw new Error(`No playable WebDAV file exposed within 20s: ${title}`);\n  }'''
+          new = '''  if (!video) {\n    // Stremio must not leave an abandoned NZBDav job running after deciding a\n    // release is unsuitable for progressive playback. Cancel this exact job\n    // before returning a transient, streaming-only rejection.\n    await cancelJob(nzoId, config, 'Stremio progressive WebDAV timeout');\n    const progressiveError = new Error(`No playable WebDAV file exposed within 20s: ${title}`) as Error & { isStremioProgressiveTimeout?: boolean };\n    progressiveError.isStremioProgressiveTimeout = true;\n    throw progressiveError;\n  }'''
+          if old not in text:
+              raise SystemExit('progressive timeout block not found')
+          text = text.replace(old, new, 1)
+
+          old = '''  if (userPick && ufLobbyAvailable && userPickMode !== 'fallback-chain') {\n    candidateOrder.push(candidateStart);\n  } else if (userPick && userPickMode === 'fallback-chain') {'''
+          new = '''  if (userPick && ufLobbyAvailable && userPickMode !== 'fallback-chain') {\n    // Keep the user's normal failure policy for genuine errors, but make the\n    // remaining candidates available so a streaming-only progressive miss can\n    // advance without forcing the user back to the stream list.\n    for (let i = candidateStart; i < maxCandidates; i++) candidateOrder.push(i);\n  } else if (userPick && userPickMode === 'fallback-chain') {'''
+          if old not in text:
+              raise SystemExit('candidate order marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    const deadKey = getDeadCacheKey(candidate.nzbUrl, cachePattern);\n    if (isDeadNzb(deadKey) || isDeadNzbByUrl(candidate.nzbUrl)) {'''
+          new = '''    const deadKey = getDeadCacheKey(candidate.nzbUrl, cachePattern);\n    if (isStremioStreamingRejected(deadKey)) {\n      if (verbose) console.log(`⏭️ Streaming candidate temporarily suppressed [${i + 1}/${maxCandidates}]: ${candidate.title}`);\n      continue;\n    }\n    if (isDeadNzb(deadKey) || isDeadNzbByUrl(candidate.nzbUrl)) {'''
+          if old not in text:
+              raise SystemExit('deadKey marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '''      const err = error as Error & { isNzbdavFailure?: boolean };\n      console.error(`\\u274C Stream failed [${i + 1}/${maxCandidates}] ${candidate.title}: ${err.message}`);\n\n      // User-pick failure: fall straight into the UF lobby instead of walking the candidate chain.'''
+          new = '''      const err = error as Error & { isNzbdavFailure?: boolean; isStremioProgressiveTimeout?: boolean };\n      console.error(`\\u274C Stream failed [${i + 1}/${maxCandidates}] ${candidate.title}: ${err.message}`);\n\n      // Progressive exposure failure is deliberately transient: the NZB may be\n      // valid for normal download, it just did not become streamable quickly.\n      // Suppress immediate Stremio retries of this same candidate and advance.\n      if (err.isStremioProgressiveTimeout) {\n        markStremioStreamingRejected(deadKey);\n        if (i + 1 < maxCandidates) {\n          console.log(`⏭️ Candidate not progressively streamable — trying next result [${i + 2}/${maxCandidates}]`);\n          continue;\n        }\n      }\n\n      // User-pick failure: fall straight into the UF lobby instead of walking the candidate chain.'''
+          if old not in text:
+              raise SystemExit('catch error marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '''      if (\n        userPick\n        && globalConfig.ultimateFallback?.enabled\n        && globalConfig.ultimateFallback?.userPickFallback === 'failure-video'\n        && !res.headersSent\n      ) {\n        console.log(`👑 User-pick failed — userPickFallback=failure-video, serving failure video`);\n        // Loop's natural fall-through hits sendFailureVideo below.\n      }'''
+          new = '''      if (\n        userPick\n        && globalConfig.ultimateFallback?.enabled\n        && globalConfig.ultimateFallback?.userPickFallback === 'failure-video'\n        && !res.headersSent\n      ) {\n        console.log(`👑 User-pick failed — userPickFallback=failure-video, serving failure video`);\n        // Genuine failures still honor failure-video. Only the tagged progressive\n        // miss above is allowed to continue to another candidate.\n        break;\n      }'''
+          if old not in text:
+              raise SystemExit('failure-video catch marker not found')
+          text = text.replace(old, new, 1)
+
+          p.write_text(text)
+          PY
+
+          grep -q "cancelJob(nzoId, config, 'Stremio progressive WebDAV timeout')" src/nzbdav/streamHandler.ts
+          grep -q 'isStremioProgressiveTimeout' src/nzbdav/streamHandler.ts
+          grep -q 'Streaming candidate temporarily suppressed' src/nzbdav/streamHandler.ts
+
+      - name: Set beta.6 version
+        shell: bash
+        run: |
+          npm version 1.8.0-beta.6 --no-git-tag-version
+          cd ui
+          npm version 1.8.0-beta.6 --no-git-tag-version
+
+      - name: Backend install, tests and build
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: UI install and build
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push beta.6 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/sawdoctor/usenet-ultimate:v1.8.0-beta.6
+            ghcr.io/sawdoctor/usenet-ultimate:beta
+
+      - name: Commit tested beta.6 version and remove temporary workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/stremio-beta6-candidate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nzbdav/streamHandler.ts package.json package-lock.json ui/package.json ui/package-lock.json .github/workflows/stremio-beta6-candidate.yml
+          git commit -m "fix: cancel and skip slow Stremio candidates"
+          git push origin HEAD:fix/stremio-progressive-webdav
