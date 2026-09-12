@@ -11,7 +11,7 @@ import { pipeline } from 'stream';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
-import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
+import { submitNzb, waitForJobCompletion, cancelJob } from './nzbdavApi.js';
 import { waitForVideoFile, waitForEarlyVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';
 import { searchLibrary } from './librarySearch.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken, markVideoPathBroken, clearVideoPathBroken } from './streamCache.js';
@@ -49,6 +49,7 @@ const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether 
 const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 500; // Safety cap on self-redirects — supports large fallback chains without infinite loops
 const EXO_PLAYER_BUDGET_MS = 50_000;     // Stay below Stremio's 60s HTTP timeout without burning through client redirect limits on slow NZBDav jobs
 const DEDUP_CACHE_TTL_MS = 600_000;      // 10 min — covers a typical play session's seeks/probes without library-check overhead; eviction mid-session self-heals via the broken-path marker + live videoPathExists gate
+const STREMIO_STREAMING_REJECT_TTL_MS = 120_000; // 2 min — prevent Stremio retries from immediately re-submitting a candidate that just failed progressive exposure
 const LOBBY_CACHED_LOG_THROTTLE_MS = 15_000; // Suppress repeat "cached resolve served" lines within this window (matches /stream hit throttle)
 // Self-redirect query params (internal, appended to stream URL during 302 redirects):
 //   _rc — redirect count: how many self-redirects have occurred (prevents infinite loops)
@@ -143,12 +144,30 @@ function isClientDisconnect(error: unknown): boolean {
 
 interface CachedDelivery { streamData: StreamData; streamingMethod: 'pipe' | 'proxy' | 'direct'; timestamp: number }
 const recentDeliveries = new Map<string, CachedDelivery>();
+const stremioStreamingRejects = new Map<string, number>(); // dead-cache-shaped key → retry-after timestamp
 
 function cleanupRecentDeliveries(): void {
   const now = Date.now();
   for (const [key, entry] of recentDeliveries) {
     if (now - entry.timestamp > DEDUP_CACHE_TTL_MS) recentDeliveries.delete(key);
   }
+  for (const [key, retryAfter] of stremioStreamingRejects) {
+    if (now >= retryAfter) stremioStreamingRejects.delete(key);
+  }
+}
+
+function isStremioStreamingRejected(key: string): boolean {
+  const retryAfter = stremioStreamingRejects.get(key);
+  if (retryAfter === undefined) return false;
+  if (Date.now() >= retryAfter) {
+    stremioStreamingRejects.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function markStremioStreamingRejected(key: string): void {
+  stremioStreamingRejects.set(key, Date.now() + STREMIO_STREAMING_REJECT_TTL_MS);
 }
 
 /** Per-attempt budget in ms. Returns 0 (no limit) — UF uses its own per-mode timeouts. */
@@ -216,12 +235,13 @@ export async function prepareStream(
   );
 
   if (!video) {
-    // Stremio must not sit on an unbounded SAB-style completion wait. A release
-    // that has not exposed a playable WebDAV file within the bounded early
-    // window is a poor streaming candidate. Reject it transiently so fallback
-    // logic can move on (or a manual user-pick can fail cleanly) without
-    // poisoning the persistent dead-NZB database.
-    throw new Error(`No playable WebDAV file exposed within 20s: ${title}`);
+    // Stremio must not leave an abandoned NZBDav job running after deciding a
+    // release is unsuitable for progressive playback. Cancel this exact job
+    // before returning a transient, streaming-only rejection.
+    await cancelJob(nzoId, config, 'Stremio progressive WebDAV timeout');
+    const progressiveError = new Error(`No playable WebDAV file exposed within 20s: ${title}`) as Error & { isStremioProgressiveTimeout?: boolean };
+    progressiveError.isStremioProgressiveTimeout = true;
+    throw progressiveError;
   }
 
   // Step 4: Verify the video is actually servable via WebDAV (GET first byte).
@@ -1075,7 +1095,10 @@ export async function handleStream(
   const candidateOrder: number[] = [];
   const userPickMode = globalConfig.ultimateFallback?.userPickFallback ?? 'failure-video';
   if (userPick && ufLobbyAvailable && userPickMode !== 'fallback-chain') {
-    candidateOrder.push(candidateStart);
+    // Keep the user's normal failure policy for genuine errors, but make the
+    // remaining candidates available so a streaming-only progressive miss can
+    // advance without forcing the user back to the stream list.
+    for (let i = candidateStart; i < maxCandidates; i++) candidateOrder.push(i);
   } else if (userPick && userPickMode === 'fallback-chain') {
     // Walk results from clicked through end. Skip the vetted-backup-priority
     // branch — sequential order is what the user opted into.
@@ -1106,6 +1129,10 @@ export async function handleStream(
 
     // Skip candidates already known to be dead.
     const deadKey = getDeadCacheKey(candidate.nzbUrl, cachePattern);
+    if (isStremioStreamingRejected(deadKey)) {
+      if (verbose) console.log(`⏭️ Streaming candidate temporarily suppressed [${i + 1}/${maxCandidates}]: ${candidate.title}`);
+      continue;
+    }
     if (isDeadNzb(deadKey) || isDeadNzbByUrl(candidate.nzbUrl)) {
       if (logDeadSkips) console.log(`\u23ED\uFE0F NZB Database (skipping dead) [${i + 1}/${maxCandidates}]: ${candidate.title}`);
       continue;
@@ -1286,8 +1313,19 @@ export async function handleStream(
         evictReadyByVideoPath((error as WebDav404Error).videoPath);
       }
 
-      const err = error as Error & { isNzbdavFailure?: boolean };
+      const err = error as Error & { isNzbdavFailure?: boolean; isStremioProgressiveTimeout?: boolean };
       console.error(`\u274C Stream failed [${i + 1}/${maxCandidates}] ${candidate.title}: ${err.message}`);
+
+      // Progressive exposure failure is deliberately transient: the NZB may be
+      // valid for normal download, it just did not become streamable quickly.
+      // Suppress immediate Stremio retries of this same candidate and advance.
+      if (err.isStremioProgressiveTimeout) {
+        markStremioStreamingRejected(deadKey);
+        if (i + 1 < maxCandidates) {
+          console.log(`⏭️ Candidate not progressively streamable — trying next result [${i + 2}/${maxCandidates}]`);
+          continue;
+        }
+      }
 
       // User-pick failure: fall straight into the UF lobby instead of walking the candidate chain.
       // The user explicitly chose this NZB; when it fails, UF's pre-vetted pool is the fallback.
@@ -1320,7 +1358,9 @@ export async function handleStream(
         && !res.headersSent
       ) {
         console.log(`👑 User-pick failed — userPickFallback=failure-video, serving failure video`);
-        // Loop's natural fall-through hits sendFailureVideo below.
+        // Genuine failures still honor failure-video. Only the tagged progressive
+        // miss above is allowed to continue to another candidate.
+        break;
       }
     }
   }
