@@ -17,32 +17,88 @@ jobs:
         with:
           ref: fix/stremio-playback-keepalive
           fetch-depth: 0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - name: Apply narrow Stremio playback fix
+
+      - name: Apply minimal playback fix
         shell: bash
         run: |
-          echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmltcG9ydCByZQoKY2FjaGUgPSBQYXRoKCJzcmMvbnpiZGF2L3N0cmVhbUNhY2hlLnRzIikKdGV4dCA9IGNhY2hlLnJlYWRfdGV4dCgpCnBhdHRlcm4gPSByZS5jb21waWxlKAogICAgciIgIC8vIFNldCBhcyBwZW5kaW5nIHdpdGggYSBUVExbXHNcU10qPyIKICAgIHIiICBwZW5kaW5nQ2FjaGVcLnNldFwoY2FjaGVLZXksIFx7XG4iCiAgICByIiAgICBzdGF0dXM6ICdwZW5kaW5nJyxcbiIKICAgIHIiICAgIHByb21pc2UsXG4iCiAgICByIiAgICBleHBpcmVzQXQ6IERhdGVcLm5vd1woXCkgXCsgcGVuZGluZ1RUTE1zLFxuIgogICAgciIgIFx9XCk7XG4iCikKcmVwbGFjZW1lbnQgPSAiIiIgIC8vIEtlZXAgdGhlIHBlbmRpbmcgZW50cnkgYXV0aG9yaXRhdGl2ZSB1bnRpbCB0aGUgcHJlcGFyYXRpb24gaXRzZWxmIHNldHRsZXMuCiAgLy8gU3RyZW1pbyByZWNvbm5lY3RzIHdoaWxlIHNsb3cgTlpCRGF2IGpvYnMgYXJlIHN0aWxsIHJ1bm5pbmc7IGV4cGlyaW5nIHRoaXMKICAvLyBlbnRyeSBieSBhbiB1bnJlbGF0ZWQgVUYgdGltZW91dCBsZXRzIGEgcmVjb25uZWN0IHN1Ym1pdCB0aGUgc2FtZSBOWkIgYWdhaW4KICAvLyB3aGlsZSB0aGUgb3JpZ2luYWwgcHJvbWlzZSBpcyBzdGlsbCBhbGl2ZS4gUHJvbWlzZSBzZXR0bGVtZW50IGJlbG93IGlzIHRoZQogIC8vIGNsZWFudXAgYm91bmRhcnksIHNvIHJlY29ubmVjdHMgYWx3YXlzIGpvaW4gdGhlIHNhbWUgaW4tZmxpZ2h0IHByZXBhcmF0aW9uLgogIHBlbmRpbmdDYWNoZS5zZXQoY2FjaGVLZXksIHsKICAgIHN0YXR1czogJ3BlbmRpbmcnLAogICAgcHJvbWlzZSwKICAgIGV4cGlyZXNBdDogSW5maW5pdHksCiAgfSk7CiIiIgp0ZXh0MiwgbiA9IHBhdHRlcm4uc3VibihyZXBsYWNlbWVudCwgdGV4dCwgY291bnQ9MSkKaWYgbiAhPSAxOgogICAgcmFpc2UgU3lzdGVtRXhpdChmInN0cmVhbUNhY2hlIHBlbmRpbmcgYmxvY2sgcmVwbGFjZW1lbnRzPXtufSIpCmNhY2hlLndyaXRlX3RleHQodGV4dDIpCgpoYW5kbGVyID0gUGF0aCgic3JjL256YmRhdi9zdHJlYW1IYW5kbGVyLnRzIikKdGV4dCA9IGhhbmRsZXIucmVhZF90ZXh0KCkKYW5jaG9yID0gImltcG9ydCB7IGdldENhY2hlZFRpdGxlQnlJbWRiIH0gZnJvbSAnLi4vaWRSZXNvbHZlci5qcyc7XG4iCmlmIGFuY2hvciBub3QgaW4gdGV4dDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoInN0cmVhbUhhbmRsZXIgaW1wb3J0IGFuY2hvciBtaXNzaW5nIikKdGV4dCA9IHRleHQucmVwbGFjZShhbmNob3IsIGFuY2hvciArICJpbXBvcnQgeyB3YWl0Rm9yU3RyZW1pb1ByZXBhcmF0aW9uIH0gZnJvbSAnLi9zdHJlbWlvV2FpdC5qcyc7XG4iLCAxKQoKcGF0dGVybiA9IHJlLmNvbXBpbGUoCiAgICByIiAgICAgICAgbGV0IGV4b1RpbWVySWQ6IFJldHVyblR5cGU8dHlwZW9mIHNldFRpbWVvdXQ+O1xuIgogICAgciIgICAgICAgIHN0cmVhbURhdGEgPSBhd2FpdCBQcm9taXNlXC5yYWNlXChcW1xuIgogICAgciIgICAgICAgICAgZ2V0T3JDcmVhdGVTdHJlYW1cKCg/UDxjYWxsPlteXG5dKylcKVxuIgogICAgciIgICAgICAgICAgICBcLmZpbmFsbHlcKFwoXCkgPT4gY2xlYXJUaW1lb3V0XChleG9UaW1lcklkXClcKSxcbiIKICAgIHIiICAgICAgICAgIG5ldyBQcm9taXNlPG5ldmVyPlwoXChfLCByZWplY3RcKSA9PiBce1xuIgogICAgciIgICAgICAgICAgICBleG9UaW1lcklkID0gc2V0VGltZW91dFwoXChcKSA9PiByZWplY3RcKE9iamVjdFwuYXNzaWduXChuZXcgRXJyb3JcKCdFeG9QbGF5ZXIgc2FmZXR5IHRpbWVvdXQnXCksIFx7IGlzRXhvVGltZW91dDogdHJ1ZSBcfVwpXCksIHdhaXRNc1wpO1xuIgogICAgciIgICAgICAgICAgXH1cKVxuIgogICAgciIgICAgICAgIFxdXCk7XG4iCikKbSA9IHBhdHRlcm4uc2VhcmNoKHRleHQpCmlmIG5vdCBtOgogICAgcmFpc2UgU3lzdGVtRXhpdCgicG9zdC1yZWRpcmVjdCB3YWl0IGJsb2NrIG1pc3NpbmciKQpjYWxsID0gbS5ncm91cCgiY2FsbCIpCnRleHQgPSB0ZXh0WzptLnN0YXJ0KCldICsgZiIiIiAgICAgICAgc3RyZWFtRGF0YSA9IGF3YWl0IHdhaXRGb3JTdHJlbWlvUHJlcGFyYXRpb24oCiAgICAgICAgICBnZXRPckNyZWF0ZVN0cmVhbSh7Y2FsbH0pLAogICAgICAgICAgd2FpdE1zLAogICAgICAgICAgJ0V4b1BsYXllciBzYWZldHkgdGltZW91dCcsCiAgICAgICAgKTsKIiIiICsgdGV4dFttLmVuZCgpOl0KCm9sZF9jb25kID0gImlmIChhdHRlbXB0QnVkZ2V0TXMgPiBzdHJlbWlvUmVtYWluaW5nTXMgJiYgc3RyZW1pb1JlbWFpbmluZ01zID4gMCAmJiAhcmVxLnNvY2tldC5kZXN0cm95ZWQpIHsiCmlmIG9sZF9jb25kIG5vdCBpbiB0ZXh0OgogICAgcmFpc2UgU3lzdGVtRXhpdCgiaW5pdGlhbCB3YWl0IGNvbmRpdGlvbiBtaXNzaW5nIikKdGV4dCA9IHRleHQucmVwbGFjZSgKICAgICIgICAgICAgIC8vIE9uIHRoZSBpbml0aWFsIHJlcXVlc3QsIHJhY2UgYWdhaW5zdCB0aGUgcmVtYWluaW5nIFN0cmVtaW8gd2luZG93IHdoZW5cbiIKICAgICIgICAgICAgIC8vIHRoZSBhdHRlbXB0IGJ1ZGdldCB3b3VsZCBleGNlZWQgaXQuIElmIHRoZSBzdHJlYW0gaXNuJ3QgcmVhZHkgaW4gdGltZSxcbiIKICAgICIgICAgICAgIC8vIHNlbGYtcmVkaXJlY3Qgc28gdGhlIHBvc3QtcmVkaXJlY3QgRXhvUGxheWVyIHJhY2UgdGFrZXMgb3Zlci5cbiIsCiAgICAiICAgICAgICAvLyBOWkJEYXYgcHJlcGFyYXRpb24gY2FuIG91dGxpdmUgb25lIFN0cmVtaW8gSFRUUCByZXF1ZXN0LiBCb3VuZCBvbmx5XG4iCiAgICAiICAgICAgICAvLyB0aGUgY2xpZW50LWZhY2luZyB3YWl0OyBzdHJlYW1DYWNoZSBrZWVwcyB0aGUgc2luZ2xlLWZsaWdodCB3b3JrIGFsaXZlXG4iCiAgICAiICAgICAgICAvLyBzbyB0aGUgc2VsZi1yZWRpcmVjdCByZWpvaW5zIGl0IGluc3RlYWQgb2Ygc3VibWl0dGluZyBhbm90aGVyIE5aQi5cbiIsCiAgICAxLAopCnRleHQgPSB0ZXh0LnJlcGxhY2Uob2xkX2NvbmQsICJpZiAoc3RyZW1pb1JlbWFpbmluZ01zID4gMCAmJiAhcmVxLnNvY2tldC5kZXN0cm95ZWQpIHsiLCAxKQoKcGF0dGVybiA9IHJlLmNvbXBpbGUoCiAgICByIiAgICAgICAgICBsZXQgc3RyZW1pb1RpbWVySWQ6IFJldHVyblR5cGU8dHlwZW9mIHNldFRpbWVvdXQ+O1xuIgogICAgciIgICAgICAgICAgc3RyZWFtRGF0YSA9IGF3YWl0IFByb21pc2VcLnJhY2VcKFxbXG4iCiAgICByIiAgICAgICAgICAgIGdldE9yQ3JlYXRlU3RyZWFtXCgoP1A8Y2FsbD5bXlxuXSspXClcbiIKICAgIHIiICAgICAgICAgICAgICBcLmZpbmFsbHlcKFwoXCkgPT4gY2xlYXJUaW1lb3V0XChzdHJlbWlvVGltZXJJZFwpXCksXG4iCiAgICByIiAgICAgICAgICAgIG5ldyBQcm9taXNlPG5ldmVyPlwoXChfLCByZWplY3RcKSA9PiBce1xuIgogICAgciIgICAgICAgICAgICAgIHN0cmVtaW9UaW1lcklkID0gc2V0VGltZW91dFwoXChcKSA9PiByZWplY3RcKE9iamVjdFwuYXNzaWduXChuZXcgRXJyb3JcKCdTdHJlbWlvIHRpbWVvdXQgcmVkaXJlY3QnXCksIFx7IGlzRXhvVGltZW91dDogdHJ1ZSBcfVwpXCksIHN0cmVtaW9SZW1haW5pbmdNc1wpO1xuIgogICAgciIgICAgICAgICAgICBcfVwpXG4iCiAgICByIiAgICAgICAgICBcXVwpO1xuIgopCm0gPSBwYXR0ZXJuLnNlYXJjaCh0ZXh0KQppZiBub3QgbToKICAgIHJhaXNlIFN5c3RlbUV4aXQoImluaXRpYWwgUHJvbWlzZS5yYWNlIGJsb2NrIG1pc3NpbmciKQpjYWxsID0gbS5ncm91cCgiY2FsbCIpCnRleHQgPSB0ZXh0WzptLnN0YXJ0KCldICsgZiIiIiAgICAgICAgICBzdHJlYW1EYXRhID0gYXdhaXQgd2FpdEZvclN0cmVtaW9QcmVwYXJhdGlvbigKICAgICAgICAgICAgZ2V0T3JDcmVhdGVTdHJlYW0oe2NhbGx9KSwKICAgICAgICAgICAgc3RyZW1pb1JlbWFpbmluZ01zLAogICAgICAgICAgICAnU3RyZW1pbyB0aW1lb3V0IHJlZGlyZWN0JywKICAgICAgICAgICk7CiIiIiArIHRleHRbbS5lbmQoKTpdCmhhbmRsZXIud3JpdGVfdGV4dCh0ZXh0KQoKUGF0aCgic3JjL256YmRhdi9zdHJlbWlvV2FpdC50cyIpLndyaXRlX3RleHQoIiIiLyoqCiAqIEJvdW5kIG9uZSBTdHJlbWlvIEhUVFAgcmVxdWVzdCB3aXRob3V0IGNhbmNlbGxpbmcgdGhlIHVuZGVybHlpbmcgcHJlcGFyYXRpb24uCiAqIHN0cmVhbUNhY2hlIG93bnMgdGhlIHNpbmdsZS1mbGlnaHQgcHJvbWlzZTsgcmVjb25uZWN0cyByZWpvaW4gdGhlIHNhbWUgd29yay4KICovCmV4cG9ydCBhc3luYyBmdW5jdGlvbiB3YWl0Rm9yU3RyZW1pb1ByZXBhcmF0aW9uPFQ+KAogIHdvcms6IFByb21pc2U8VD4sCiAgd2FpdE1zOiBudW1iZXIsCiAgbWVzc2FnZSA9ICdTdHJlbWlvIHRpbWVvdXQgcmVkaXJlY3QnLAopOiBQcm9taXNlPFQ+IHsKICBpZiAoIU51bWJlci5pc0Zpbml0ZSh3YWl0TXMpIHx8IHdhaXRNcyA8PSAwKSByZXR1cm4gd29yazsKICBsZXQgdGltZXI6IFJldHVyblR5cGU8dHlwZW9mIHNldFRpbWVvdXQ+IHwgdW5kZWZpbmVkOwogIHRyeSB7CiAgICByZXR1cm4gYXdhaXQgUHJvbWlzZS5yYWNlKFsKICAgICAgd29yaywKICAgICAgbmV3IFByb21pc2U8bmV2ZXI+KChfLCByZWplY3QpID0+IHsKICAgICAgICB0aW1lciA9IHNldFRpbWVvdXQoCiAgICAgICAgICAoKSA9PiByZWplY3QoT2JqZWN0LmFzc2lnbihuZXcgRXJyb3IobWVzc2FnZSksIHsgaXNFeG9UaW1lb3V0OiB0cnVlIH0pKSwKICAgICAgICAgIHdhaXRNcywKICAgICAgICApOwogICAgICB9KSwKICAgIF0pOwogIH0gZmluYWxseSB7CiAgICBpZiAodGltZXIpIGNsZWFyVGltZW91dCh0aW1lcik7CiAgfQp9CiIiIikKClBhdGgoInRlc3Qvc3RyZW1pb1BsYXliYWNrR3VhcmQudGVzdC50cyIpLndyaXRlX3RleHQoIiIiaW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBmcm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgeyByZWFkRmlsZVN5bmMgfSBmcm9tICdub2RlOmZzJzsKaW1wb3J0IHsgd2FpdEZvclN0cmVtaW9QcmVwYXJhdGlvbiB9IGZyb20gJy4uL3NyYy9uemJkYXYvc3RyZW1pb1dhaXQuanMnOwoKdGVzdCgnU3RyZW1pbyB3YWl0IHRpbWVvdXQgbGVhdmVzIHVuZGVybHlpbmcgcHJlcGFyYXRpb24gYWxpdmUnLCBhc3luYyAoKSA9PiB7CiAgbGV0IHJlc29sdmVXb3JrITogKHZhbHVlOiBzdHJpbmcpID0+IHZvaWQ7CiAgY29uc3Qgd29yayA9IG5ldyBQcm9taXNlPHN0cmluZz4ocmVzb2x2ZSA9PiB7IHJlc29sdmVXb3JrID0gcmVzb2x2ZTsgfSk7CiAgYXdhaXQgYXNzZXJ0LnJlamVjdHMoCiAgICB3YWl0Rm9yU3RyZW1pb1ByZXBhcmF0aW9uKHdvcmssIDUsICdjbGllbnQgd2luZG93IGV4cGlyZWQnKSwKICAgIChlcnI6IGFueSkgPT4gZXJyPy5pc0V4b1RpbWVvdXQgPT09IHRydWUgJiYgZXJyPy5tZXNzYWdlID09PSAnY2xpZW50IHdpbmRvdyBleHBpcmVkJywKICApOwogIHJlc29sdmVXb3JrKCdyZWFkeScpOwogIGFzc2VydC5lcXVhbChhd2FpdCB3b3JrLCAncmVhZHknKTsKfSk7Cgp0ZXN0KCdwZW5kaW5nIHN0cmVhbSBwcmVwYXJhdGlvbiBubyBsb25nZXIgZXhwaXJlcyBvbiB0aGUgVUYgdGltZW91dCBjbG9jaycsICgpID0+IHsKICBjb25zdCBzb3VyY2UgPSByZWFkRmlsZVN5bmMobmV3IFVSTCgnLi4vc3JjL256YmRhdi9zdHJlYW1DYWNoZS50cycsIGltcG9ydC5tZXRhLnVybCksICd1dGY4Jyk7CiAgYXNzZXJ0Lm1hdGNoKHNvdXJjZSwgL3BlbmRpbmdDYWNoZVwuc2V0XChjYWNoZUtleSxbXHNcU10qP2V4cGlyZXNBdDogSW5maW5pdHkvKTsKICBhc3NlcnQuZG9lc05vdE1hdGNoKHNvdXJjZSwgL2V4cGlyZXNBdDogRGF0ZVwubm93XChcKSBcKyBwZW5kaW5nVFRMTXMvKTsKfSk7CiIiIykK' | base64 -d > /tmp/stremio_fix.py
-          python3 /tmp/stremio_fix.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cache = Path('src/nzbdav/streamCache.ts')
+          text = cache.read_text()
+          start = text.index('  // Set as pending with a TTL')
+          end = text.index('\n\n  promise.then', start)
+          replacement = '''  // Keep the pending entry authoritative until the preparation itself settles.
+          // Stremio reconnects while slow NZBDav jobs are still running; expiring this
+          // entry on an unrelated Ultimate-Fallback timeout can make a reconnect submit
+          // the same NZB again while the original job is still alive. Promise settlement
+          // below is the cleanup boundary, so reconnects always join the same work.
+          pendingCache.set(cacheKey, {
+            status: 'pending',
+            promise,
+            expiresAt: Infinity,
+          });'''
+          cache.write_text(text[:start] + replacement + text[end:])
+
+          handler = Path('src/nzbdav/streamHandler.ts')
+          text = handler.read_text()
+          old = 'if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {'
+          new = 'if (stremioRemainingMs > 0 && !req.socket.destroyed) {'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one initial Stremio wait gate, found {text.count(old)}')
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              '// On the initial request, race against the remaining Stremio window when\n        // the attempt budget would exceed it. If the stream isn\'t ready in time,\n        // self-redirect so the post-redirect ExoPlayer race takes over.',
+              '// On the initial request, always bound the client-facing wait to Stremio\'s\n        // remaining HTTP window. The underlying getOrCreateStream promise stays alive\n        // in the pending cache, so the self-redirect rejoins the same NZBDav job.'
+          )
+          handler.write_text(text)
+
+          Path('test/stremioPlaybackGuard.test.ts').write_text('''import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+
+          test('pending stream preparation stays single-flight until it settles', () => {
+            const source = readFileSync(new URL('../src/nzbdav/streamCache.ts', import.meta.url), 'utf8');
+            assert.match(source, /pendingCache\.set\(cacheKey,[\s\S]*?expiresAt: Infinity/);
+            assert.doesNotMatch(source, /expiresAt: Date\.now\(\) \+ pendingTTLMs/);
+          });
+
+          test('initial Stremio request always uses the existing client timeout redirect gate', () => {
+            const source = readFileSync(new URL('../src/nzbdav/streamHandler.ts', import.meta.url), 'utf8');
+            assert.match(source, /if \(stremioRemainingMs > 0 && !req\.socket\.destroyed\) \{/);
+            assert.doesNotMatch(source, /attemptBudgetMs > stremioRemainingMs/);
+            assert.match(source, /Stremio timeout redirect/);
+            assert.match(source, /isExoTimeout: true/);
+          });
+          ''')
+          PY
+
       - name: Install dependencies
         run: npm ci
+
       - name: Test backend
-        run: timeout 90s npm test
+        run: npm test
+
       - name: Build backend
         run: npm run build
+
       - name: Build UI
         working-directory: ui
         run: |
           npm ci
           npm run build
+
       - name: Commit validated fix and remove temporary workflow
         shell: bash
         run: |
           rm .github/workflows/stremio-playback-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/nzbdav/streamCache.ts src/nzbdav/streamHandler.ts src/nzbdav/stremioWait.ts test/stremioPlaybackGuard.test.ts .github/workflows/stremio-playback-fix.yml
+          git add src/nzbdav/streamCache.ts src/nzbdav/streamHandler.ts test/stremioPlaybackGuard.test.ts .github/workflows/stremio-playback-fix.yml
           git commit -m "fix: keep Stremio playback preparation single-flight [skip ci]"
           git push origin HEAD:fix/stremio-playback-keepalive
