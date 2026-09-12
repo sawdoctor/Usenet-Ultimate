@@ -1145,12 +1145,14 @@ export async function handleStream(
           })
         ]);
       } else {
-        // On the initial request, race against the remaining Stremio window when
-        // the attempt budget would exceed it. If the stream isn't ready in time,
-        // self-redirect so the post-redirect ExoPlayer race takes over.
+        // Always protect the initial Stremio request with the client's HTTP window.
+        // prepareStream intentionally has no NZBDav job limit, so keying this race to
+        // attemptBudgetMs (0 = unlimited) disabled the self-redirect path entirely and
+        // let Android requests block until NZBDav finished. The preparation keeps running
+        // in pendingCache; the redirected request rejoins the same promise.
         const elapsed = Date.now() - streamStartTime;
         const stremioRemainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
-        if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
+        if (stremioRemainingMs > 0 && !req.socket.destroyed) {
           let stremioTimerId: ReturnType<typeof setTimeout>;
           streamData = await Promise.race([
             getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp)
