@@ -32,63 +32,39 @@ jobs:
           p = Path('src/nzbdav/streamHandler.ts')
           s = p.read_text()
 
-          # 1) Ultimate Library is a normal selected stream, not the UF lobby.
-          old = """    } else if (proxyFn && !lobbyFallbackOn) {
-      await proxyFn(req, res, decoded, mode !== 'proxy');
-    } else {
-"""
-          new = """    } else if (proxyFn) {
-      // Ultimate Library is a normal selected stream. Keep delivery inline even
-      // when Ultimate Fallback is enabled; /v is reserved for the UF lobby and
-      // vetted-backup flow where _fb is needed for mid-stream fallback.
-      await proxyFn(req, res, decoded, mode !== 'proxy');
-    } else {
-"""
+          # Ultimate Library: change only the first lobby-gated proxy branch.
+          old = "} else if (proxyFn && !lobbyFallbackOn) {"
+          if s.count(old) != 2:
+              raise SystemExit(f'expected two lobby-gated proxy branches, found {s.count(old)}')
+          s = s.replace(old, "} else if (proxyFn) {", 1)
+
+          # Cached user-pick delivery no longer needs the current UF toggle.
+          old = "        const fallbackOn = globalConfig.ultimateFallback?.enabled === true;\n        const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';"
+          new = "        const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';"
           if s.count(old) != 1:
-              raise SystemExit(f'library delivery anchor count={s.count(old)} (expected 1)')
+              raise SystemExit(f'dedup fallback anchor count={s.count(old)}')
           s = s.replace(old, new, 1)
 
-          # 2) Recent-delivery/dedup requests from the same user pick must use
-          # the same transport as the first successful request.
-          old = """        const fallbackOn = globalConfig.ultimateFallback?.enabled === true;
-        const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
-"""
-          new = """        const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
-"""
+          old = "} else if (!fallbackOn && proxyFn) {"
           if s.count(old) != 1:
-              raise SystemExit(f'dedup fallback anchor count={s.count(old)} (expected 1)')
+              raise SystemExit(f'dedup inline anchor count={s.count(old)}')
+          s = s.replace(old, "} else if (proxyFn) {", 1)
+
+          # First successful normal user-pick: inline transport regardless of UF.
+          old = "const inline = !fallbackOn && proxyFn;"
+          if s.count(old) != 1:
+              raise SystemExit(f'primary inline anchor count={s.count(old)}')
+          s = s.replace(old, "const inline = !!proxyFn;", 1)
+
+          # Update the now-stale explanatory comment, without touching UF lobby code.
+          old = "      // When fallback is off, the initial-delivery mode still forces proxy for\n      // logging/dedup consistency; /v's proxyVideoStream independently reads\n      // config on each range request, so seeks honor the user's current method."
+          new = "      // Normal user-picked streams stay on the inline proxy even when Ultimate\n      // Fallback is enabled. UF chooses candidates; only the actual UF lobby and\n      // vetted-backup flow need the /v redirect and its _fb recovery URL."
+          if s.count(old) != 1:
+              raise SystemExit(f'delivery comment anchor count={s.count(old)}')
           s = s.replace(old, new, 1)
 
-          old = """        } else if (!fallbackOn && proxyFn) {
-          // Inline proxy — no redirect, matches primary delivery path. Runs
-          // another proxyVideoStream for this request; req.on('close') ensures
-          // cleanup if the client aborts.
-"""
-          new = """        } else if (proxyFn) {
-          // User-picked/dedup streams stay inline even when Ultimate Fallback
-          // is enabled. The /v redirect is reserved for the actual UF
-          // lobby/backup flow, where _fb is required for mid-stream fallback.
-"""
-          if s.count(old) != 1:
-              raise SystemExit(f'dedup inline anchor count={s.count(old)} (expected 1)')
-          s = s.replace(old, new, 1)
-
-          # 3) First successful user-picked delivery follows the same rule.
-          old = """        const inline = !fallbackOn && proxyFn;
-        const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
-"""
-          new = """        // A normal user-picked stream should use the same inline proxy
-        // regardless of whether UF is enabled. UF chooses candidates; it must
-        // not silently switch the winning stream onto a less-compatible /v hop.
-        const inline = !!proxyFn;
-        const label = mode === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
-"""
-          if s.count(old) != 1:
-              raise SystemExit(f'primary inline anchor count={s.count(old)} (expected 1)')
-          s = s.replace(old, new, 1)
-
-          # Guard: the actual UF lobby and UF backup paths must remain gated so
-          # their /v?_fb=... recovery behavior is untouched.
+          # Guard the two actual UF transport branches: one inline boolean in the
+          # lobby and one lobby-gated else-if in the vetted-backup path.
           if s.count("const inline = proxyFn && !lobbyFallbackOn;") != 1:
               raise SystemExit('UF lobby inline gate changed unexpectedly')
           if s.count("} else if (proxyFn && !lobbyFallbackOn) {") != 1:
@@ -97,7 +73,6 @@ jobs:
           p.write_text(s)
           PY
 
-          grep -q 'Ultimate Library is a normal selected stream' src/nzbdav/streamHandler.ts
           grep -q 'const inline = !!proxyFn;' src/nzbdav/streamHandler.ts
           grep -q 'const inline = proxyFn && !lobbyFallbackOn;' src/nzbdav/streamHandler.ts
 
