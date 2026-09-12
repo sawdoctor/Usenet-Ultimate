@@ -47,7 +47,7 @@ const STREAM_LOG_STATE_TTL_MS = 3_600_000; // 1 hour — evict stale entries to 
 const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
 const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
 const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 500; // Safety cap on self-redirects — supports large fallback chains without infinite loops
-const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
+const EXO_PLAYER_BUDGET_MS = 50_000;     // Stay below Stremio's 60s HTTP timeout without burning through client redirect limits on slow NZBDav jobs
 const DEDUP_CACHE_TTL_MS = 600_000;      // 10 min — covers a typical play session's seeks/probes without library-check overhead; eviction mid-session self-heals via the broken-path marker + live videoPathExists gate
 const LOBBY_CACHED_LOG_THROTTLE_MS = 15_000; // Suppress repeat "cached resolve served" lines within this window (matches /stream hit throttle)
 // Self-redirect query params (internal, appended to stream URL during 302 redirects):

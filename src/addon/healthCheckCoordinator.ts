@@ -600,7 +600,7 @@ export function autoQueueToNzbdav(
         } : {}),
       });
       const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?t=${tileT}&auto=true`;
-      fetch(proxyUrl).catch(err => console.error('❌ Auto-queue failed:', err));
+      fetch(proxyUrl, { redirect: 'manual' }).catch(err => console.error('❌ Auto-queue failed:', err));
     } catch (error) {
       console.error('❌ Auto-queue to NZBDav failed:', error);
     }
