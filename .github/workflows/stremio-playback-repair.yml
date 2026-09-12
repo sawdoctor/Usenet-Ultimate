@@ -1,0 +1,148 @@
+name: Temporary Stremio playback repair
+
+on:
+  push:
+    branches: [v1.8.0-beta]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message == 'chore: add temporary Stremio repair workflow'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.8.0-beta
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply targeted Stremio playback repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          handler = Path('src/nzbdav/streamHandler.ts')
+          text = handler.read_text()
+          old = """        // On the initial request, race against the remaining Stremio window when
+        // the attempt budget would exceed it. If the stream isn't ready in time,
+        // self-redirect so the post-redirect ExoPlayer race takes over.
+        const elapsed = Date.now() - streamStartTime;
+        const stremioRemainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
+        if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
+"""
+          new = """        // Always protect the initial Stremio request with the client's HTTP window.
+        // prepareStream intentionally has no NZBDav job limit, so keying this race to
+        // attemptBudgetMs (0 = unlimited) disabled the self-redirect path entirely and
+        // let Android requests block until NZBDav finished. The preparation keeps running
+        // in pendingCache; the redirected request rejoins the same promise.
+        const elapsed = Date.now() - streamStartTime;
+        const stremioRemainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
+        if (stremioRemainingMs > 0 && !req.socket.destroyed) {
+"""
+          if old not in text:
+              raise SystemExit('streamHandler target block not found')
+          handler.write_text(text.replace(old, new, 1))
+
+          cache = Path('src/nzbdav/streamCache.ts')
+          text = cache.read_text()
+          old = """  // Set as pending with a TTL — if the promise hangs, the entry expires and
+  // subsequent requests can retry instead of hanging forever.  When UF is
+  // off (no budget), the promise handlers (.then/.catch) clean up the entry so
+  // no TTL-based expiry is needed.
+  const ur = globalConfig.ultimateFallback;
+  const maxTimeout = ur?.enabled === true
+    ? Math.max(
+        ur.priorityMoviesTimeoutSeconds, ur.priorityTvTimeoutSeconds, ur.prioritySeasonPackTimeoutSeconds,
+        ur.speedMoviesTimeoutSeconds, ur.speedTvTimeoutSeconds, ur.speedSeasonPackTimeoutSeconds,
+      )
+    : 0;
+  const pendingTTLMs = maxTimeout > 0 ? (maxTimeout + 30) * 1000 : Infinity;
+  pendingCache.set(cacheKey, {
+    status: 'pending',
+    promise,
+    expiresAt: Date.now() + pendingTTLMs,
+  });
+"""
+          new = """  // Keep ownership of an in-flight preparation until its promise settles.
+  // Expiring this entry does not cancel the NZBDav job; it only allows a later
+  // Stremio request to submit the same NZB again while the original job is still
+  // running. Promise completion/failure handlers below are the safe deletion path.
+  pendingCache.set(cacheKey, {
+    status: 'pending',
+    promise,
+    expiresAt: Infinity,
+  });
+"""
+          if old not in text:
+              raise SystemExit('streamCache target block not found')
+          cache.write_text(text.replace(old, new, 1))
+
+          test = Path('test/stremioPending.test.ts')
+          test.write_text(r'''import test from 'node:test';
+import assert from 'node:assert/strict';
+import { getOrCreateStream, getStreamCache, setPrepareFn } from '../src/nzbdav/streamCache.js';
+import type { StreamData } from '../src/nzbdav/types.js';
+
+test('in-flight Stremio preparation remains single-flight beyond the old pending TTL', async () => {
+  getStreamCache().clear();
+
+  let calls = 0;
+  let resolvePreparation!: (value: StreamData) => void;
+  const preparation = new Promise<StreamData>((resolve) => { resolvePreparation = resolve; });
+
+  setPrepareFn(async () => {
+    calls++;
+    return preparation;
+  });
+
+  const realNow = Date.now;
+  const startedAt = realNow();
+  const config = {} as any;
+  const url = `https://example.invalid/stremio-single-flight-${startedAt}.nzb`;
+  const title = `stremio-single-flight-${startedAt}`;
+
+  try {
+    Date.now = () => startedAt;
+    const first = getOrCreateStream(url, title, config, undefined, undefined, 'series', undefined, 'test', undefined, false);
+
+    // The previous implementation expired pending work after the configured UF
+    // timeout + 30 seconds even though the NZBDav job itself was still alive.
+    Date.now = () => startedAt + 10 * 60_000;
+    const second = getOrCreateStream(url, title, config, undefined, undefined, 'series', undefined, 'test', undefined, false);
+
+    assert.equal(calls, 1, 'second request must join the existing preparation');
+
+    const expected: StreamData = { nzoId: 'test-job', videoPath: '/content/test/video.mkv', videoSize: 123 };
+    resolvePreparation(expected);
+    assert.deepEqual(await first, expected);
+    assert.deepEqual(await second, expected);
+  } finally {
+    Date.now = realNow;
+    getStreamCache().clear();
+  }
+});
+''')
+          PY
+
+      - name: Install and test
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Commit repair and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/stremio-playback-repair.yml
+          git add src/nzbdav/streamHandler.ts src/nzbdav/streamCache.ts test/stremioPending.test.ts
+          git commit -m "fix: keep Stremio playback requests single-flight"
+          git push origin HEAD:v1.8.0-beta
