@@ -29,12 +29,7 @@ jobs:
           cat > src/nzbdav/candidateOrder.ts <<'EOF'
           import type { FallbackCandidate } from './types.js';
 
-          /**
-           * Keep the result the user clicked first, then prefer candidates that
-           * can satisfy a single-episode request without unpacking a remote season
-           * pack. Library-backed packs stay in the preferred tier because their
-           * video path is already exposed and costs no NZBDav submission delay.
-           */
+          /** Keep the clicked result first, then prefer episode-sized fallbacks. */
           export function orderEpisodeStreamingCandidates(
             candidates: FallbackCandidate[],
             clickedIdx: number,
@@ -59,7 +54,6 @@ jobs:
               if (candidate.isSeasonPack && !candidate.libraryVideoPath) remotePacks.push(candidate);
               else preferred.push(candidate);
             }
-
             return [clicked, ...preferred, ...remotePacks];
           }
           EOF
@@ -71,45 +65,30 @@ jobs:
           import type { FallbackCandidate } from '../src/nzbdav/types.js';
 
           const c = (title: string, isSeasonPack = false, libraryVideoPath?: string): FallbackCandidate => ({
-            nzbUrl: `https://example.invalid/${title}.nzb`,
-            title,
-            indexerName: 'test',
-            isSeasonPack,
+            nzbUrl: `https://example.invalid/${title}.nzb`, title, indexerName: 'test', isSeasonPack,
             ...(libraryVideoPath ? { libraryVideoPath } : {}),
           });
 
-          test('episode fallback keeps clicked result first then prefers singles before remote packs', () => {
-            const input = [
-              c('clicked-pack', true),
-              c('other-pack', true),
-              c('single-a'),
-              c('library-pack', true, '/content/tv/library-pack/E05.mkv'),
-              c('single-b'),
-            ];
+          test('clicked result stays first; singles and library packs beat remote packs', () => {
+            const input = [c('clicked-pack', true), c('other-pack', true), c('single-a'), c('library-pack', true, '/content/tv/library-pack/E05.mkv'), c('single-b')];
             const ordered = orderEpisodeStreamingCandidates(input, 0, 'series', '5');
-            assert.deepEqual(ordered.map(x => x.title), [
-              'clicked-pack', 'single-a', 'library-pack', 'single-b', 'other-pack',
-            ]);
+            assert.deepEqual(ordered.map(x => x.title), ['clicked-pack', 'single-a', 'library-pack', 'single-b', 'other-pack']);
           });
 
-          test('clicked single remains first while later remote packs move behind other singles', () => {
+          test('clicked single stays first and rotated remote-pack order remains stable', () => {
             const input = [c('pack-before', true), c('clicked-single'), c('pack-after', true), c('single-after')];
             const ordered = orderEpisodeStreamingCandidates(input, 1, 'series', '5');
-            assert.deepEqual(ordered.map(x => x.title), [
-              'clicked-single', 'single-after', 'pack-before', 'pack-after',
-            ]);
+            assert.deepEqual(ordered.map(x => x.title), ['clicked-single', 'single-after', 'pack-after', 'pack-before']);
           });
 
-          test('movies retain the existing clicked-then-wrap order', () => {
+          test('movies retain clicked-then-wrap order', () => {
             const input = [c('a', true), c('b'), c('c', true)];
-            const ordered = orderEpisodeStreamingCandidates(input, 1, 'movie');
-            assert.deepEqual(ordered.map(x => x.title), ['b', 'c', 'a']);
+            assert.deepEqual(orderEpisodeStreamingCandidates(input, 1, 'movie').map(x => x.title), ['b', 'c', 'a']);
           });
 
-          test('series requests without an episode retain the existing order', () => {
+          test('series without an episode retain clicked-then-wrap order', () => {
             const input = [c('a', true), c('b'), c('c', true)];
-            const ordered = orderEpisodeStreamingCandidates(input, 1, 'series');
-            assert.deepEqual(ordered.map(x => x.title), ['b', 'c', 'a']);
+            assert.deepEqual(orderEpisodeStreamingCandidates(input, 1, 'series').map(x => x.title), ['b', 'c', 'a']);
           });
           EOF
 
@@ -118,23 +97,15 @@ jobs:
 
           p = Path('src/nzbdav/streamHandler.ts')
           s = p.read_text()
+          anchor = "import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';"
+          if s.count(anchor) != 1:
+              raise SystemExit(f'import anchor count={s.count(anchor)}')
+          s = s.replace(anchor, anchor + "\nimport { orderEpisodeStreamingCandidates } from './candidateOrder.js';", 1)
 
-          import_anchor = "import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';"
-          if s.count(import_anchor) != 1:
-              raise SystemExit(f'candidate-order import anchor count={s.count(import_anchor)}')
-          s = s.replace(import_anchor, import_anchor + "\nimport { orderEpisodeStreamingCandidates } from './candidateOrder.js';", 1)
-
-          old = """      if (clickedIdx >= 0) {
-            candidates.push(...group.candidates.slice(clickedIdx));
-            candidates.push(...group.candidates.slice(0, clickedIdx));
-          } else {"""
-          new = """      if (clickedIdx >= 0) {
-            candidates.push(...orderEpisodeStreamingCandidates(
-              group.candidates, clickedIdx, group.type, group.episode
-            ));
-          } else {"""
+          old = "        candidates.push(...group.candidates.slice(clickedIdx));\n        candidates.push(...group.candidates.slice(0, clickedIdx));"
+          new = "        candidates.push(...orderEpisodeStreamingCandidates(\n          group.candidates, clickedIdx, group.type, group.episode\n        ));"
           if s.count(old) != 1:
-              raise SystemExit(f'clicked candidate ordering anchor count={s.count(old)}')
+              raise SystemExit(f'candidate ordering anchor count={s.count(old)}')
           s = s.replace(old, new, 1)
 
           old_error = "No playable WebDAV file exposed within 20s: ${title}"
@@ -147,14 +118,13 @@ jobs:
           s = p.read_text()
           old_timeout = "  timeoutMs = 20_000,"
           if s.count(old_timeout) != 1:
-              raise SystemExit(f'early WebDAV timeout anchor count={s.count(old_timeout)}')
-          s = s.replace(old_timeout, "  timeoutMs = 8_000,", 1)
-          p.write_text(s)
+              raise SystemExit(f'early timeout anchor count={s.count(old_timeout)}')
+          p.write_text(s.replace(old_timeout, "  timeoutMs = 8_000,", 1))
           PY
 
-          grep -q "orderEpisodeStreamingCandidates" src/nzbdav/streamHandler.ts
-          grep -q "timeoutMs = 8_000" src/nzbdav/videoDiscovery.ts
-          grep -q "within 8s" src/nzbdav/streamHandler.ts
+          grep -q 'orderEpisodeStreamingCandidates' src/nzbdav/streamHandler.ts
+          grep -q 'timeoutMs = 8_000' src/nzbdav/videoDiscovery.ts
+          grep -q 'within 8s' src/nzbdav/streamHandler.ts
 
       - name: Set beta.8 version
         shell: bash
