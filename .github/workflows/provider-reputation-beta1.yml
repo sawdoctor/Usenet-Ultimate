@@ -1,0 +1,71 @@
+name: Provider reputation beta.1
+
+on:
+  push:
+    branches:
+      - feature/provider-reputation
+    paths:
+      - .github/workflows/provider-reputation-beta1.yml
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  beta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/provider-reputation
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set beta version
+        run: |
+          npm version 1.9.0-beta.1 --no-git-tag-version
+          npm --prefix ui version 1.9.0-beta.1 --no-git-tag-version
+
+      - name: Backend install and test
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: UI install and build
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
+      - name: Commit tested beta source and remove temporary workflow
+        run: |
+          rm .github/workflows/provider-reputation-beta1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json ui/package.json ui/package-lock.json .github/workflows/provider-reputation-beta1.yml
+          git commit -m "chore: prepare v1.9.0-beta.1"
+          git push origin HEAD:feature/provider-reputation
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push AMD64 beta image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=1.9.0-beta.1
+          tags: |
+            ghcr.io/sawdoctor/usenet-ultimate:v1.9.0-beta.1
+            ghcr.io/sawdoctor/usenet-ultimate:v1.9.0-beta
