@@ -653,6 +653,36 @@ export function DashboardTab({
                     })()}
                   </div>
                 ),
+                providerStats: (
+                  <div
+                    key="providerStats"
+                    draggable
+                    onDragStart={() => handleCardDragStart('providerStats')}
+                    onDragOver={(e) => handleCardDragOver(e, 'providerStats')}
+                    onDrop={(e) => handleCardDrop(e, 'providerStats')}
+                    onDragEnd={handleCardDragEnd}
+                    className={clsx(
+                      "card p-4 cursor-move group hover:!border-emerald-400/50 hover:!shadow-emerald-400/30 active:!border-emerald-400/50 active:!shadow-emerald-400/30 transition-all",
+                      isDragging && "opacity-50 scale-95",
+                      isOver && "ring-2 ring-emerald-400 scale-105"
+                    )}
+                    onClick={() => {
+                      if (!draggedCard) setActiveOverlay('providerStats');
+                    }}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <GripVertical className="w-4 h-4 text-slate-600" />
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
+                        <Shield className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <span className="text-slate-400 text-sm">Provider Performance</span>
+                    </div>
+                    <div className="text-3xl font-bold group-hover:text-emerald-400 group-active:text-emerald-400 transition-colors">
+                      {healthChecks.providers.filter(p => p.enabled).length} Providers
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Article-check analytics &rarr;</div>
+                  </div>
+                ),
                 stats: (
                   <div
                     key="stats"
