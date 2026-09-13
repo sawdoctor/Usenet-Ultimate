@@ -10,6 +10,7 @@ import * as net from 'net';
 import * as tls from 'tls';
 import type { UsenetProvider } from '../types.js';
 import { connectToUsenet, NntpConnectionPool } from './nntpConnection.js';
+import { recordProviderCheck, recordProviderFailure } from '../providerReputation.js';
 
 /**
  * Per-provider article check outcome.
@@ -152,31 +153,60 @@ export async function checkArticlesDetailed(
   });
 }
 
+interface ProviderCheckObservationOptions {
+  /**
+   * Set only when a backup provider is checking IDs the pool failed to find.
+   * Any 223 from that call is therefore an observed backup rescue.
+   */
+  countBackupSaves?: boolean;
+}
+
 /**
- * Check articles on a single provider
- * Uses pool if available, otherwise connects and disconnects
+ * Check articles on a single provider.
+ * Uses pool if available, otherwise connects and disconnects.
+ *
+ * Provider-reputation recording is observational only: the result returned to
+ * health checking is unchanged and no extra NNTP requests are made.
  */
 export async function checkArticlesOnProvider(
   provider: UsenetProvider,
   messageIds: string[],
-  pool?: NntpConnectionPool
+  pool?: NntpConnectionPool,
+  observationOptions?: ProviderCheckObservationOptions,
 ): Promise<ArticleCheckOutcome> {
-  if (pool) {
-    const socket = await pool.acquire(provider);
-    try {
-      const result = await checkArticlesDetailed(socket, messageIds);
-      pool.release(provider, socket);
-      return result;
-    } catch (err) {
-      try { socket.destroy(); } catch {}
-      throw err;
-    }
-  }
-  const socket = await connectToUsenet(provider);
+  const startedAt = Date.now();
   try {
-    return await checkArticlesDetailed(socket, messageIds);
-  } finally {
-    socket.destroy();
+    let result: ArticleCheckOutcome;
+
+    if (pool) {
+      const socket = await pool.acquire(provider);
+      try {
+        result = await checkArticlesDetailed(socket, messageIds);
+        pool.release(provider, socket);
+      } catch (err) {
+        try { socket.destroy(); } catch {}
+        throw err;
+      }
+    } else {
+      const socket = await connectToUsenet(provider);
+      try {
+        result = await checkArticlesDetailed(socket, messageIds);
+      } finally {
+        socket.destroy();
+      }
+    }
+
+    recordProviderCheck(provider, {
+      found: result.existing.length,
+      missing: result.missing.length,
+      unknown: result.unknown.length,
+      latencyMs: Date.now() - startedAt,
+      backupSaves: observationOptions?.countBackupSaves ? result.existing.length : 0,
+    });
+    return result;
+  } catch (err) {
+    recordProviderFailure(provider, err, Date.now() - startedAt);
+    throw err;
   }
 }
 
@@ -283,7 +313,7 @@ export async function checkArticlesMultiProvider(
   if (remainingIds.length > 0 && backupProviders.length > 0) {
     const backupResults = await Promise.allSettled(
       backupProviders.map(async (provider) => {
-        const result = await checkArticlesOnProvider(provider, remainingIds, pool);
+        const result = await checkArticlesOnProvider(provider, remainingIds, pool, { countBackupSaves: true });
         return { provider, result };
       })
     );
