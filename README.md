@@ -35,6 +35,52 @@
 
 ---
 
+## What's New in v1.8.0
+
+Version 1.8.0 hardens the Newznab/Arr path and repairs Stremio streaming around
+InfiniDysk/NzbDAV progressive WebDAV exposure.
+
+### Newznab and security hardening
+
+- Newznab `t=get` references are signed and manifest-scoped instead of accepting
+  arbitrary legacy target URLs.
+- NNTP TLS certificates are verified by default; self-signed providers require
+  the explicit per-provider override.
+- NNTP health classification is strict: `223` confirms an article, `430` is a
+  conclusive missing article, while authentication errors, timeouts,
+  disconnects and unexpected replies remain unverified rather than being
+  misclassified as missing.
+- Candidate NZBs are not prefetched during search. Selected-grab payloads are
+  fetched once, reused for inspection/health checks, and concurrent retries are
+  coalesced.
+
+### Stremio streaming repair
+
+- Replaced the vulnerable `stremio-addon-sdk` router with native Express routes.
+- Stremio now starts from progressive WebDAV exposure instead of waiting for the
+  NzbDAV queue entry to report full completion.
+- A candidate that does not expose a playable WebDAV file within 8 seconds is
+  cancelled in NzbDAV, temporarily suppressed, and the next candidate is tried.
+- For episode requests, the clicked result remains first; subsequent
+  single-episode releases and already-library-backed packs are preferred before
+  remote season packs.
+- Normal user-picked streams stay on the inline proxy even when Ultimate
+  Fallback is enabled, while the actual Ultimate Fallback recovery path retains
+  its fallback redirect semantics.
+
+### Validation
+
+The Arr/Newznab path was exercised with live Seerr/Sonarr/Radarr workflows,
+including a large multi-episode acquisition, repeat-search/cache behaviour,
+authenticated provider checks, and real downstream `missing_articles` recovery.
+The Stremio path was tested against InfiniDysk with progressive WebDAV exposure,
+job cancellation, candidate fall-through, Ultimate Fallback enabled, and inline
+proxy playback. Some Android Stremio media combinations may still require an
+external player such as VLC; that is a player/media compatibility limitation,
+not a failed NzbDAV delivery.
+
+---
+
 ## What's New in v1.7.10
 
 Version 1.7.10 repairs the Newznab/Arr health-check path so strong selected-release

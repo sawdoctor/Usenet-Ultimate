@@ -1,8 +1,8 @@
 /**
  * Stream Handler
- * Main stream preparation pipeline with 302 redirect to WebDAV proxy.
- * Handles NZB submission -> job polling -> video discovery -> redirect,
- * with automatic fallback on failure and self-redirect to reset Stremio's timer.
+ * Main Stremio stream preparation and delivery pipeline.
+ * Uses progressive WebDAV exposure, bounded candidate fallback, and inline
+ * proxy delivery while preserving Ultimate Fallback recovery semantics.
  */
 
 import { Request, Response as ExpressResponse } from 'express';
@@ -11,8 +11,8 @@ import { pipeline } from 'stream';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
-import { submitNzb, waitForJobCompletion, cancelJob } from './nzbdavApi.js';
-import { waitForVideoFile, waitForEarlyVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';
+import { submitNzb, cancelJob } from './nzbdavApi.js';
+import { waitForEarlyVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';
 import { searchLibrary } from './librarySearch.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken, markVideoPathBroken, clearVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
@@ -184,8 +184,8 @@ function getAttemptBudgetMs(_contentType?: string, _isSeasonPack?: boolean): num
  * Complete stream preparation pipeline:
  * 0. Check NZB library for existing video (skip grab if found)
  * 1. Submit NZB to NZBDav
- * 2. Poll history for completion/failure
- * 3. Find video file in WebDAV
+ * 2. Briefly poll WebDAV for progressive exposure
+ * 3. Cancel and advance when a candidate is not quickly streamable
  */
 export async function prepareStream(
   nzbUrl: string,
