@@ -704,6 +704,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           ? [...order.slice(0, zyclopsIdx + 1), 'ultimateFallback', ...order.slice(zyclopsIdx + 1)]
           : [...order, 'ultimateFallback'];
       }
+      if (!order.includes('providerStats')) {
+        const healthIdx = order.indexOf('healthChecks');
+        order = healthIdx !== -1
+          ? [...order.slice(0, healthIdx + 1), 'providerStats', ...order.slice(healthIdx + 1)]
+          : [...order, 'providerStats'];
+      }
       setCardOrder(order);
 
       // Load auto-play settings

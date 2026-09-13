@@ -28,6 +28,7 @@ import { StreamingOverlay } from './components/overlays/StreamingOverlay';
 import { NzbDatabaseOverlay } from './components/overlays/NzbDatabaseOverlay';
 import { AutoPlayOverlay } from './components/overlays/AutoPlayOverlay';
 import { StatsOverlay } from './components/overlays/StatsOverlay';
+import { ProviderStatsOverlay } from './components/overlays/ProviderStatsOverlay';
 import FiltersOverlay from './components/overlays/FiltersOverlay';
 import HealthChecksOverlay from './components/overlays/HealthChecksOverlay';
 import { UltimateFallbackOverlay } from './components/overlays/UltimateFallbackOverlay';
@@ -808,6 +809,14 @@ function App() {
           setCacheEmptyResults={ac.setCacheEmptyResults}
           apiFetch={apiFetch}
           autoPlayEnabled={ac.autoPlay.enabled}
+        />
+      )}
+
+      {/* Provider Performance Overlay */}
+      {ac.activeOverlay === 'providerStats' && (
+        <ProviderStatsOverlay
+          onClose={() => ac.setActiveOverlay(null)}
+          apiFetch={apiFetch}
         />
       )}
 

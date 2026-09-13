@@ -46,6 +46,7 @@ import { createLogRoutes } from './routes/logs.js';
 import { createRulesRoutes } from './routes/rules.js';
 import { createNewznabRoutes } from './routes/newznab.js';
 import { createStremioRouter } from './routes/stremio.js';
+import { createReputationRoutes } from './routes/reputation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -165,6 +166,8 @@ app.use('/api/health-check', createHealthCheckRoutes({
   deleteProvider,
   reorderProviders,
 }));
+
+app.use('/api/reputation', createReputationRoutes({ getProviders }));
 
 app.use('/api/search-config', createExternalApiRoutes());
 
