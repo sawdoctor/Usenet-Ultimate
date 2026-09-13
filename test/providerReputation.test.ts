@@ -33,7 +33,7 @@ const record = (overrides: Partial<ProviderReputationRecord> = {}): ProviderRepu
 test('provider metrics expose raw reliability without inventing a magic score', () => {
   const metrics = deriveProviderMetrics(record());
   assert.equal(metrics.checkSuccessRate, 0.8);
-  assert.equal(metrics.answerRate, 10 / 12);
+  assert.equal(metrics.answerRate, 0.8333);
   assert.equal(metrics.coverageRate, 0.8);
   assert.equal(metrics.averageLatencyMs, 100);
   assert.equal(metrics.confidence, 0.27);
