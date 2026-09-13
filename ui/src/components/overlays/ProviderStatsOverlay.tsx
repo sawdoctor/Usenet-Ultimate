@@ -58,6 +58,8 @@ interface ProviderView {
   metrics: ProviderMetrics;
 }
 
+type TimeWindow = 'lifetime' | '24h' | '7d' | '30d';
+
 interface ProviderSnapshot {
   summary: {
     configured: number;
@@ -66,6 +68,8 @@ interface ProviderSnapshot {
     totalArticlesChecked: number;
     lastActivity: string | null;
     mode: 'observe-only';
+    window: TimeWindow;
+    historyAvailableFrom: string | null;
   };
   providers: ProviderView[];
   retired: Array<ProviderRecord & { metrics: ProviderMetrics }>;
@@ -102,12 +106,13 @@ export function ProviderStatsOverlay({ onClose, apiFetch }: ProviderStatsOverlay
   const [sortBy, setSortBy] = useState<SortKey>('articles');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>('lifetime');
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    apiFetch('/api/reputation/providers')
+    apiFetch(`/api/reputation/providers?window=${timeWindow}`)
       .then(async response => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -125,7 +130,7 @@ export function ProviderStatsOverlay({ onClose, apiFetch }: ProviderStatsOverlay
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [apiFetch]);
+  }, [apiFetch, timeWindow]);
 
   const observed = useMemo(() => (data?.providers || []).filter(p => p.observed && p.stats), [data]);
 
@@ -183,6 +188,32 @@ export function ProviderStatsOverlay({ onClose, apiFetch }: ProviderStatsOverlay
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-slate-500">History</span>
+            {([
+              ['lifetime', 'Lifetime'],
+              ['24h', '24h'],
+              ['7d', '7d'],
+              ['30d', '30d'],
+            ] as Array<[TimeWindow, string]>).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTimeWindow(key)}
+                className={clsx(
+                  "text-[10px] px-2.5 py-1 rounded-full border transition-colors",
+                  timeWindow === key
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                    : "text-slate-500 border-slate-700 hover:text-slate-300"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+            {timeWindow !== 'lifetime' && data?.summary.historyAvailableFrom && (
+              <span className="text-[10px] text-slate-600">rolling history since {new Date(data.summary.historyAvailableFrom).toLocaleString()}</span>
+            )}
+          </div>
+
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-emerald-400 border-t-transparent" />
@@ -192,8 +223,8 @@ export function ProviderStatsOverlay({ onClose, apiFetch }: ProviderStatsOverlay
           ) : !data || observed.length === 0 ? (
             <div className="rounded-lg border border-slate-700/40 bg-slate-800/40 p-6 text-center">
               <Shield className="w-8 h-8 text-slate-500 mx-auto mb-3" />
-              <div className="text-slate-300 font-medium">No provider observations yet</div>
-              <div className="text-xs text-slate-500 mt-2">Leave Health Checks enabled and use UU normally. This panel fills from the article checks UU already performs.</div>
+              <div className="text-slate-300 font-medium">{timeWindow === 'lifetime' ? 'No provider observations yet' : `No provider observations in the last ${timeWindow}`}</div>
+              <div className="text-xs text-slate-500 mt-2">Leave Health Checks enabled and use UU normally. Lifetime includes existing beta.2 totals; rolling 24h/7d/30d history starts when beta.3 begins recording hourly buckets.</div>
             </div>
           ) : (
             <>
@@ -238,7 +269,7 @@ export function ProviderStatsOverlay({ onClose, apiFetch }: ProviderStatsOverlay
 
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-emerald-400" />Provider observations</h4>
+                  <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-emerald-400" />Provider observations <span className="text-[10px] font-normal text-slate-500">({timeWindow === 'lifetime' ? 'lifetime' : `last ${timeWindow}`})</span></h4>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {(['all', 'pool', 'backup'] as RoleFilter[]).map(role => (
                       <button key={role} onClick={() => setRoleFilter(role)} className={clsx("text-[10px] px-2 py-0.5 rounded-full border transition-colors", roleFilter === role ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "text-slate-500 border-slate-700 hover:text-slate-300")}>{role === 'all' ? 'All' : role === 'pool' ? 'Pool' : 'Backup'}</button>
@@ -356,7 +387,7 @@ export function ProviderStatsOverlay({ onClose, apiFetch }: ProviderStatsOverlay
               </div>
 
               <div className="rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 text-[10px] text-slate-500 leading-relaxed">
-                <b className="text-slate-400">Observe-only:</b> these metrics do not reorder, disable, prioritise, or otherwise control providers. Coverage is simply the share of definitive article answers that were found; it is not a provider score. Pool and backup providers can see different difficulty mixes, so compare role and sample size as well as percentages.
+                <b className="text-slate-400">Observe-only:</b> these metrics do not reorder, disable, prioritise, or otherwise control providers. Coverage is simply the share of definitive article answers that were found; it is not a provider score. Pool and backup providers can see different difficulty mixes, so compare role and sample size as well as percentages. Rolling windows use hourly buckets retained for 31 days.
               </div>
             </>
           )}

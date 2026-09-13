@@ -3,9 +3,8 @@
  *
  * Observes the provider checks UU already performs and records provider-local
  * evidence without changing provider order, priority, enablement, or health
- * verdicts.  This deliberately lives separately from release/indexer
- * reputation so v1.9 can learn from real traffic before any ranking policy is
- * introduced.
+ * verdicts. Lifetime counters are retained indefinitely; rolling hourly
+ * buckets keep enough history for honest 24h / 7d / 30d views.
  *
  * Persisted to config/provider-reputation.json.
  */
@@ -20,10 +19,14 @@ const __dirname = path.dirname(__filename);
 const PROVIDER_REPUTATION_FILE = process.env.PROVIDER_REPUTATION_FILE
   || path.join(__dirname, '..', 'config', 'provider-reputation.json');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const SAVE_DEBOUNCE_MS = 2_000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const HISTORY_RETENTION_MS = 31 * DAY_MS;
 
 export type ProviderFailureBucket = 'auth' | 'tls' | 'timeout' | 'connection' | 'other';
+export type ProviderReputationWindow = 'lifetime' | '24h' | '7d' | '30d';
 
 export interface ProviderReputationRecord {
   id: string;
@@ -50,20 +53,39 @@ export interface ProviderReputationRecord {
   lastErrorAt?: string;
 }
 
+export interface ProviderHistoryBucket {
+  bucketStart: string;
+  firstSeen: string;
+  lastSeen: string;
+  successfulChecks: number;
+  failedChecks: number;
+  articlesChecked: number;
+  found: number;
+  missing: number;
+  unknown: number;
+  backupSaves: number;
+  authFailures: number;
+  tlsFailures: number;
+  timeoutFailures: number;
+  connectionFailures: number;
+  otherFailures: number;
+  latencyMsTotal: number;
+  latencySamples: number;
+  lastLatencyMs: number | null;
+}
+
 interface ProviderReputationData {
   schemaVersion: number;
   providers: Record<string, ProviderReputationRecord>;
+  history: Record<string, ProviderHistoryBucket[]>;
+  historyStartedAt: string | null;
 }
 
 export interface ProviderDerivedMetrics {
-  /** Provider checks that completed / all provider check attempts. */
   checkSuccessRate: number | null;
-  /** Articles that received a definitive 223/430 answer / all sampled articles. */
   answerRate: number | null;
-  /** 223 answers / definitive 223+430 answers. This is coverage, not a quality score. */
   coverageRate: number | null;
   averageLatencyMs: number | null;
-  /** 0..1 indication of how much evidence has accumulated. Not a reputation score. */
   confidence: number;
 }
 
@@ -85,6 +107,8 @@ export interface ProviderReputationSnapshot {
     totalArticlesChecked: number;
     lastActivity: string | null;
     mode: 'observe-only';
+    window: ProviderReputationWindow;
+    historyAvailableFrom: string | null;
   };
   providers: ProviderReputationView[];
   retired: Array<ProviderReputationRecord & { metrics: ProviderDerivedMetrics }>;
@@ -99,12 +123,35 @@ function finite(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function emptyRecord(provider: Pick<UsenetProvider, 'id' | 'name' | 'type'>): ProviderReputationRecord {
-  const at = now();
+function emptyRecord(provider: Pick<UsenetProvider, 'id' | 'name' | 'type'>, at = now()): ProviderReputationRecord {
   return {
     id: provider.id,
     name: provider.name,
     type: provider.type,
+    firstSeen: at,
+    lastSeen: at,
+    successfulChecks: 0,
+    failedChecks: 0,
+    articlesChecked: 0,
+    found: 0,
+    missing: 0,
+    unknown: 0,
+    backupSaves: 0,
+    authFailures: 0,
+    tlsFailures: 0,
+    timeoutFailures: 0,
+    connectionFailures: 0,
+    otherFailures: 0,
+    latencyMsTotal: 0,
+    latencySamples: 0,
+    lastLatencyMs: null,
+  };
+}
+
+function emptyHistoryBucket(at: string): ProviderHistoryBucket {
+  const bucketMs = Math.floor(Date.parse(at) / HOUR_MS) * HOUR_MS;
+  return {
+    bucketStart: new Date(bucketMs).toISOString(),
     firstSeen: at,
     lastSeen: at,
     successfulChecks: 0,
@@ -155,31 +202,80 @@ function normalizeRecord(raw: Partial<ProviderReputationRecord>, id: string): Pr
   };
 }
 
+function normalizeHistoryBucket(raw: Partial<ProviderHistoryBucket>): ProviderHistoryBucket | null {
+  const bucketStart = typeof raw.bucketStart === 'string' ? raw.bucketStart : '';
+  if (!Number.isFinite(Date.parse(bucketStart))) return null;
+  const firstSeen = typeof raw.firstSeen === 'string' ? raw.firstSeen : bucketStart;
+  const lastSeen = typeof raw.lastSeen === 'string' ? raw.lastSeen : firstSeen;
+  return {
+    bucketStart,
+    firstSeen,
+    lastSeen,
+    successfulChecks: finite(raw.successfulChecks),
+    failedChecks: finite(raw.failedChecks),
+    articlesChecked: finite(raw.articlesChecked),
+    found: finite(raw.found),
+    missing: finite(raw.missing),
+    unknown: finite(raw.unknown),
+    backupSaves: finite(raw.backupSaves),
+    authFailures: finite(raw.authFailures),
+    tlsFailures: finite(raw.tlsFailures),
+    timeoutFailures: finite(raw.timeoutFailures),
+    connectionFailures: finite(raw.connectionFailures),
+    otherFailures: finite(raw.otherFailures),
+    latencyMsTotal: finite(raw.latencyMsTotal),
+    latencySamples: finite(raw.latencySamples),
+    lastLatencyMs: Number.isFinite(Number(raw.lastLatencyMs)) ? Number(raw.lastLatencyMs) : null,
+  };
+}
+
 function loadData(): ProviderReputationData {
   try {
     if (!fs.existsSync(PROVIDER_REPUTATION_FILE)) {
-      return { schemaVersion: SCHEMA_VERSION, providers: {} };
+      return { schemaVersion: SCHEMA_VERSION, providers: {}, history: {}, historyStartedAt: null };
     }
     const parsed = JSON.parse(fs.readFileSync(PROVIDER_REPUTATION_FILE, 'utf-8')) as Partial<ProviderReputationData>;
     const providers: Record<string, ProviderReputationRecord> = {};
     for (const [id, raw] of Object.entries(parsed.providers || {})) {
       providers[id] = normalizeRecord(raw, id);
     }
-    return { schemaVersion: SCHEMA_VERSION, providers };
+    const history: Record<string, ProviderHistoryBucket[]> = {};
+    for (const [id, rawBuckets] of Object.entries(parsed.history || {})) {
+      const buckets = Array.isArray(rawBuckets)
+        ? rawBuckets.map(normalizeHistoryBucket).filter((v): v is ProviderHistoryBucket => v !== null)
+        : [];
+      if (buckets.length > 0) history[id] = buckets.sort((a, b) => a.bucketStart.localeCompare(b.bucketStart));
+    }
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      providers,
+      history,
+      historyStartedAt: typeof parsed.historyStartedAt === 'string' ? parsed.historyStartedAt : null,
+    };
   } catch (err) {
     console.error('📡 Provider reputation: error loading file:', err);
-    return { schemaVersion: SCHEMA_VERSION, providers: {} };
+    return { schemaVersion: SCHEMA_VERSION, providers: {}, history: {}, historyStartedAt: null };
   }
 }
 
 let data = loadData();
 let saveTimer: NodeJS.Timeout | null = null;
 
+function pruneHistory(referenceMs = Date.now()): void {
+  const cutoff = referenceMs - HISTORY_RETENTION_MS;
+  for (const [providerId, buckets] of Object.entries(data.history)) {
+    const retained = buckets.filter(bucket => Date.parse(bucket.lastSeen) >= cutoff);
+    if (retained.length > 0) data.history[providerId] = retained;
+    else delete data.history[providerId];
+  }
+}
+
 function scheduleSave(): void {
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
     try {
+      pruneHistory();
       fs.mkdirSync(path.dirname(PROVIDER_REPUTATION_FILE), { recursive: true });
       fs.writeFileSync(PROVIDER_REPUTATION_FILE, JSON.stringify(data, null, 2), 'utf-8');
     } catch (err) {
@@ -189,17 +285,27 @@ function scheduleSave(): void {
   saveTimer.unref?.();
 }
 
-function recordFor(provider: Pick<UsenetProvider, 'id' | 'name' | 'type'>): ProviderReputationRecord {
+function recordFor(provider: Pick<UsenetProvider, 'id' | 'name' | 'type'>, at: string): ProviderReputationRecord {
   const existing = data.providers[provider.id];
-  if (!existing) {
-    data.providers[provider.id] = emptyRecord(provider);
-  }
+  if (!existing) data.providers[provider.id] = emptyRecord(provider, at);
   const rec = data.providers[provider.id];
-  // Provider UUID is stable, but name/type are editable. Keep display metadata current.
   rec.name = provider.name;
   rec.type = provider.type;
-  rec.lastSeen = now();
+  rec.lastSeen = at;
   return rec;
+}
+
+function historyBucketFor(providerId: string, at: string): ProviderHistoryBucket {
+  const bucketStart = new Date(Math.floor(Date.parse(at) / HOUR_MS) * HOUR_MS).toISOString();
+  const buckets = data.history[providerId] || (data.history[providerId] = []);
+  let bucket = buckets[buckets.length - 1];
+  if (!bucket || bucket.bucketStart !== bucketStart) {
+    bucket = emptyHistoryBucket(at);
+    buckets.push(bucket);
+  }
+  bucket.lastSeen = at;
+  if (!data.historyStartedAt) data.historyStartedAt = at;
+  return bucket;
 }
 
 function roundedRate(numerator: number, denominator: number): number | null {
@@ -207,33 +313,18 @@ function roundedRate(numerator: number, denominator: number): number | null {
   return Math.round((numerator / denominator) * 10_000) / 10_000;
 }
 
-/**
- * Derived metrics intentionally avoid one magic provider score in phase 1.
- * Pool and backup providers see different difficulty mixes, so a single score
- * before observing real distributions would imply precision we do not have.
- */
 export function deriveProviderMetrics(record: ProviderReputationRecord | null | undefined): ProviderDerivedMetrics {
   if (!record) {
-    return {
-      checkSuccessRate: null,
-      answerRate: null,
-      coverageRate: null,
-      averageLatencyMs: null,
-      confidence: 0,
-    };
+    return { checkSuccessRate: null, answerRate: null, coverageRate: null, averageLatencyMs: null, confidence: 0 };
   }
   const attempts = record.successfulChecks + record.failedChecks;
   const definitive = record.found + record.missing;
-  // Confidence rises with both completed checks and sampled articles, capped at 1.
-  // It is deliberately descriptive only; it does not change runtime behaviour.
   const evidence = attempts * 3 + record.articlesChecked;
   return {
     checkSuccessRate: roundedRate(record.successfulChecks, attempts),
     answerRate: roundedRate(definitive, record.articlesChecked),
     coverageRate: roundedRate(record.found, definitive),
-    averageLatencyMs: record.latencySamples > 0
-      ? Math.round(record.latencyMsTotal / record.latencySamples)
-      : null,
+    averageLatencyMs: record.latencySamples > 0 ? Math.round(record.latencyMsTotal / record.latencySamples) : null,
     confidence: Math.round(Math.min(1, evidence / 100) * 100) / 100,
   };
 }
@@ -247,27 +338,72 @@ export function classifyProviderFailure(error: unknown): ProviderFailureBucket {
   return 'other';
 }
 
+export function windowDurationMs(window: ProviderReputationWindow): number | null {
+  if (window === '24h') return DAY_MS;
+  if (window === '7d') return 7 * DAY_MS;
+  if (window === '30d') return 30 * DAY_MS;
+  return null;
+}
+
+export function aggregateProviderBuckets(
+  provider: Pick<UsenetProvider, 'id' | 'name' | 'type'>,
+  buckets: ProviderHistoryBucket[],
+  window: Exclude<ProviderReputationWindow, 'lifetime'>,
+  referenceMs = Date.now(),
+): ProviderReputationRecord | null {
+  const duration = windowDurationMs(window)!;
+  const cutoff = referenceMs - duration;
+  const selected = buckets.filter(bucket => Date.parse(bucket.lastSeen) >= cutoff);
+  if (selected.length === 0) return null;
+
+  const first = selected[0];
+  const last = selected[selected.length - 1];
+  const rec = emptyRecord(provider, first.firstSeen);
+  rec.lastSeen = last.lastSeen;
+  for (const bucket of selected) {
+    rec.successfulChecks += bucket.successfulChecks;
+    rec.failedChecks += bucket.failedChecks;
+    rec.articlesChecked += bucket.articlesChecked;
+    rec.found += bucket.found;
+    rec.missing += bucket.missing;
+    rec.unknown += bucket.unknown;
+    rec.backupSaves += bucket.backupSaves;
+    rec.authFailures += bucket.authFailures;
+    rec.tlsFailures += bucket.tlsFailures;
+    rec.timeoutFailures += bucket.timeoutFailures;
+    rec.connectionFailures += bucket.connectionFailures;
+    rec.otherFailures += bucket.otherFailures;
+    rec.latencyMsTotal += bucket.latencyMsTotal;
+    rec.latencySamples += bucket.latencySamples;
+  }
+  rec.lastLatencyMs = last.lastLatencyMs;
+  return rec;
+}
+
 export function recordProviderCheck(
   provider: Pick<UsenetProvider, 'id' | 'name' | 'type'>,
-  observation: {
-    found: number;
-    missing: number;
-    unknown: number;
-    latencyMs: number;
-    backupSaves?: number;
-  },
+  observation: { found: number; missing: number; unknown: number; latencyMs: number; backupSaves?: number },
 ): void {
-  const rec = recordFor(provider);
-  rec.successfulChecks++;
-  rec.found += Math.max(0, finite(observation.found));
-  rec.missing += Math.max(0, finite(observation.missing));
-  rec.unknown += Math.max(0, finite(observation.unknown));
-  rec.articlesChecked += Math.max(0, finite(observation.found) + finite(observation.missing) + finite(observation.unknown));
-  rec.backupSaves += Math.max(0, finite(observation.backupSaves));
+  const at = now();
+  const rec = recordFor(provider, at);
+  const bucket = historyBucketFor(provider.id, at);
+  const found = Math.max(0, finite(observation.found));
+  const missing = Math.max(0, finite(observation.missing));
+  const unknown = Math.max(0, finite(observation.unknown));
+  const saves = Math.max(0, finite(observation.backupSaves));
   const latency = Math.max(0, finite(observation.latencyMs));
-  rec.latencyMsTotal += latency;
-  rec.latencySamples++;
-  rec.lastLatencyMs = Math.round(latency);
+
+  for (const target of [rec, bucket]) {
+    target.successfulChecks++;
+    target.found += found;
+    target.missing += missing;
+    target.unknown += unknown;
+    target.articlesChecked += found + missing + unknown;
+    target.backupSaves += saves;
+    target.latencyMsTotal += latency;
+    target.latencySamples++;
+    target.lastLatencyMs = Math.round(latency);
+  }
   scheduleSave();
 }
 
@@ -276,27 +412,41 @@ export function recordProviderFailure(
   error: unknown,
   latencyMs: number,
 ): void {
-  const rec = recordFor(provider);
-  rec.failedChecks++;
-  const bucket = classifyProviderFailure(error);
-  if (bucket === 'auth') rec.authFailures++;
-  else if (bucket === 'tls') rec.tlsFailures++;
-  else if (bucket === 'timeout') rec.timeoutFailures++;
-  else if (bucket === 'connection') rec.connectionFailures++;
-  else rec.otherFailures++;
+  const at = now();
+  const rec = recordFor(provider, at);
+  const bucket = historyBucketFor(provider.id, at);
+  const failure = classifyProviderFailure(error);
   const latency = Math.max(0, finite(latencyMs));
-  rec.latencyMsTotal += latency;
-  rec.latencySamples++;
-  rec.lastLatencyMs = Math.round(latency);
+
+  for (const target of [rec, bucket]) {
+    target.failedChecks++;
+    if (failure === 'auth') target.authFailures++;
+    else if (failure === 'tls') target.tlsFailures++;
+    else if (failure === 'timeout') target.timeoutFailures++;
+    else if (failure === 'connection') target.connectionFailures++;
+    else target.otherFailures++;
+    target.latencyMsTotal += latency;
+    target.latencySamples++;
+    target.lastLatencyMs = Math.round(latency);
+  }
   rec.lastError = String((error as any)?.message || error || 'Provider check failed').slice(0, 240);
-  rec.lastErrorAt = now();
+  rec.lastErrorAt = at;
   scheduleSave();
 }
 
-export function getProviderReputationData(configuredProviders: UsenetProvider[]): ProviderReputationSnapshot {
+export function getProviderReputationData(
+  configuredProviders: UsenetProvider[],
+  window: ProviderReputationWindow = 'lifetime',
+): ProviderReputationSnapshot {
   const configuredIds = new Set(configuredProviders.map(p => p.id));
+
+  const recordForWindow = (provider: Pick<UsenetProvider, 'id' | 'name' | 'type'>): ProviderReputationRecord | null => {
+    if (window === 'lifetime') return data.providers[provider.id] || null;
+    return aggregateProviderBuckets(provider, data.history[provider.id] || [], window);
+  };
+
   const providers: ProviderReputationView[] = configuredProviders.map(provider => {
-    const rec = data.providers[provider.id] || null;
+    const rec = recordForWindow(provider);
     return {
       id: provider.id,
       name: provider.name,
@@ -310,20 +460,32 @@ export function getProviderReputationData(configuredProviders: UsenetProvider[])
 
   const retired = Object.values(data.providers)
     .filter(rec => !configuredIds.has(rec.id))
-    .map(rec => ({ ...rec, metrics: deriveProviderMetrics(rec) }))
+    .map(rec => {
+      const selected = window === 'lifetime'
+        ? rec
+        : aggregateProviderBuckets(rec, data.history[rec.id] || [], window);
+      return selected ? { ...selected, metrics: deriveProviderMetrics(selected) } : null;
+    })
+    .filter((v): v is ProviderReputationRecord & { metrics: ProviderDerivedMetrics } => v !== null)
     .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
 
-  const records = Object.values(data.providers);
+  const selectedRecords = [
+    ...providers.map(p => p.stats).filter((v): v is ProviderReputationRecord => v !== null),
+    ...retired,
+  ];
+
   return {
     summary: {
       configured: configuredProviders.length,
-      tracked: records.length,
-      totalCheckAttempts: records.reduce((sum, r) => sum + r.successfulChecks + r.failedChecks, 0),
-      totalArticlesChecked: records.reduce((sum, r) => sum + r.articlesChecked, 0),
-      lastActivity: records.length > 0
-        ? records.reduce((latest, r) => r.lastSeen > latest ? r.lastSeen : latest, records[0].lastSeen)
+      tracked: selectedRecords.length,
+      totalCheckAttempts: selectedRecords.reduce((sum, r) => sum + r.successfulChecks + r.failedChecks, 0),
+      totalArticlesChecked: selectedRecords.reduce((sum, r) => sum + r.articlesChecked, 0),
+      lastActivity: selectedRecords.length > 0
+        ? selectedRecords.reduce((latest, r) => r.lastSeen > latest ? r.lastSeen : latest, selectedRecords[0].lastSeen)
         : null,
       mode: 'observe-only',
+      window,
+      historyAvailableFrom: data.historyStartedAt,
     },
     providers,
     retired,
