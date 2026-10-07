@@ -562,7 +562,13 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
     }
 
     // === STEP 3: DEDUP + CONTENT-DEPENDENT PRE-FILTERING (cacheable) ===
-    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
+    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear, {
+      season, episode,
+      absoluteEpisodeNumber: titleInfo.absoluteEpisodeNumber,
+      tvdbPriorSeasonsCount: titleInfo.tvdbPriorSeasonsCount,
+      priorSeasonsEpisodeCount: titleInfo.priorSeasonsEpisodeCount,
+      isAnime: titleInfo.isAnime,
+    });
 
     // === STEP 4: FILTER, SORT, HEALTH CHECK, BUILD (user-preference-dependent) ===
     const now = Date.now();

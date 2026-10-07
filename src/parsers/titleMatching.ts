@@ -434,6 +434,33 @@ export function extractSeasonTokens(text: string): number[] {
 }
 
 /**
+ * Returns whether a release title carries a SxxExx token for `season` and one
+ * of `episodes`. Handles multi-episode chains (`S17E14E15`), ranges
+ * (`S17E14-16`, `S17E14-E16`) and separators (`S18 E01`, `S18.E01`).
+ *
+ * Titles without any SxxExx token pass: absolute-numbered anime
+ * (`Show - 345`), date-named dailies (`Show.2026.05.13`), bare season packs
+ * and year-seasons (`S2024E05`) cannot be checked this way.
+ */
+const EPISODE_TOKEN_REGEX = /(?<![A-Za-z0-9])S(\d{1,2})[ ._-]?E(\d{1,4})((?:[ ._-]?E\d{1,4}|-\d{1,4})*)(?![A-Za-z0-9])/gi;
+export function titleMatchesEpisode(title: string, season: number, episodes: number[]): boolean {
+  let sawToken = false;
+  for (const m of title.matchAll(EPISODE_TOKEN_REGEX)) {
+    sawToken = true;
+    if (parseInt(m[1], 10) !== season) continue;
+    const eps = [parseInt(m[2], 10), ...[...m[3].matchAll(/\d+/g)].map(x => parseInt(x[0], 10))];
+    if (m[3].includes('-')) {
+      const lo = Math.min(...eps);
+      const hi = Math.max(...eps);
+      if (episodes.some(e => e >= lo && e <= hi)) return true;
+    } else if (eps.some(e => episodes.includes(e))) {
+      return true;
+    }
+  }
+  return !sawToken;
+}
+
+/**
  * Filter `results` to those whose title contains `season` (direct or range),
  * tag matched results with isSeasonPack=true, and scale estimatedEpisodeSize
  * by the matched season-span. Always produces NEW result objects via spread,
