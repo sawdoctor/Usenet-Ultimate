@@ -498,6 +498,13 @@ async function pipelineSearch(
   const allRaw = [...(indexerResults || []), ...(easynewsResults || [])];
   const { results: preFiltered, deprioritizedPacks } = deduplicateAndPreFilter(
     allRaw, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear,
+    {
+      season, episode,
+      absoluteEpisodeNumber: titleInfo.absoluteEpisodeNumber,
+      tvdbPriorSeasonsCount: titleInfo.tvdbPriorSeasonsCount,
+      priorSeasonsEpisodeCount: titleInfo.priorSeasonsEpisodeCount,
+      isAnime: titleInfo.isAnime,
+    },
   );
   // Option C hybrid: per-category control over which UU preferences apply to
   // Newznab responses. Defaults: resolution filters ON (a "never 480p

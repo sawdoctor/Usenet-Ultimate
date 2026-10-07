@@ -4,6 +4,8 @@
  * Filtering passes applied to search results:
  *  - applyRemakeFilter: content-dependent — drops results from the wrong
  *    version of a remade/rebooted show; deprioritizes yearless packs
+ *  - applyEpisodeMatchFilter: content-dependent — drops single-episode
+ *    results whose SxxExx is not the requested episode
  *  - applyMultiEpisodeFilter: user-preference — drops multi-episode files
  *    for TV when the "allow multi-episode" setting is off
  *  - applyQualityFilters: user-preference — drops results whose parsed
@@ -12,7 +14,7 @@
  */
 
 import { parseMetadata, parseQuality, parseCodec, parseSource, parseVisualTag, visualTagFilterKey, parseAudioTag, parseLanguage, parseEdition, parseYear, parseDurationAttr, formatBytes } from '../parsers/metadataParsers.js';
-import { isRemakeFiltered } from '../parsers/titleMatching.js';
+import { isRemakeFiltered, titleMatchesEpisode } from '../parsers/titleMatching.js';
 import { applyRules as engineApplyRules, buildStreamContext } from '../rules/rankEngine.js';
 import type { FilterConfig } from '../types.js';
 
@@ -74,6 +76,45 @@ export function applyRemakeFilter(allResults: any[], hasRemake?: boolean, episod
   }
 
   return { results, deprioritizedPacks };
+}
+
+/** Requested episode plus the numbers the absolute-episode fallback may have searched. */
+export interface EpisodeMatchContext {
+  season?: number;
+  episode?: number;
+  absoluteEpisodeNumber?: number;
+  tvdbPriorSeasonsCount?: number;
+  priorSeasonsEpisodeCount?: number;
+  isAnime?: boolean;
+}
+
+/**
+ * Drop single-episode results whose SxxExx token names a different episode.
+ * Text searches match loosely, so "Show S18E01" also returns S17E14, S32E18…
+ * Season packs are skipped (tagSeasonPack already checked them). Anime is
+ * skipped because scene numbering often differs from Cinemeta/TVDB. Absolute
+ * episode numbers are accepted so absolute-fallback hits like "S08E345" stay.
+ */
+export function applyEpisodeMatchFilter(allResults: any[], ctx?: EpisodeMatchContext): any[] {
+  const { season, episode } = ctx ?? {};
+  if (season === undefined || episode === undefined || ctx?.isAnime) return allResults;
+
+  const episodes = [episode];
+  if (typeof ctx?.absoluteEpisodeNumber === 'number') episodes.push(ctx.absoluteEpisodeNumber);
+  if (typeof ctx?.tvdbPriorSeasonsCount === 'number') episodes.push(ctx.tvdbPriorSeasonsCount + episode);
+  if (typeof ctx?.priorSeasonsEpisodeCount === 'number') episodes.push(ctx.priorSeasonsEpisodeCount + episode);
+
+  const removed: string[] = [];
+  const kept = allResults.filter(r => {
+    if (r.isSeasonPack || titleMatchesEpisode(r.title, season, episodes)) return true;
+    removed.push(r.title);
+    return false;
+  });
+  if (removed.length > 0) {
+    console.log(`🎯 Episode filter: removed ${removed.length} result(s) with wrong SxxExx (${kept.length} remaining)`);
+    for (const title of removed) console.log(`   ✂️  "${title}"`);
+  }
+  return kept;
 }
 
 /**

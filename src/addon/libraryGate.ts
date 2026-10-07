@@ -74,6 +74,13 @@ export async function runLibraryGate(
 
   const { results: libDeduped, deprioritizedPacks: libDepri } = deduplicateAndPreFilter(
     libraryResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear,
+    {
+      season: searchCtx.season, episode: searchCtx.episode,
+      absoluteEpisodeNumber: titleInfo.absoluteEpisodeNumber,
+      tvdbPriorSeasonsCount: titleInfo.tvdbPriorSeasonsCount,
+      priorSeasonsEpisodeCount: titleInfo.priorSeasonsEpisodeCount,
+      isAnime: titleInfo.isAnime,
+    },
   );
   const libFiltered = applyUserFilters(libDeduped, type, Date.now(), titleInfo.runtime, libDepri, { quiet: true });
   if (libFiltered.length >= libraryThreshold) {
