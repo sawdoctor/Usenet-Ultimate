@@ -110,3 +110,14 @@ test('legacy card shows a known release group', () => {
   // Assert
   assert.ok(title.includes('🏴‍☠️ GRP'));
 });
+
+test('parse cache resets at its size limit and still parses correctly', () => {
+  // Arrange
+  for (let i = 0; i < 5001; i++) parseMetadata(`Filler.${i}.1080p.WEB.x264-GRP`);
+
+  // Act
+  const { resolution } = parseMetadata('Show.Name.S01E05.720p.WEB.x264-GRP');
+
+  // Assert
+  assert.equal(resolution, '720p');
+});
