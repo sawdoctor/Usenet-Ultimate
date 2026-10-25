@@ -18,6 +18,8 @@ export const ZYCLOPS_DEFAULT_ENDPOINT = process.env.ZYCLOPS_ENDPOINT || 'https:/
 
 export interface ConfigData {
   addonEnabled?: boolean;
+  addonId?: string;
+  addonName?: string;
   indexers: UsenetIndexer[];
   cacheEnabled: boolean;
   cacheTTL: number;

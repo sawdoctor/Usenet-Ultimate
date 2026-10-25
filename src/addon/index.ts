@@ -17,12 +17,9 @@
  *      notWebReady: true - tells Stremio it can't play in the web player
  */
 
-import { createRequire } from 'node:module';
-
-const _require = createRequire(import.meta.url);
-const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
+import { manifest } from './manifest.js';
 import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
 import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from './searchOrchestrator.js';
@@ -47,23 +44,6 @@ export function clearSearchCache(): void {
   clearTimeoutEntries();
   clearResolvedSessions();
 }
-
-// Define addon manifest - tells Stremio what we support
-const manifest = {
-  id: 'com.usenetultimate.addon',
-  version: APP_VERSION,
-  name: 'Usenet Ultimate',
-  description: 'Search Usenet indexers and EasyNews for media content. Supports Newznab, Prowlarr, and NZBHydra with NZB health checking, quality-based sorting, and direct streaming via NZBDav or EasyNews.',
-  logo: '/pwa-512x512.png',
-  resources: ['stream'],           // We only provide streams
-  types: ['movie', 'series'],      // Support movies and TV shows
-  catalogs: [],                    // No catalogs (don't show in discover)
-  idPrefixes: ['tt', 'kitsu:', 'mal:', 'anilist:', 'anidb:', 'tvdb:', 'tmdb:'],
-  behaviorHints: {
-    configurable: true,            // We have a config UI
-    configurationRequired: false,  // But it's optional
-  },
-};
 
 
 /**
