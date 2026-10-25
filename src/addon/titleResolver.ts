@@ -171,8 +171,11 @@ export async function resolveTitle(
       }
     }
   } else {
-    // Step 1: Cinemeta
-    const resolved = await resolveFromCinemeta(type, imdbId, season);
+    // Step 1 (Cinemeta) and the Step 2 TVDB lookup need only imdbId and season, so they run together.
+    const [resolved, tvdbResult] = await Promise.all([
+      resolveFromCinemeta(type, imdbId, season),
+      type === 'series' && season !== undefined ? resolveEpisodeCountFromTvdb(imdbId, season, episode) : undefined,
+    ]);
     cinemetaTitle = resolved.title;
     year = resolved.year;
     country = resolved.country;
@@ -182,19 +185,16 @@ export async function resolveTitle(
     episodesInSeason = resolved.episodesInSeason;
     priorSeasonsEpisodeCount = resolved.priorSeasonsEpisodeCount;
     runtime = resolved.runtime;
-    if (type === 'series' && season !== undefined) {
-      const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
-      if (tvdbResult) {
-        if (episodesInSeason && tvdbResult.count !== episodesInSeason) {
-          console.log(`📌 TVDB episode count (${tvdbResult.count}) differs from Cinemeta (${episodesInSeason}) — using TVDB`);
-        }
-        episodesInSeason = tvdbResult.count;
-        if (tvdbResult.runtime) runtime = tvdbResult.runtime;
-        if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
-        if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
-        if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
-        if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
+    if (tvdbResult) {
+      if (episodesInSeason && tvdbResult.count !== episodesInSeason) {
+        console.log(`📌 TVDB episode count (${tvdbResult.count}) differs from Cinemeta (${episodesInSeason}) — using TVDB`);
       }
+      episodesInSeason = tvdbResult.count;
+      if (tvdbResult.runtime) runtime = tvdbResult.runtime;
+      if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
+      if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
+      if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
+      if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
     }
     console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
 

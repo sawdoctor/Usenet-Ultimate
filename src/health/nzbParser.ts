@@ -45,7 +45,8 @@ export async function downloadAndParseNzb(nzbUrl: string, userAgent: string, ind
       throw err;
     }
     const response = await proxyFetch(nzbUrl, {
-      headers: { 'User-Agent': userAgent }
+      headers: { 'User-Agent': userAgent },
+      signal: AbortSignal.timeout(30_000),
     }, indexerName);
 
     if (!response.ok) {
