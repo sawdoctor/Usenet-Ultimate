@@ -8,4 +8,7 @@ export const addonIdentity = {
   get name() {
     return process.env.ADDON_NAME || configData.addonName || 'Usenet Ultimate';
   },
+  get bingeGroup() {
+    return process.env.BINGE_GROUP || configData.bingeGroup || 'usenetultimate';
+  },
 };

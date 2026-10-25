@@ -20,6 +20,7 @@ export interface ConfigData {
   addonEnabled?: boolean;
   addonId?: string;
   addonName?: string;
+  bingeGroup?: string;
   indexers: UsenetIndexer[];
   cacheEnabled: boolean;
   cacheTTL: number;
