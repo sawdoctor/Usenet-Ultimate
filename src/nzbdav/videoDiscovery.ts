@@ -413,6 +413,20 @@ export async function checkLibraryVideoPath(
   return probeServable(config, videoPath, size, logPrefix, quiet);
 }
 
+// Title folders in a library category, or undefined when the listing fails.
+export async function listLibraryFolderNames(config: NZBDavConfig, contentType?: string): Promise<Set<string> | undefined> {
+  const client = getWebdavClient(config);
+  const category = resolveCategory(config, contentType);
+  try {
+    const items = await client.getDirectoryContents(`/content/${category}`, {
+      signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+    }) as FileStat[];
+    return new Set(items.filter(item => item.type === 'directory').map(item => item.basename));
+  } catch {
+    return undefined;
+  }
+}
+
 export async function checkNzbLibrary(
   title: string,
   config: NZBDavConfig,
