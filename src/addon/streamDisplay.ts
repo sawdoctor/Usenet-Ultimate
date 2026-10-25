@@ -52,7 +52,8 @@ export function buildStreamDisplay(
     if (data.visualTag !== 'Unknown') tagSpecs.push(`🎨 ${data.visualTag}`);
     if (data.audioTag !== 'Unknown') tagSpecs.push(`🔊 ${data.audioTag}`);
     const tagLine = tagSpecs.length > 0 ? `  ${tagSpecs.join('  ')}` : null;
-    const metaSpecs = [`🏴‍☠️ ${data.releaseGroup}`, `🗂️ ${data.indexer}`];
+    const metaSpecs = data.releaseGroup !== 'Unknown' ? [`🏴‍☠️ ${data.releaseGroup}`] : [];
+    metaSpecs.push(`🗂️ ${data.indexer}`);
     if (data.age) metaSpecs.push(`📅 ${data.age}`);
     const metaLine = `  ${metaSpecs.join('  ')}`;
     const bitrateLine = data.bitrate ? `  📊 ${data.bitrate}` : null;
