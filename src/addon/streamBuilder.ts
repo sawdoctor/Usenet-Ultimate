@@ -103,7 +103,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           if (meta.sig) nzbParams.set('sig', meta.sig);
           nzbUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
-        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
+        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, durationSec: r.duration, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
       });
 
     createFallbackGroup(
@@ -409,11 +409,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         sk: `${sessionKey}${ECONOMY_SESSION_SUFFIX}`,
         ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
       });
-      const ecoDisplay = economyTileDisplay(bandwidth.mbps, bandwidth.source);
       ecoTileAdded = true;
       streams.splice(1, 0, {
-        name: ecoDisplay.name,
-        title: ecoDisplay.title,
+        ...economyTileDisplay(bandwidth.mbps, bandwidth.source),
         url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${ECONOMY_STREAM_PATH}?t=${ecoT}`,
         behaviorHints: {
           notWebReady: false,

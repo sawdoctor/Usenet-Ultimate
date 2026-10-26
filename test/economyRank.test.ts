@@ -104,7 +104,33 @@ test('remote season packs are sized per episode; library packs keep their file s
 
 test('defaultRuntimeSec is episode-length for series and movie-length otherwise', () => {
   // Act & Assert
-  assert.equal(defaultRuntimeSec('series'), 45 * 60);
+  assert.equal(defaultRuntimeSec('series'), 22 * 60);
   assert.equal(defaultRuntimeSec('movie'), 110 * 60);
   assert.equal(defaultRuntimeSec(undefined), 110 * 60);
+});
+
+test('a 10 GB 4K remux of a 22-minute episode is skipped at 70 Mbps when runtime is unknown', () => {
+  // Arrange
+  const input = [c('Show.S03E03.2160p.REMUX', 10.19), c('Show.S03E03.1080p.WEB-DL', 1.5)];
+
+  // Act
+  const { ordered } = rankEconomyCandidates(input, { mbps: 70, runtimeSec: defaultRuntimeSec('series') });
+
+  // Assert
+  assert.equal(ordered[0].title, 'Show.S03E03.1080p.WEB-DL');
+});
+
+test('a candidate with a known duration is judged by its real bitrate, not the assumed runtime', () => {
+  // Arrange
+  const input = [
+    c('A.2160p.REMUX', 10, { durationSec: 22 * 60 }),
+    c('B.1080p.WEB-DL', 6, { durationSec: 22 * 60 }),
+  ];
+
+  // Act
+  const { ordered, fitCount } = rankEconomyCandidates(input, { mbps: 70, runtimeSec: 7200 });
+
+  // Assert
+  assert.deepEqual(ordered.map(x => x.title), ['B.1080p.WEB-DL', 'A.2160p.REMUX']);
+  assert.equal(fitCount, 1);
 });
