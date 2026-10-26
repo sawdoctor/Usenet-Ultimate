@@ -3,7 +3,7 @@
  *
  * Ties together the two processing stages:
  *  - deduplicateAndPreFilter: content-only passes (cacheable) — junk strip,
- *    indexer-priority dedup, remake filter.
+ *    indexer-priority dedup, episode-title filter, remake filter.
  *  - applyUserFilters: user-preference passes (re-run on every request) —
  *    URL dedup, multi-episode filter, quality filters, sort, stream limits.
  *
@@ -14,7 +14,7 @@
 
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { stripBareArchiveParts, deduplicateByUrl, deduplicateByPriority, deduplicateByIndexerContent } from './dedup.js';
-import { applyRemakeFilter, applyMultiEpisodeFilter, applyQualityFilters, applyRankedRules } from './filters.js';
+import { applyRemakeFilter, applyEpisodeTitleFilter, applyMultiEpisodeFilter, applyQualityFilters, applyRankedRules, type EpisodeTitles } from './filters.js';
 import { sortResults } from './sort.js';
 import { applyStreamLimits } from './limits.js';
 
@@ -26,11 +26,11 @@ export { sortResults } from './sort.js';
 export { applyStreamLimits } from './limits.js';
 
 /**
- * Content-dependent pre-processing: dedup-by-priority, remake filter.
+ * Content-dependent pre-processing: dedup-by-priority, episode-title filter, remake filter.
  * These steps depend on the content, not user preferences — safe to cache.
  */
-export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
-  let results = deduplicateByPriority(allResults);
+export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string, episodeTitles?: EpisodeTitles): { results: any[]; deprioritizedPacks: any[] } {
+  let results = applyEpisodeTitleFilter(deduplicateByPriority(allResults), episodeTitles);
   const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year, titleYear);
   results = remakeFiltered;
 

@@ -28,6 +28,8 @@ interface SeriesEpisodeResult {
   episodeName?: string;
   absoluteNumber?: number;
   priorSeasonsCount?: number;
+  /** Season episode names keyed by episode number; the target uses its English name when TVDB has one. */
+  seasonEpisodeNames?: Record<number, string>;
   /** Air date of the targeted episode in `YYYY-MM-DD` form, when TVDB has it. Used by date-based query fallbacks. */
   episodeAired?: string;
 }
@@ -198,7 +200,12 @@ async function buildSeasonResult(data: TvdbSeriesEpisodeData, season: number, ep
     const sn = Number(s);
     if (sn > 0 && sn < season) priorSeasonsCount += c;
   }
-  return { count, runtime, episodeName, absoluteNumber, priorSeasonsCount, episodeAired };
+  const seasonEpisodeNames: Record<number, string> = {};
+  for (const [ep, entry] of Object.entries(seasonEps)) {
+    if (entry.name) seasonEpisodeNames[Number(ep)] = entry.name;
+  }
+  if (episode !== undefined && episodeName) seasonEpisodeNames[episode] = episodeName;
+  return { count, runtime, episodeName, absoluteNumber, priorSeasonsCount, seasonEpisodeNames, episodeAired };
 }
 
 function logEpisodeResult(label: string, season: number, result: SeriesEpisodeResult): void {
