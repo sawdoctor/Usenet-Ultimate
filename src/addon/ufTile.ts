@@ -19,3 +19,7 @@ export function economyTileDisplay(mbps: number, source: 'override' | 'live' | '
   const speed = source === 'default' ? 'Measuring your connection' : `Sized for ~${Math.round(mbps)} Mbps`;
   return { name: ECONOMY_TILE_NAME, title: `⚬ ${speed}\n⚬ Auto-select highest-resolution stream that fits` };
 }
+
+export function isEconomySessionKey(sessionKey: string): boolean {
+  return sessionKey.endsWith(ECONOMY_SESSION_SUFFIX);
+}
