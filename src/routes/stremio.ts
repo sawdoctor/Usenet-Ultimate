@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { parse as parseQueryString } from 'node:querystring';
 import { requestContext } from '../requestContext.js';
-import { PREFETCH_HEADER, nextEpisodeUrl, schedulePrefetch } from '../addon/prefetch.js';
+import { PREFETCH_HEADER, nextEpisodeUrl, schedulePrefetch, warmSeason } from '../addon/prefetch.js';
 
 export interface StremioAddonInterface {
   manifest: Record<string, unknown>;
@@ -51,6 +51,10 @@ export function createStremioRouter(addon: StremioAddonInterface): Router {
       applyCacheHeaders(res, payload);
       const nextUrl = req.params.type === 'series' && !req.headers[PREFETCH_HEADER] ? nextEpisodeFor(req) : undefined;
       if (nextUrl) res.on('finish', () => schedulePrefetch(nextUrl));
+      const store = requestContext.getStore();
+      if (nextUrl && store?.manifestKey) {
+        res.on('finish', () => warmSeason(`http://127.0.0.1:${process.env.PORT || 1337}`, store.pathPrefix || '', store.manifestKey, req.params.type, req.params.id));
+      }
       if (payload?.redirect) return res.redirect(307, payload.redirect);
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       return res.end(JSON.stringify(payload));

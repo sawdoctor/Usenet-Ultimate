@@ -17,10 +17,10 @@
  *      notWebReady: true - tells Stremio it can't play in the web player
  */
 
-import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { manifest } from './manifest.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
+import { createFallbackGroup, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
+import { cache } from './searchResultCache.js';
 import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from './searchOrchestrator.js';
 import { runLibraryGate } from './libraryGate.js';
@@ -34,30 +34,7 @@ import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
 import { isDatabaseLoaded } from '../anime/animeDatabase.js';
 import { resolveEpisodeCountFromTvdbId, resolveTmdbExternalIds } from '../idResolver.js';
 
-// Create cache for search results
-// Use stdTTL: 0 (no expiry) and manage TTL per-entry via cache.set() so runtime changes take effect
-const cache = new NodeCache({ stdTTL: 0 });
-
-export function clearSearchCache(): void {
-  cache.flushAll();
-  clearFallbackGroups();
-  clearTimeoutEntries();
-  clearResolvedSessions();
-}
-
-
-/**
- * Build the manifest-scoped search cache key. Single source of truth for the
- * key composition used by the search-time write (this file) and the bypass-
- * time delete (routes/nzbdav.ts library-bypass endpoint). Manifest-scoping
- * prevents cross-manifest cache collisions in multi-tenant deployments.
- */
-/** Drop a search cache entry by its full key. Used by the library-bypass
- *  endpoint to clear stale results before the user re-searches. */
-export function deleteSearchCacheEntry(cacheKey: string): boolean {
-  return cache.del(cacheKey) > 0;
-}
-
+export { clearSearchCache, deleteSearchCacheEntry } from './searchResultCache.js';
 
 export function buildSearchCacheKey(manifestKey: string, type: string, id: string, cfg: typeof config): string {
   const easynewsSuffix = cfg.easynewsEnabled ? ':en' : '';
@@ -435,7 +412,7 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
 
     // Check cache first (cacheTTL of 0 means disabled)
     if (config.cacheEnabled && config.cacheTTL > 0) {
-      const cached = cache.get<{ rawResults: any[]; deprioritizedPacks: any[]; healthMap: Record<string, any>; _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; runtime?: number } }>(cacheKey);
+      const cached = cache.get(cacheKey);
       if (cached) {
         console.log(`💾 Cache hit for ${type} ${imdbId}`);
 

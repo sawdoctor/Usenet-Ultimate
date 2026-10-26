@@ -22,6 +22,7 @@ import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, 
 import { createManifestRoutes } from './routes/manifests.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
+import { saveAllDiskCaches } from './parsers/diskCache.js';
 import { resolveBaseUrl } from './utils/urlHelpers.js';
 import { initAnimeDatabase, startDailyRefresh, stopDailyRefresh, getDatabaseStatus } from './anime/animeDatabase.js';
 import { runStaleLibraryFolderCleanup } from './nzbdav/staleFolderCleanup.js';
@@ -234,12 +235,14 @@ process.on('SIGTERM', () => {
   console.log('[shutdown] SIGTERM received, saving caches...');
   stopDailyRefresh();
   saveCacheToDisk();
+  saveAllDiskCaches();
   process.exit(0);
 });
 process.on('SIGINT', () => {
   console.log('[shutdown] SIGINT received, saving caches...');
   stopDailyRefresh();
   saveCacheToDisk();
+  saveAllDiskCaches();
   process.exit(0);
 });
 
