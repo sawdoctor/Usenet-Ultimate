@@ -37,6 +37,7 @@ interface SerializedFallbackGroup {
   season?: string;
   episode?: string;
   episodesInSeason?: number;
+  runtimeSec?: number;
   createdAt: number;
 }
 
@@ -80,6 +81,7 @@ export function createFallbackGroup(
   season?: string,
   episode?: string,
   episodesInSeason?: number,
+  runtimeSec?: number,
 ): void {
   // Clean up expired groups opportunistically
   const now = Date.now();
@@ -95,6 +97,7 @@ export function createFallbackGroup(
     season,
     episode,
     episodesInSeason,
+    runtimeSec,
     createdAt: now,
   });
   saveFallbackGroupsToDisk();

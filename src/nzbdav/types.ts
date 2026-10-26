@@ -72,5 +72,6 @@ export interface FallbackGroup {
   season?: string;
   episode?: string;
   episodesInSeason?: number;
+  runtimeSec?: number;
   createdAt: number;
 }

@@ -129,6 +129,10 @@ export interface ConfigData {
     speedSeasonPackTimeoutSeconds?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
+  economyFallback?: {
+    enabled: boolean;
+    speedOverrideMbps?: number;
+  };
 
   // One-time cleanup of stale release folders left over from the legacy
   // file-scope delete (which left release dirs behind when only extras

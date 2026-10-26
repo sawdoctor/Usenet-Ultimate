@@ -9,7 +9,7 @@
  *   env var > config.json > hardcoded default
  */
 
-import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateFallbackConfig } from '../types.js';
+import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateFallbackConfig, EconomyFallbackConfig } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
@@ -468,6 +468,14 @@ export const config: Config = {
       speedTvTimeoutSeconds,
       speedSeasonPackTimeoutSeconds,
       healthCheckIndexers: ur?.healthCheckIndexers,
+    };
+  },
+  get economyFallback(): EconomyFallbackConfig {
+    const ef = configData.economyFallback;
+    const override = ef?.speedOverrideMbps;
+    return {
+      enabled: ef?.enabled ?? false,
+      speedOverrideMbps: typeof override === 'number' && override > 0 ? override : undefined,
     };
   },
 };

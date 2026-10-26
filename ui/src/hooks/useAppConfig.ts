@@ -25,6 +25,7 @@ import {
   DEFAULT_FILTERS,
   DEFAULT_CARD_ORDER,
   DEFAULT_ULTIMATE_FALLBACK,
+  DEFAULT_ECONOMY_FALLBACK,
   DEFAULT_INDEXER_TIMEOUT_SECONDS,
 } from '../constants';
 import { normalizeLineGroups } from '../utils/streamPreview';
@@ -246,6 +247,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
 
   // ─── Ultimate-Fallback ───────────────────────────────────────────────
   const [ultimateFallback, setUltimateFallback] = useState({ ...DEFAULT_ULTIMATE_FALLBACK });
+  const [economyFallback, setEconomyFallback] = useState({ ...DEFAULT_ECONOMY_FALLBACK });
 
   // ─── Health Checks ──────────────────────────────────────────────────
   const [healthChecks, setHealthChecks] = useState<HealthChecksState>({ ...DEFAULT_HEALTH_CHECKS });
@@ -352,6 +354,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ultimateFallback.enabled, ultimateFallback.healthCheckEnabled, ultimateFallback.whenToResolve, ultimateFallback.userPickFallback, ultimateFallback.candidateCount, ultimateFallback.preferenceMode, ultimateFallback.archiveInspection, ultimateFallback.sampleCount, ultimateFallback.maxAttempts, ultimateFallback.desiredBackups, ultimateFallback.backupProcessingLimit, ultimateFallback.priorityMoviesTimeoutSeconds, ultimateFallback.priorityTvTimeoutSeconds, ultimateFallback.prioritySeasonPackTimeoutSeconds, ultimateFallback.speedMoviesTimeoutSeconds, ultimateFallback.speedTvTimeoutSeconds, ultimateFallback.speedSeasonPackTimeoutSeconds, ultimateFallback.healthCheckIndexers, saveSettings]);
+
+  // Auto-save: Economy Fallback settings
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const timer = setTimeout(() => saveSettings({ economyFallback }), 500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [economyFallback.enabled, economyFallback.speedOverrideMbps, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {
@@ -875,6 +885,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setUltimateFallback({
         ...DEFAULT_ULTIMATE_FALLBACK,
         ...(data.ultimateFallback || {})
+      });
+
+      setEconomyFallback({
+        ...DEFAULT_ECONOMY_FALLBACK,
+        ...(data.economyFallback || {})
       });
 
       // Load synced indexers from config
@@ -1442,6 +1457,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
 
     // Ultimate-Fallback
     ultimateFallback, setUltimateFallback,
+    economyFallback, setEconomyFallback,
 
     // Health checks
     healthChecks, setHealthChecks,

@@ -101,6 +101,7 @@ function buildConfigResponse(config: Config) {
     tvFilters: config.tvFilters,
     healthChecks: config.healthChecks,
     ultimateFallback: config.ultimateFallback,
+    economyFallback: config.economyFallback,
     autoPlay: config.autoPlay,
     streamDisplayConfig: config.streamDisplayConfig,
     syncedIndexers: config.syncedIndexers,

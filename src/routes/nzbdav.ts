@@ -25,6 +25,7 @@ import { sendLibraryBypassArmedVideo, sendDeleteAllSuccessVideo, sendDeleteFileS
 import { incrementRedirectCounterOnUrl } from '../nzbdav/redirectHelpers.js';
 import { getDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
+import { ThroughputSampler, recordLiveSample } from '../nzbdav/bandwidth.js';
 import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
 
 interface NzbdavDeps {
@@ -497,6 +498,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     // One-liner for external-player regression diagnosis. Throttled so Range
     // probes from an active player don't flood the log.
     const kind = req.params.filename === 'ultimate-fallback' ? 'UF'
+      : req.params.filename === 'economy-fallback' ? 'Economy'
       : req.query.t ? 'user_pick'
       : 'other';
     const hitKey = `${kind}::${req.params.filename ?? '-'}`;
@@ -798,6 +800,12 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       currentUpstream?.destroy();
       if (!res.writableFinished) res.destroy();
     });
+    const throughputSampler = new ThroughputSampler(recordLiveSample);
+    const throughputTimer = setInterval(
+      () => throughputSampler.tick(Date.now(), res.socket?.bytesWritten ?? 0, res.writableLength),
+      1000,
+    );
+    throughputTimer.unref();
 
     try {
       // Phase 1: Establish upstream connection (pre-header retries)
@@ -1015,6 +1023,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       if (!res.headersSent) throw err;
       console.error(`\u274C WebDAV proxy error: ${(err as Error).message}`);
     } finally {
+      clearInterval(throughputTimer);
       untrackRequest(safePath, reqId);
     }
   }

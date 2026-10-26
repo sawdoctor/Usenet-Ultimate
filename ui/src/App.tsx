@@ -892,6 +892,8 @@ function App() {
           }}
           ultimateFallback={ac.ultimateFallback}
           setUltimateFallback={ac.setUltimateFallback}
+          economyFallback={ac.economyFallback}
+          setEconomyFallback={ac.setEconomyFallback}
           healthChecks={ac.healthChecks}
           setHealthChecks={ac.setHealthChecks}
           nzbdavStreamingMethod={ac.nzbdavStreamingMethod}

@@ -7,7 +7,7 @@ import { Crown, X, Film, Tv, Layers } from 'lucide-react';
 import clsx from 'clsx';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import type { HealthChecksState, UsenetProvider } from '../../types';
-import { DEFAULT_ULTIMATE_FALLBACK, UF_PRESET_CLASSIC, UF_PRESET_LITE, UF_PRESET_ENHANCED } from '../../constants';
+import { DEFAULT_ULTIMATE_FALLBACK, DEFAULT_ECONOMY_FALLBACK, UF_PRESET_CLASSIC, UF_PRESET_LITE, UF_PRESET_ENHANCED } from '../../constants';
 import { ProviderManager } from '../shared/ProviderManager';
 
 interface UltimateFallbackOverlayProps {
@@ -33,6 +33,8 @@ interface UltimateFallbackOverlayProps {
     healthCheckIndexers: Record<string, boolean>;
   };
   setUltimateFallback: React.Dispatch<React.SetStateAction<UltimateFallbackOverlayProps['ultimateFallback']>>;
+  economyFallback: typeof DEFAULT_ECONOMY_FALLBACK;
+  setEconomyFallback: React.Dispatch<React.SetStateAction<typeof DEFAULT_ECONOMY_FALLBACK>>;
   healthChecks: HealthChecksState;
   setHealthChecks: React.Dispatch<React.SetStateAction<HealthChecksState>>;
   nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
@@ -49,6 +51,8 @@ export function UltimateFallbackOverlay({
   onClose,
   ultimateFallback,
   setUltimateFallback,
+  economyFallback,
+  setEconomyFallback,
   healthChecks,
   setHealthChecks,
   nzbdavStreamingMethod,
@@ -197,6 +201,45 @@ export function UltimateFallbackOverlay({
                 ultimateFallback.enabled ? "left-5" : "left-1"
               )} />
             </button>
+          </div>
+
+          {/* Economy Fallback */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-slate-200">Economy Fallback tile</div>
+                <div className="text-xs text-slate-400">Adds a tile that picks the highest resolution whose file size fits your connection speed.</div>
+              </div>
+              <button
+                aria-label="Enable Economy Fallback"
+                aria-pressed={economyFallback.enabled}
+                onClick={() => setEconomyFallback(prev => ({ ...prev, enabled: !prev.enabled }))}
+                className={clsx(
+                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                  economyFallback.enabled ? "bg-amber-500" : "bg-slate-600"
+                )}
+              >
+                <div className={clsx(
+                  "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                  economyFallback.enabled ? "left-5" : "left-1"
+                )} />
+              </button>
+            </div>
+            <div className={clsx("flex items-center justify-between gap-3 transition-opacity", !economyFallback.enabled && "opacity-40 pointer-events-none")}>
+              <label htmlFor="eco-speed-override" className="text-xs text-slate-400">Connection speed override (Mbps). Leave empty to measure automatically.</label>
+              <input
+                id="eco-speed-override"
+                type="number"
+                min={1}
+                placeholder="Auto"
+                value={economyFallback.speedOverrideMbps ?? ''}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  setEconomyFallback(prev => ({ ...prev, speedOverrideMbps: Number.isFinite(v) && v > 0 ? v : null }));
+                }}
+                className="w-24 px-2 py-1 rounded-md bg-slate-800 border border-slate-600 text-sm text-slate-200 text-right"
+              />
+            </div>
           </div>
 
           {/* Presets */}

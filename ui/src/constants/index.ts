@@ -203,6 +203,11 @@ export const DEFAULT_ULTIMATE_FALLBACK = {
   healthCheckIndexers: {} as Record<string, boolean>,
 };
 
+export const DEFAULT_ECONOMY_FALLBACK = {
+  enabled: false,
+  speedOverrideMbps: null as number | null,
+};
+
 // Preset profiles for the UF overlay's Presets card. Spread over current state
 // so `enabled` and `healthCheckIndexers` are preserved across preset clicks.
 export const UF_PRESET_CLASSIC = {

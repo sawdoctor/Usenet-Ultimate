@@ -18,6 +18,9 @@ import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDead
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildDateEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
+import { resolveBandwidth } from './bandwidth.js';
+import { rankEconomyCandidates, defaultRuntimeSec } from './economyRank.js';
+import { ECONOMY_STREAM_PATH } from '../addon/ufTile.js';
 import { encodeTileEnvelope, incrementRedirectCounter, parseTilePayload } from './redirectHelpers.js';
 import { ProxyCircuitAbortError } from '../proxy.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
@@ -628,7 +631,8 @@ export async function handleStream(
   // verifyProxyCircuit has a baseline when the FBG is missing (UF disabled, no
   // `fbg` in URL, or group TTL expired).
   let tPackSearchExitIp: string | undefined;
-  const isUfTilePath = req.params.filename === 'ultimate-fallback';
+  const isEconomyTilePath = req.params.filename === ECONOMY_STREAM_PATH;
+  const isUfTilePath = req.params.filename === 'ultimate-fallback' || isEconomyTilePath;
   const payload = parseTilePayload(typeof req.query.t === 'string' ? req.query.t : undefined);
   fallbackGroupId = payload.fbg;
   tPackSessionKey = payload.sk;
@@ -836,7 +840,7 @@ export async function handleStream(
     // On-tile-selection mode: UF didn't fire on search; trigger it here so
     // the existing await-flow below picks up the new session promise.
     if (
-      globalConfig.ultimateFallback.whenToResolve === 'on-tile-selection'
+      (globalConfig.ultimateFallback.whenToResolve === 'on-tile-selection' || isEconomyTilePath)
       && globalConfig.streamingMode === 'nzbdav'
       && !getSessionPromise(sessionKey)
     ) {
@@ -844,16 +848,27 @@ export async function handleStream(
       if (!group?.candidates?.length) {
         console.log(`👑 UF tile click but no fallback group (sk=${sessionKey}, fbg=${fallbackGroupId}) — falling through`);
       } else {
-        console.log(`👑 UF fired on tile click [${sessionKey}]`);
+        console.log(`${isEconomyTilePath ? '🪙 Economy' : '👑 UF'} fired on tile click [${sessionKey}]`);
         const ur = globalConfig.ultimateFallback;
+        let tileCandidates = group.candidates;
+        if (isEconomyTilePath) {
+          const bandwidth = await resolveBandwidth(globalConfig.economyFallback?.speedOverrideMbps);
+          const ranking = rankEconomyCandidates(group.candidates, {
+            mbps: bandwidth.mbps,
+            runtimeSec: group.runtimeSec && group.runtimeSec > 0 ? group.runtimeSec : defaultRuntimeSec(group.type),
+            episodesInSeason: group.episodesInSeason,
+          });
+          tileCandidates = ranking.ordered;
+          console.log(`🪙 Economy: ~${Math.round(bandwidth.mbps)} Mbps (${bandwidth.source}) → ≤${formatBytes(ranking.maxBytes)} per file, ${ranking.fitCount}/${group.candidates.length} candidates fit`);
+        }
         const onTileCachePattern = (group.type === 'series' && group.season && group.episode)
           ? buildEpisodePattern(parseInt(group.season, 10), parseInt(group.episode, 10), getTvAllowMultiEpisode(globalConfig))
           : undefined;
         // Group envelope does not carry aired, so file pattern matches cache pattern here.
         const onTileFilePattern = onTileCachePattern;
         ultimateFallbackFromCandidates(
-          sessionKey, group.candidates, buildNzbdavConfig(),
-          { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
+          sessionKey, tileCandidates, buildNzbdavConfig(),
+          { candidateCount: ur.candidateCount, preferenceMode: isEconomyTilePath ? 'priority' : ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
           onTileCachePattern, onTileFilePattern, group.type, group.episodesInSeason,
         ).catch(err => console.error('❌ Ultimate-Fallback error (on-tile-selection):', err));
       }
