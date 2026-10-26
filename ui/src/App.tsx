@@ -31,7 +31,7 @@ import { StatsOverlay } from './components/overlays/StatsOverlay';
 import { ProviderStatsOverlay } from './components/overlays/ProviderStatsOverlay';
 import FiltersOverlay from './components/overlays/FiltersOverlay';
 import HealthChecksOverlay from './components/overlays/HealthChecksOverlay';
-import { UltimateFallbackOverlay } from './components/overlays/UltimateFallbackOverlay';
+import { FallbackOverlays } from './components/overlays/FallbackOverlays';
 import { StreamDisplayOverlay } from './components/overlays/StreamDisplayOverlay';
 import { ZyclopsOverlay } from './components/overlays/ZyclopsOverlay';
 import { LogsOverlay } from './components/overlays/LogsOverlay';
@@ -883,29 +883,7 @@ function App() {
         />
       )}
 
-      {/* Ultimate-Fallback Overlay */}
-      {ac.activeOverlay === 'ultimateFallback' && (
-        <UltimateFallbackOverlay
-          onClose={() => {
-            ac.setDirectModeWarning({ show: false });
-            ac.setActiveOverlay(null);
-          }}
-          ultimateFallback={ac.ultimateFallback}
-          setUltimateFallback={ac.setUltimateFallback}
-          economyFallback={ac.economyFallback}
-          setEconomyFallback={ac.setEconomyFallback}
-          healthChecks={ac.healthChecks}
-          setHealthChecks={ac.setHealthChecks}
-          nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
-          setNzbdavStreamingMethod={ac.setNzbdavStreamingMethod}
-          setDirectModeWarning={ac.setDirectModeWarning}
-          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
-          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
-          nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
-          setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
-          apiFetch={apiFetch}
-        />
-      )}
+      <FallbackOverlays ac={ac} apiFetch={apiFetch} />
 
       {/* Proxy Overlay */}
       {ac.activeOverlay === 'proxy' && (
@@ -1088,6 +1066,7 @@ function App() {
             streamDisplayConfig={ac.streamDisplayConfig}
             healthChecks={ac.healthChecks}
             ultimateFallback={ac.ultimateFallback}
+            economyFallback={ac.economyFallback}
             statsData={ac.statsData}
             fetchStats={ac.fetchStats}
             hasIndexers={!!hasIndexers}

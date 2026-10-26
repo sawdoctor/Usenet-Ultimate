@@ -22,8 +22,8 @@ import { encodeTileEnvelope, toContentType } from '../nzbdav/redirectHelpers.js'
 import { registerDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
-import { ufTileDisplay, UF_STREAM_PATH, economyTileDisplay, ECONOMY_STREAM_PATH, ECONOMY_SESSION_SUFFIX } from './ufTile.js';
-import { peekBandwidth, warmBandwidthProbe } from '../nzbdav/bandwidth.js';
+import { ufTileDisplay, UF_STREAM_PATH } from './ufTile.js';
+import { buildEconomyTile } from './economyTile.js';
 import { addonIdentity } from './identity.js';
 
 
@@ -83,7 +83,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Create fallback group for NZBDav mode (auto-retry next NZB on failure)
   let fallbackGroupId: string | undefined;
   let fallbackCandidates: FallbackCandidate[] | undefined;
-  if (config.streamingMode === 'nzbdav' && config.ultimateFallback?.enabled && allResults.length > 0) {
+  if (config.streamingMode === 'nzbdav' && (config.ultimateFallback?.enabled || config.economyFallback?.enabled) && allResults.length > 0) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
 
     fallbackCandidates = allResults
@@ -364,13 +364,16 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     }
   }
 
+  const ufPresent = !!(config.ultimateFallback?.enabled && config.streamingMode === 'nzbdav' && sessionKey);
+  // bingeGroup matches regular tiles so cross-episode auto-play can continue via UF.
+  const headBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? addonIdentity.bingeGroup : undefined;
+
   // Prepend synthetic Ultimate Fallback tile so users can opt into the UF lobby explicitly.
   // Guarded by streamingMode=nzbdav: UF resolves via NZBDav, so showing the tile in other
   // modes would produce a URL the handler can't serve. sessionKey gate skips item pages
   // that don't have an imdbId (shouldn't happen in practice, but defensive). streams.length
   // gate suppresses the tile when there are no search results, so a lone UF tile cannot
   // obscure results from other Stremio addons.
-  let ecoTileAdded = false;
   if (
     streams.length > 0
     && config.ultimateFallback?.enabled
@@ -389,8 +392,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
     });
     const ufUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UF_STREAM_PATH}?t=${ufT}`;
-    // bingeGroup matches regular tiles so cross-episode auto-play can continue via UF.
-    const ufBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? addonIdentity.bingeGroup : undefined;
     const ufDisplay = ufTileDisplay(config.ultimateFallback?.preferenceMode);
     streams.unshift({
       name: ufDisplay.name,
@@ -398,27 +399,26 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       url: ufUrl,
       behaviorHints: {
         notWebReady: false,
-        bingeGroup: ufBingeGroup,
+        bingeGroup: headBingeGroup,
       },
     });
+  }
 
-    if (config.economyFallback?.enabled) {
-      const bandwidth = peekBandwidth(config.economyFallback.speedOverrideMbps);
-      if (bandwidth.source === 'default') void warmBandwidthProbe();
-      const ecoT = encodeTileEnvelope({
-        sk: `${sessionKey}${ECONOMY_SESSION_SUFFIX}`,
-        ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
-      });
-      ecoTileAdded = true;
-      streams.splice(1, 0, {
-        ...economyTileDisplay(bandwidth.mbps, bandwidth.source),
-        url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${ECONOMY_STREAM_PATH}?t=${ecoT}`,
-        behaviorHints: {
-          notWebReady: false,
-          bingeGroup: ufBingeGroup ? `${ufBingeGroup}:economy` : undefined,
-        },
-      });
-    }
+  let ecoTileAdded = false;
+  if (
+    streams.length > 0
+    && config.economyFallback?.enabled
+    && config.streamingMode === 'nzbdav'
+    && sessionKey
+  ) {
+    ecoTileAdded = true;
+    streams.splice(ufPresent ? 1 : 0, 0, buildEconomyTile({
+      sessionKey,
+      fallbackGroupId,
+      streamBase: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream`,
+      bingeGroup: headBingeGroup,
+      speedOverrideMbps: config.economyFallback.speedOverrideMbps,
+    }));
   }
 
   // Ultimate Library bypass tile - appears at the top of the head cluster when
@@ -427,7 +427,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // the feature in the UI. When UF lobby is at index 0, bypass lands at index
   // 1 (right after UF). When UF lobby is absent, bypass lands at index 0 (top
   // of the list). The tile is NEVER added to fallbackCandidates so UF skips it.
-  const ufPresent = !!(config.ultimateFallback?.enabled && config.streamingMode === 'nzbdav' && sessionKey);
   const ufHeadCount = (ufPresent ? 1 : 0) + (ecoTileAdded ? 1 : 0);
   const bypassPresent = !!(shortCircuited && sessionKey && streamManifestKey);
   // User-configurable position: 'second' (current default — splice at index 1)
