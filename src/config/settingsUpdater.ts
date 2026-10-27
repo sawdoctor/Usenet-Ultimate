@@ -141,6 +141,16 @@ export function updateSettings(settings: {
   economyFallback?: {
     enabled?: boolean;
     speedOverrideMbps?: number | null;
+    healthCheckEnabled?: boolean;
+    healthCheckIndexers?: Record<string, boolean>;
+    candidateCount?: number;
+    sampleCount?: 3 | 7;
+    maxAttempts?: number;
+    desiredBackups?: number;
+    backupProcessingLimit?: number;
+    priorityMoviesTimeoutSeconds?: number;
+    priorityTvTimeoutSeconds?: number;
+    prioritySeasonPackTimeoutSeconds?: number;
   };
 }): void {
   if (settings.addonEnabled !== undefined) {

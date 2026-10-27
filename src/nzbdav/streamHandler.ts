@@ -707,7 +707,9 @@ export async function handleStream(
   }
 
   const fallbackEnabled = ufActive;
-  const maxFallbacksSetting = globalConfig.ultimateFallback?.maxAttempts ?? 0; // 0 = unlimited (try all)
+  const maxFallbacksSetting = isEconomyTilePath
+    ? globalConfig.economyFallback!.maxAttempts
+    : globalConfig.ultimateFallback?.maxAttempts ?? 0; // 0 = unlimited (try all)
 
   // Check whether this request should produce detailed logs.
   // During fallback processing, a single stream title may generate multiple
@@ -847,10 +849,44 @@ export async function handleStream(
     ) {
       const group = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
       if (!group?.candidates?.length) {
-        console.log(`👑 UF tile click but no fallback group (sk=${sessionKey}, fbg=${fallbackGroupId}) — falling through`);
+        console.log(`${isEconomyTilePath ? '📶 Adaptive' : '👑 UF'} tile click but no fallback group (sk=${sessionKey}, fbg=${fallbackGroupId}) — falling through`);
       } else {
-        console.log(`${isEconomyTilePath ? '🪙 Economy' : '👑 UF'} fired on tile click [${sessionKey}]`);
+        console.log(`${isEconomyTilePath ? '📶 Adaptive' : '👑 UF'} fired on tile click [${sessionKey}]`);
         const ur = globalConfig.ultimateFallback!;
+        const ef = globalConfig.economyFallback!;
+        const options = isEconomyTilePath ? {
+          candidateCount: ef.candidateCount,
+          preferenceMode: 'priority' as const,
+          healthCheckEnabled: ef.healthCheckEnabled,
+          archiveInspection: true,
+          sampleCount: ef.sampleCount,
+          maxAttempts: ef.maxAttempts,
+          desiredBackups: ef.desiredBackups,
+          backupProcessingLimit: ef.backupProcessingLimit,
+          priorityMoviesTimeoutSeconds: ef.priorityMoviesTimeoutSeconds,
+          priorityTvTimeoutSeconds: ef.priorityTvTimeoutSeconds,
+          prioritySeasonPackTimeoutSeconds: ef.prioritySeasonPackTimeoutSeconds,
+          healthCheckIndexers: ef.healthCheckIndexers,
+          speedMoviesTimeoutSeconds: ef.priorityMoviesTimeoutSeconds,
+          speedTvTimeoutSeconds: ef.priorityTvTimeoutSeconds,
+          speedSeasonPackTimeoutSeconds: ef.prioritySeasonPackTimeoutSeconds,
+        } : {
+          candidateCount: ur.candidateCount,
+          preferenceMode: ur.preferenceMode,
+          healthCheckEnabled: ur.healthCheckEnabled ?? false,
+          archiveInspection: ur.archiveInspection,
+          sampleCount: ur.sampleCount,
+          maxAttempts: ur.maxAttempts,
+          desiredBackups: ur.desiredBackups,
+          backupProcessingLimit: ur.backupProcessingLimit,
+          priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds,
+          priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds,
+          prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds,
+          speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds,
+          speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds,
+          speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds,
+          healthCheckIndexers: ur.healthCheckIndexers,
+        };
         let tileCandidates = group.candidates;
         if (isEconomyTilePath) {
           const bandwidth = await resolveBandwidth(globalConfig.economyFallback?.speedOverrideMbps);
@@ -860,7 +896,7 @@ export async function handleStream(
             episodesInSeason: group.episodesInSeason,
           });
           tileCandidates = ranking.ordered;
-          console.log(`🪙 Economy: ~${Math.round(bandwidth.mbps)} Mbps (${bandwidth.source}) → ≤${formatBytes(ranking.maxBytes)} per file, ${ranking.fitCount}/${group.candidates.length} candidates fit`);
+          console.log(`📶 Adaptive: ~${Math.round(bandwidth.mbps)} Mbps (${bandwidth.source}) → ≤${formatBytes(ranking.maxBytes)} per file, ${ranking.fitCount}/${group.candidates.length} candidates fit`);
         }
         const onTileCachePattern = (group.type === 'series' && group.season && group.episode)
           ? buildEpisodePattern(parseInt(group.season, 10), parseInt(group.episode, 10), getTvAllowMultiEpisode(globalConfig))
@@ -869,9 +905,9 @@ export async function handleStream(
         const onTileFilePattern = onTileCachePattern;
         ultimateFallbackFromCandidates(
           sessionKey, tileCandidates, buildNzbdavConfig(),
-          { candidateCount: ur.candidateCount, preferenceMode: isEconomyTilePath ? 'priority' : ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
+          options,
           onTileCachePattern, onTileFilePattern, group.type, group.episodesInSeason,
-        ).catch(err => console.error('❌ Ultimate-Fallback error (on-tile-selection):', err));
+        ).catch(err => console.error(`❌ ${isEconomyTilePath ? 'Adaptive Fallback' : 'Ultimate Fallback'} error (on-tile-selection):`, err));
       }
     }
     const sessionPromise = getSessionPromise(sessionKey);

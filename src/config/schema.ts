@@ -132,6 +132,16 @@ export interface ConfigData {
   economyFallback?: {
     enabled: boolean;
     speedOverrideMbps?: number;
+    healthCheckEnabled?: boolean;
+    healthCheckIndexers?: Record<string, boolean>;
+    candidateCount?: number;
+    sampleCount?: 3 | 7;
+    maxAttempts?: number;
+    desiredBackups?: number;
+    backupProcessingLimit?: number;
+    priorityMoviesTimeoutSeconds?: number;
+    priorityTvTimeoutSeconds?: number;
+    prioritySeasonPackTimeoutSeconds?: number;
   };
 
   // One-time cleanup of stale release folders left over from the legacy

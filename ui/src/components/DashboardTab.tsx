@@ -32,7 +32,7 @@ import type {
 } from '../types';
 import { MOCK_STREAM_DATA } from '../constants';
 import { formatTTL } from '../utils/ttl';
-import { UltimateFallbackCard, EconomyFallbackCard } from './FallbackCards';
+import { UltimateFallbackCard, AdaptiveFallbackCard } from './FallbackCards';
 import { renderStreamPreview } from '../utils/streamPreview';
 
 export interface DashboardTabProps {
@@ -783,7 +783,7 @@ export function DashboardTab({
                   </div>
                 ),
                 ultimateFallback: <UltimateFallbackCard key="ultimateFallback" ultimateFallback={ultimateFallback} {...dnd} />,
-                economyFallback: <EconomyFallbackCard key="economyFallback" economyFallback={economyFallback} {...dnd} />,
+                economyFallback: <AdaptiveFallbackCard key="economyFallback" economyFallback={economyFallback} {...dnd} />,
               };
 
               return cardComponents[cardId] || null;

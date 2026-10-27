@@ -1,9 +1,9 @@
 // What this does:
-//   Mounts the Ultimate Fallback and Economy Fallback overlays
+//   Mounts the Ultimate Fallback and Adaptive Fallback overlays
 
 import type { useAppConfig } from '../../hooks/useAppConfig';
 import { UltimateFallbackOverlay } from './UltimateFallbackOverlay';
-import { EconomyFallbackOverlay } from './EconomyFallbackOverlay';
+import { AdaptiveFallbackOverlay } from './AdaptiveFallbackOverlay';
 
 export function FallbackOverlays({ ac, apiFetch }: {
   ac: ReturnType<typeof useAppConfig>;
@@ -11,9 +11,9 @@ export function FallbackOverlays({ ac, apiFetch }: {
 }) {
   return (
     <>
-      {/* Economy Fallback Overlay */}
+      {/* Adaptive Fallback Overlay */}
       {ac.activeOverlay === 'economyFallback' && (
-        <EconomyFallbackOverlay
+        <AdaptiveFallbackOverlay
           onClose={() => ac.setActiveOverlay(null)}
           economyFallback={ac.economyFallback}
           setEconomyFallback={ac.setEconomyFallback}

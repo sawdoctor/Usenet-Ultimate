@@ -56,6 +56,7 @@ interface CandidateState {
 interface UltimateFallbackOptions {
   candidateCount: number;
   preferenceMode: 'priority' | 'speed';
+  healthCheckEnabled: boolean;
   archiveInspection: boolean;
   sampleCount: 3 | 7;
   maxAttempts: number;
@@ -297,7 +298,7 @@ export async function ultimateFallbackFromCandidates(
   const tag = `👑 Ultimate-Fallback [${sessionKey}]`;
   const providers = (globalConfig.healthChecks?.providers ?? []).filter(p => p.enabled);
   const userAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
-  const healthCheckEnabled = globalConfig.ultimateFallback?.healthCheckEnabled !== false;
+  const healthCheckEnabled = options.healthCheckEnabled;
   const hasProviders = healthCheckEnabled && providers.length > 0;
   const pool = hasProviders ? new NntpConnectionPool() : undefined;
   if (!healthCheckEnabled) {

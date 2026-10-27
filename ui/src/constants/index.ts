@@ -206,6 +206,16 @@ export const DEFAULT_ULTIMATE_FALLBACK = {
 export const DEFAULT_ECONOMY_FALLBACK = {
   enabled: false,
   speedOverrideMbps: null as number | null,
+  healthCheckEnabled: false,
+  healthCheckIndexers: {} as Record<string, boolean>,
+  candidateCount: 1,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 0,
+  backupProcessingLimit: 3,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
 };
 
 // Preset profiles for the UF overlay's Presets card. Spread over current state

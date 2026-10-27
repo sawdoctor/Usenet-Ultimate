@@ -1,8 +1,8 @@
 // What this does:
-//   Dashboard cards for Ultimate Fallback and Economy Fallback
+//   Dashboard cards for Ultimate Fallback and Adaptive Fallback
 
 import clsx from 'clsx';
-import { Crown, Coins, GripVertical } from 'lucide-react';
+import { Crown, Gauge, GripVertical } from 'lucide-react';
 import type { OverlayType } from '../types';
 
 export interface CardDndProps {
@@ -79,7 +79,7 @@ export function UltimateFallbackCard({ ultimateFallback, isDragging, isOver, dra
   );
 }
 
-export function EconomyFallbackCard({ economyFallback, isDragging, isOver, draggedCard, streamingMode, setActiveOverlay, onDragStart, onDragOver, onDrop, onDragEnd }: CardDndProps & {
+export function AdaptiveFallbackCard({ economyFallback, isDragging, isOver, draggedCard, streamingMode, setActiveOverlay, onDragStart, onDragOver, onDrop, onDragEnd }: CardDndProps & {
   economyFallback: { enabled: boolean; speedOverrideMbps: number | null };
 }) {
   return (
@@ -113,14 +113,14 @@ export function EconomyFallbackCard({ economyFallback, isDragging, isOver, dragg
             ? "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/25"
             : "bg-slate-700"
         )}>
-          <Coins className="w-3.5 h-3.5 text-white" />
+          <Gauge className="w-3.5 h-3.5 text-white" />
         </div>
         <span className={clsx(
           "text-sm font-medium",
           economyFallback.enabled
             ? "bg-gradient-to-r from-emerald-300 via-teal-400 to-emerald-400 bg-clip-text text-transparent"
             : "text-slate-400"
-        )}>Economy Fallback</span>
+        )}>Adaptive Fallback</span>
       </div>
       <div className={clsx(
         "relative text-3xl font-bold transition-colors",
@@ -132,7 +132,7 @@ export function EconomyFallbackCard({ economyFallback, isDragging, isOver, dragg
       </div>
       <div className="relative text-xs text-slate-500 mt-1">
         {economyFallback.enabled
-          ? (economyFallback.speedOverrideMbps ? `Sized for ${economyFallback.speedOverrideMbps} Mbps` : 'Speed measured automatically')
+          ? (economyFallback.speedOverrideMbps ? `Matched to ${economyFallback.speedOverrideMbps} Mbps` : 'Speed measured automatically')
           : 'Click to configure \u2192'}
       </div>
     </div>

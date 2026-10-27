@@ -356,13 +356,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ultimateFallback.enabled, ultimateFallback.healthCheckEnabled, ultimateFallback.whenToResolve, ultimateFallback.userPickFallback, ultimateFallback.candidateCount, ultimateFallback.preferenceMode, ultimateFallback.archiveInspection, ultimateFallback.sampleCount, ultimateFallback.maxAttempts, ultimateFallback.desiredBackups, ultimateFallback.backupProcessingLimit, ultimateFallback.priorityMoviesTimeoutSeconds, ultimateFallback.priorityTvTimeoutSeconds, ultimateFallback.prioritySeasonPackTimeoutSeconds, ultimateFallback.speedMoviesTimeoutSeconds, ultimateFallback.speedTvTimeoutSeconds, ultimateFallback.speedSeasonPackTimeoutSeconds, ultimateFallback.healthCheckIndexers, saveSettings]);
 
-  // Auto-save: Economy Fallback settings
+  // Auto-save: Adaptive Fallback settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({ economyFallback }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [economyFallback.enabled, economyFallback.speedOverrideMbps, saveSettings]);
+  }, [economyFallback.enabled, economyFallback.speedOverrideMbps, economyFallback.healthCheckEnabled, economyFallback.healthCheckIndexers, economyFallback.candidateCount, economyFallback.sampleCount, economyFallback.maxAttempts, economyFallback.desiredBackups, economyFallback.backupProcessingLimit, economyFallback.priorityMoviesTimeoutSeconds, economyFallback.priorityTvTimeoutSeconds, economyFallback.prioritySeasonPackTimeoutSeconds, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {
