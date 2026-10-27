@@ -53,6 +53,7 @@ export interface FallbackCandidate {
   indexerName: string;
   size?: number;
   durationSec?: number;
+  estimatedEpisodeSize?: number;
   isSeasonPack?: boolean;
   /** Full WebDAV path, set only for library-origin candidates (mirrors
    *  RawResult.libraryVideoPath). Lets UF probe the exact file regardless of

@@ -800,7 +800,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       currentUpstream?.destroy();
       if (!res.writableFinished) res.destroy();
     });
-    const throughputSampler = new ThroughputSampler(recordLiveSample);
+    const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
+    const throughputSampler = new ThroughputSampler(mbps => recordLiveSample(manifestKey, mbps));
     const throughputTimer = setInterval(
       () => throughputSampler.tick(Date.now(), res.socket?.bytesWritten ?? 0, res.writableLength),
       1000,

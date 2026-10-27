@@ -1,10 +1,13 @@
+import { createHash } from 'node:crypto';
+
 const PROBE_BYTES = 25_000_000;
 const PROBE_URL = `https://speed.cloudflare.com/__down?bytes=${PROBE_BYTES}`;
 const PROBE_MAX_READ_MS = 8_000;
 const PROBE_MIN_BYTES = 4_000_000;
 const PROBE_TTL_MS = 12 * 60 * 60 * 1000;
-const LIVE_TTL_MS = 6 * 60 * 60 * 1000;
-const LIVE_SMOOTHING = 0.4;
+const LIVE_TTL_MS = 10 * 60 * 1000;
+const LIVE_RECOVERY = 0.2;
+const MAX_LIVE_MANIFESTS = 1_000;
 const SAMPLE_WINDOW_MS = 8_000;
 const SATURATED_BACKLOG_BYTES = 256 * 1024;
 
@@ -22,38 +25,65 @@ interface Timed {
   at: number;
 }
 
-let live: Timed | null = null;
+const liveByManifest = new Map<string, Timed>();
 let probe: Timed | null = null;
 let probeInFlight: Promise<void> | null = null;
 
-export function recordLiveSample(mbps: number, now = Date.now()): void {
-  if (!Number.isFinite(mbps) || mbps <= 0) return;
-  const prev = live && now - live.at < LIVE_TTL_MS ? live.mbps : undefined;
-  live = { mbps: prev === undefined ? mbps : prev + (mbps - prev) * LIVE_SMOOTHING, at: now };
+function manifestId(manifestKey?: string): string | undefined {
+  if (!manifestKey) return undefined;
+  return createHash('sha256').update(manifestKey).digest('hex');
+}
+
+export function recordLiveSample(manifestKey: string | undefined, mbps: number, now = Date.now()): void {
+  const key = manifestId(manifestKey);
+  if (!key || !Number.isFinite(mbps) || mbps <= 0) return;
+  const prev = liveByManifest.get(key);
+  const estimate = prev && now - prev.at < LIVE_TTL_MS
+    ? mbps < prev.mbps ? mbps : prev.mbps + (mbps - prev.mbps) * LIVE_RECOVERY
+    : mbps;
+  if (!prev && liveByManifest.size >= MAX_LIVE_MANIFESTS) {
+    let oldest: string | undefined;
+    let oldestAt = Number.POSITIVE_INFINITY;
+    for (const [candidate, value] of liveByManifest) {
+      if (value.at < oldestAt) {
+        oldest = candidate;
+        oldestAt = value.at;
+      }
+    }
+    if (oldest) liveByManifest.delete(oldest);
+  }
+  liveByManifest.set(key, { mbps: estimate, at: now });
 }
 
 export function resetBandwidthState(): void {
-  live = null;
+  liveByManifest.clear();
   probe = null;
   probeInFlight = null;
 }
 
 /** Synchronous best guess from data already in hand; never starts a probe. */
-export function peekBandwidth(overrideMbps?: number, now = Date.now()): BandwidthEstimate {
+export function peekBandwidth(manifestKey?: string, overrideMbps?: number, now = Date.now()): BandwidthEstimate {
   if (overrideMbps && overrideMbps > 0) return { mbps: overrideMbps, source: 'override' };
-  if (live && now - live.at < LIVE_TTL_MS) return { mbps: live.mbps, source: 'live' };
-  if (probe && now - probe.at < PROBE_TTL_MS) return { mbps: probe.mbps, source: 'probe' };
+  const key = manifestId(manifestKey);
+  if (key) {
+    const live = liveByManifest.get(key);
+    if (live && now - live.at < LIVE_TTL_MS) return { mbps: live.mbps, source: 'live' };
+    if (live) liveByManifest.delete(key);
+    return { mbps: DEFAULT_MBPS, source: 'default' };
+  }
+  if (probe && now - probe.at < PROBE_TTL_MS) return { mbps: Math.min(probe.mbps, DEFAULT_MBPS), source: 'probe' };
   return { mbps: DEFAULT_MBPS, source: 'default' };
 }
 
-/** Like peekBandwidth, but runs the downlink probe first when nothing fresher exists. */
-export async function resolveBandwidth(overrideMbps?: number, maxWaitMs = 6_000): Promise<BandwidthEstimate> {
-  const known = peekBandwidth(overrideMbps);
+/** Uses manifest-scoped samples; probes only when no manifest scope is available. */
+export async function resolveBandwidth(manifestKey?: string, overrideMbps?: number, maxWaitMs = 6_000): Promise<BandwidthEstimate> {
+  const known = peekBandwidth(manifestKey, overrideMbps);
   if (known.source !== 'default') return known;
+  if (manifestKey) return known;
   let timer: ReturnType<typeof setTimeout> | undefined;
   await Promise.race([warmBandwidthProbe(), new Promise<void>(resolve => { timer = setTimeout(resolve, maxWaitMs); })]);
   clearTimeout(timer);
-  return peekBandwidth(overrideMbps);
+  return peekBandwidth(manifestKey, overrideMbps);
 }
 
 export function warmBandwidthProbe(): Promise<void> {

@@ -103,7 +103,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           if (meta.sig) nzbParams.set('sig', meta.sig);
           nzbUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
-        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, durationSec: r.duration, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
+        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, durationSec: r.duration, estimatedEpisodeSize: r.estimatedEpisodeSize, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
       });
 
     createFallbackGroup(
@@ -416,6 +416,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       sessionKey,
       fallbackGroupId,
       streamBase: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream`,
+      manifestKey: streamManifestKey || undefined,
       bingeGroup: headBingeGroup,
       speedOverrideMbps: config.economyFallback.speedOverrideMbps,
     }));

@@ -1,16 +1,8 @@
-import { parseQuality } from '../parsers/metadataParsers.js';
 import type { FallbackCandidate } from './types.js';
 
 export const BANDWIDTH_HEADROOM = 0.7;
 export const DEFAULT_MOVIE_RUNTIME_SEC = 110 * 60;
 export const DEFAULT_EPISODE_RUNTIME_SEC = 22 * 60;
-
-const RESOLUTION_RANK: Record<string, number> = {
-  '4k': 5,
-  '1440p': 4,
-  '1080p': 3,
-  '720p': 2,
-};
 
 export interface EconomyBudget {
   mbps: number;
@@ -32,37 +24,35 @@ export function defaultRuntimeSec(contentType: string | undefined): number {
   return contentType === 'series' ? DEFAULT_EPISODE_RUNTIME_SEC : DEFAULT_MOVIE_RUNTIME_SEC;
 }
 
-function fitsBudget(bytes: number | undefined, durationSec: number | undefined, budget: EconomyBudget, maxBytes: number): boolean {
-  if (bytes === undefined) return true;
-  if (durationSec && durationSec > 0) return (bytes * 8) / durationSec / 1_000_000 <= budget.mbps * BANDWIDTH_HEADROOM;
-  return bytes <= maxBytes;
-}
-
 function perFileBytes(c: FallbackCandidate, episodesInSeason?: number): number | undefined {
-  if (!c.size || c.size <= 0) return undefined;
   const isRemotePack = c.isSeasonPack && !c.libraryVideoPath;
-  return isRemotePack && episodesInSeason && episodesInSeason > 0 ? c.size / episodesInSeason : c.size;
+  const estimatedEpisodeSize = c.estimatedEpisodeSize;
+  if (isRemotePack && typeof estimatedEpisodeSize === 'number' && Number.isFinite(estimatedEpisodeSize) && estimatedEpisodeSize > 0) return estimatedEpisodeSize;
+  const size = c.size;
+  if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) return undefined;
+  return isRemotePack && episodesInSeason && episodesInSeason > 0 ? size / episodesInSeason : size;
 }
 
-/** Candidates that fit the bandwidth budget come first, highest resolution first
- *  (original order breaks ties); oversize ones follow, smallest first, as a last resort. */
+/** Fitting candidates keep the order chosen by the user's filters and sort settings. */
 export function rankEconomyCandidates(candidates: FallbackCandidate[], budget: EconomyBudget): EconomyRanking {
   const maxBytes = economyMaxBytes(budget.mbps, budget.runtimeSec);
-  const entries = candidates.map((c, i) => ({
-    c,
-    i,
-    resolution: RESOLUTION_RANK[parseQuality(c.title).toLowerCase()] ?? 1,
-    bytes: perFileBytes(c, budget.episodesInSeason),
-  }));
-  const fitsEntry = (e: typeof entries[number]) => fitsBudget(e.bytes, e.c.durationSec, budget, maxBytes);
+  const entries = candidates.map((c, i) => {
+    const bytes = perFileBytes(c, budget.episodesInSeason);
+    const durationSec = c.durationSec && c.durationSec > 0 ? c.durationSec : budget.runtimeSec;
+    const bitrateMbps = bytes !== undefined && Number.isFinite(durationSec) && durationSec > 0
+      ? (bytes * 8) / durationSec / 1_000_000
+      : undefined;
+    return { c, i, bitrateMbps };
+  });
   const fits = entries
-    .filter(fitsEntry)
-    .sort((a, b) => b.resolution - a.resolution || a.i - b.i);
+    .filter(e => e.bitrateMbps !== undefined && e.bitrateMbps <= budget.mbps * BANDWIDTH_HEADROOM)
+    .sort((a, b) => a.i - b.i);
   const oversize = entries
-    .filter(e => !fitsEntry(e))
-    .sort((a, b) => a.bytes! - b.bytes! || a.i - b.i);
+    .filter(e => e.bitrateMbps !== undefined && e.bitrateMbps > budget.mbps * BANDWIDTH_HEADROOM)
+    .sort((a, b) => (a.bitrateMbps as number) - (b.bitrateMbps as number) || a.i - b.i);
+  const unknown = entries.filter(e => e.bitrateMbps === undefined).sort((a, b) => a.i - b.i);
   return {
-    ordered: [...fits, ...oversize].map(e => e.c),
+    ordered: [...fits, ...oversize, ...unknown].map(e => e.c),
     fitCount: fits.length,
     maxBytes,
   };

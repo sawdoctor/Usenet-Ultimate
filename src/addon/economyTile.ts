@@ -7,13 +7,14 @@ export interface EconomyTileInput {
   sessionKey: string;
   fallbackGroupId?: string;
   streamBase: string;
+  manifestKey?: string;
   bingeGroup?: string;
   speedOverrideMbps?: number;
 }
 
 export function buildEconomyTile(input: EconomyTileInput): Stream {
-  const bandwidth = peekBandwidth(input.speedOverrideMbps);
-  if (bandwidth.source === 'default') void warmBandwidthProbe();
+  const bandwidth = peekBandwidth(input.manifestKey, input.speedOverrideMbps);
+  if (bandwidth.source === 'default' && !input.manifestKey) void warmBandwidthProbe();
   const t = encodeTileEnvelope({
     sk: `${input.sessionKey}${ECONOMY_SESSION_SUFFIX}`,
     ...(input.fallbackGroupId ? { fbg: input.fallbackGroupId } : {}),

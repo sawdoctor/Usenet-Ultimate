@@ -16,8 +16,11 @@ export const ECONOMY_STREAM_PATH = 'economy-fallback';
 export const ECONOMY_SESSION_SUFFIX = ':eco';
 
 export function economyTileDisplay(mbps: number, source: 'override' | 'live' | 'probe' | 'default'): { name: string; title: string } {
-  const speed = source === 'default' ? 'Measuring your connection' : `Matched to ~${Math.round(mbps)} Mbps`;
-  return { name: ECONOMY_TILE_NAME, title: `⚬ ${speed}\n⚬ Auto-select highest-resolution stream that fits` };
+  const speed = source === 'override' ? `Using speed override: ~${Math.round(mbps)} Mbps`
+    : source === 'live' ? `Recent stream throughput: ~${Math.round(mbps)} Mbps`
+      : source === 'probe' ? `Initial estimate: ~${Math.round(mbps)} Mbps`
+        : `Conservative start: ~${Math.round(mbps)} Mbps`;
+  return { name: ECONOMY_TILE_NAME, title: `⚬ ${speed}\n⚬ Auto-select your best-ranked stream within this speed` };
 }
 
 export function isEconomySessionKey(sessionKey: string): boolean {

@@ -5,7 +5,7 @@ import { buildStreams } from '../src/addon/streamBuilder.js';
 import { buildEconomyTile } from '../src/addon/economyTile.js';
 import { decodeTileEnvelope } from '../src/nzbdav/redirectHelpers.js';
 import { ECONOMY_SESSION_SUFFIX, ECONOMY_TILE_NAME, UF_TILE_BASE_NAME } from '../src/addon/ufTile.js';
-import { resetBandwidthState } from '../src/nzbdav/bandwidth.js';
+import { recordLiveSample, resetBandwidthState } from '../src/nzbdav/bandwidth.js';
 
 const saved = { ...configData } as Record<string, unknown>;
 
@@ -82,4 +82,19 @@ test('the Economy tile URL carries its session key and group in one envelope', (
   assert.equal(url.search.includes('&'), false);
   assert.deepEqual(decodeTileEnvelope(url.searchParams.get('t')!), { sk: `m:series:tt1:1:1${ECONOMY_SESSION_SUFFIX}`, fbg: 'abc123' });
   assert.equal(tile.behaviorHints?.bingeGroup, 'djstreams:economy');
+});
+
+test('the Adaptive tile uses the live estimate belonging to its manifest', () => {
+  // Arrange
+  recordLiveSample('manifest-a', 82);
+  recordLiveSample('manifest-b', 36);
+
+  // Act
+  const tileA = buildEconomyTile({ sessionKey: 'a', streamBase: 'https://x.invalid', manifestKey: 'manifest-a' });
+  const tileB = buildEconomyTile({ sessionKey: 'b', streamBase: 'https://x.invalid', manifestKey: 'manifest-b' });
+
+  // Assert
+  assert.match(tileA.title ?? '', /Recent stream throughput/);
+  assert.match(tileA.title ?? '', /~82 Mbps/);
+  assert.match(tileB.title ?? '', /~36 Mbps/);
 });

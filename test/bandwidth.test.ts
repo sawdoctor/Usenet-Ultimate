@@ -28,46 +28,80 @@ test('with no data the estimate is the default', () => {
   assert.deepEqual(peekBandwidth(), { mbps: DEFAULT_MBPS, source: 'default' });
 });
 
-test('an override beats live data', () => {
+test('an override beats live data for a manifest', () => {
   // Arrange
-  recordLiveSample(80);
+  recordLiveSample('manifest-a', 80);
 
   // Act & Assert
-  assert.deepEqual(peekBandwidth(30), { mbps: 30, source: 'override' });
+  assert.deepEqual(peekBandwidth('manifest-a', 30), { mbps: 30, source: 'override' });
 });
 
-test('live samples are smoothed toward new readings', () => {
+test('live estimates are isolated by manifest', () => {
   // Arrange
-  recordLiveSample(100);
+  recordLiveSample('manifest-a', 80);
+  recordLiveSample('manifest-b', 35);
+
+  // Act & Assert
+  assert.deepEqual(peekBandwidth('manifest-a'), { mbps: 80, source: 'live' });
+  assert.deepEqual(peekBandwidth('manifest-b'), { mbps: 35, source: 'live' });
+  assert.equal(peekBandwidth('manifest-c').source, 'default');
+});
+
+test('a slower live sample lowers the estimate immediately', () => {
+  // Arrange
+  recordLiveSample('manifest-a', 100, 1_000);
 
   // Act
-  recordLiveSample(50);
+  recordLiveSample('manifest-a', 50, 2_000);
 
   // Assert
-  const est = peekBandwidth();
-  assert.equal(est.source, 'live');
-  assert.equal(est.mbps, 100 + (50 - 100) * 0.4);
+  assert.deepEqual(peekBandwidth('manifest-a', undefined, 2_000), { mbps: 50, source: 'live' });
 });
 
-test('live data goes stale after its TTL', () => {
+test('a faster live sample recovers by only a fifth of the gap', () => {
   // Arrange
-  recordLiveSample(80, 1_000);
+  recordLiveSample('manifest-a', 50, 1_000);
 
   // Act
-  const est = peekBandwidth(undefined, 1_000 + 7 * 60 * 60 * 1000);
+  recordLiveSample('manifest-a', 100, 2_000);
+
+  // Assert
+  assert.deepEqual(peekBandwidth('manifest-a', undefined, 2_000), { mbps: 60, source: 'live' });
+});
+
+test('live data expires after ten minutes without a fresh saturated window', () => {
+  // Arrange
+  recordLiveSample('manifest-a', 80, 1_000);
+
+  // Act
+  const est = peekBandwidth('manifest-a', undefined, 1_000 + 10 * 60 * 1000);
 
   // Assert
   assert.equal(est.source, 'default');
 });
 
-test('non-positive and non-finite samples are ignored', () => {
+test('live estimates evict the oldest manifest when the cache is full', () => {
+  // Arrange
+  for (let i = 0; i <= 1_000; i++) recordLiveSample(`manifest-${i}`, 20 + i, i);
+
   // Act
-  recordLiveSample(0);
-  recordLiveSample(-5);
-  recordLiveSample(Number.NaN);
+  const evicted = peekBandwidth('manifest-0', undefined, 1_000);
+  const newest = peekBandwidth('manifest-1000', undefined, 1_000);
 
   // Assert
-  assert.equal(peekBandwidth().source, 'default');
+  assert.equal(evicted.source, 'default');
+  assert.deepEqual(newest, { mbps: 1020, source: 'live' });
+});
+
+test('samples without a manifest or with an invalid speed are ignored', () => {
+  // Act
+  recordLiveSample(undefined, 100);
+  recordLiveSample('manifest-a', 0);
+  recordLiveSample('manifest-a', -5);
+  recordLiveSample('manifest-a', Number.NaN);
+
+  // Assert
+  assert.equal(peekBandwidth('manifest-a').source, 'default');
 });
 
 test('sampler reports a saturated window as megabits per second', () => {
@@ -123,7 +157,16 @@ test('a successful probe becomes the estimate', async () => {
   // Assert
   const est = peekBandwidth();
   assert.equal(est.source, 'probe');
-  assert.ok(est.mbps > 0);
+  assert.equal(est.mbps, DEFAULT_MBPS);
+});
+
+test('an unscoped server probe is not used as a manifest stream measurement', async () => {
+  // Arrange
+  stubFetch(async () => new Response(slowBody(2, 3_000_000)));
+  await warmBandwidthProbe();
+
+  // Act & Assert
+  assert.deepEqual(peekBandwidth('manifest-a'), { mbps: DEFAULT_MBPS, source: 'default' });
 });
 
 test('a fresh probe is not repeated and concurrent warms share one request', async () => {
@@ -161,13 +204,25 @@ test('a failed, short or errored probe leaves the default in place', async () =>
 test('resolveBandwidth skips the probe when it already has data', async () => {
   // Arrange
   stubFetch(async () => new Response(slowBody(2, 3_000_000)));
-  recordLiveSample(60);
+  recordLiveSample('manifest-a', 60);
 
   // Act
-  const est = await resolveBandwidth();
+  const est = await resolveBandwidth('manifest-a');
 
   // Assert
   assert.deepEqual(est, { mbps: 60, source: 'live' });
+  assert.equal(fetchCalls, 0);
+});
+
+test('resolveBandwidth does not wait for a server probe to guess a manifest speed', async () => {
+  // Arrange
+  stubFetch(() => new Promise<Response>(() => {}));
+
+  // Act
+  const est = await resolveBandwidth('manifest-a', undefined, 25);
+
+  // Assert
+  assert.deepEqual(est, { mbps: DEFAULT_MBPS, source: 'default' });
   assert.equal(fetchCalls, 0);
 });
 
@@ -187,7 +242,7 @@ test('resolveBandwidth gives up waiting on a slow probe and returns the default'
   stubFetch(() => new Promise<Response>(() => {}));
 
   // Act
-  const est = await resolveBandwidth(undefined, 30);
+  const est = await resolveBandwidth(undefined, undefined, 30);
 
   // Assert
   assert.deepEqual(est, { mbps: DEFAULT_MBPS, source: 'default' });

@@ -889,7 +889,8 @@ export async function handleStream(
         };
         let tileCandidates = group.candidates;
         if (isEconomyTilePath) {
-          const bandwidth = await resolveBandwidth(globalConfig.economyFallback?.speedOverrideMbps);
+          const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
+          const bandwidth = await resolveBandwidth(manifestKey, globalConfig.economyFallback?.speedOverrideMbps);
           const ranking = rankEconomyCandidates(group.candidates, {
             mbps: bandwidth.mbps,
             runtimeSec: group.runtimeSec && group.runtimeSec > 0 ? group.runtimeSec : defaultRuntimeSec(group.type),
