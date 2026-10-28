@@ -145,6 +145,8 @@ export function getLatestVersions(): { prowlarr: string; sabnzbd: string; chrome
   };
 }
 
-// Fetch on module load, then re-check every 24 hours
-fetchLatestVersions();
-setInterval(() => fetchLatestVersions(), CACHE_DURATION);
+export function startVersionRefresh(): void {
+  void fetchLatestVersions();
+  const timer = setInterval(() => void fetchLatestVersions(), CACHE_DURATION);
+  timer.unref();
+}
