@@ -1,15 +1,22 @@
 import test, { afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_MBPS, ThroughputSampler, peekBandwidth, recordLiveSample, resetBandwidthState, resolveBandwidth, warmBandwidthProbe } from '../src/nzbdav/bandwidth.js';
+import { DEFAULT_MBPS, StreamMeasurement, ThroughputSampler, clientNetwork, measurePlayback, peekBandwidth, resetBandwidthState, resolveBandwidth, speedScope, warmBandwidthProbe } from '../src/nzbdav/bandwidth.js';
 
 const realFetch = globalThis.fetch;
+const realLog = console.log;
 let fetchCalls = 0;
+let logged: string[] = [];
 
 beforeEach(() => {
   resetBandwidthState();
   fetchCalls = 0;
+  logged = [];
+  console.log = (...args: unknown[]) => { logged.push(args.join(' ')); };
 });
-afterEach(() => { globalThis.fetch = realFetch; });
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  console.log = realLog;
+});
 
 const stubFetch = (impl: () => Promise<Response>) => {
   globalThis.fetch = (async () => { fetchCalls++; return impl(); }) as typeof fetch;
@@ -28,80 +35,202 @@ test('with no data the estimate is the default', () => {
   assert.deepEqual(peekBandwidth(), { mbps: DEFAULT_MBPS, source: 'default' });
 });
 
-test('an override beats live data for a manifest', () => {
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+const T0 = Date.parse('2026-10-31T20:00:00Z');
+const HOME = speedScope('manifest-a', '203.0.113.5');
+
+const recordStream = (scope: string | undefined, mbps: number, at: number) => {
+  const stream = new StreamMeasurement(scope, 'Show.S01E01.mkv');
+  stream.sample(mbps * 1.5, at - 8_000);
+  stream.sample(mbps, at);
+  stream.finish(1_000_000_000);
+};
+
+test('an override beats measured speeds', () => {
   // Arrange
-  recordLiveSample('manifest-a', 80);
+  recordStream(HOME, 80, T0);
 
   // Act & Assert
-  assert.deepEqual(peekBandwidth('manifest-a', 30), { mbps: 30, source: 'override' });
+  assert.deepEqual(peekBandwidth(HOME, 30, T0), { mbps: 30, source: 'override' });
 });
 
-test('live estimates are isolated by manifest', () => {
+test('devices on one network share a scope; other networks and manifests get their own', () => {
+  // Act & Assert
+  assert.equal(speedScope('manifest-a', '203.0.113.200'), HOME);
+  assert.equal(speedScope('manifest-a', '::ffff:203.0.113.9'), HOME);
+  assert.notEqual(speedScope('manifest-a', '198.51.100.5'), HOME);
+  assert.notEqual(speedScope('manifest-b', '203.0.113.5'), HOME);
+  assert.equal(speedScope(undefined, '203.0.113.5'), undefined);
+});
+
+test('IPv6 clients are grouped by their /64 prefix', () => {
+  // Act & Assert
+  assert.equal(clientNetwork('2001:db8:aa:1::5'), '2001:db8:aa:1');
+  assert.equal(clientNetwork('2001:0db8:00aa:0001:abcd::1%eth0'), '2001:db8:aa:1');
+  assert.equal(clientNetwork('2001:db8::1'), '2001:db8:0:0');
+  assert.equal(clientNetwork(undefined), '');
+});
+
+test('a stream peak is used as-is for two hours', () => {
   // Arrange
-  recordLiveSample('manifest-a', 80);
-  recordLiveSample('manifest-b', 35);
+  recordStream(HOME, 80, T0);
 
   // Act & Assert
-  assert.deepEqual(peekBandwidth('manifest-a'), { mbps: 80, source: 'live' });
-  assert.deepEqual(peekBandwidth('manifest-b'), { mbps: 35, source: 'live' });
-  assert.equal(peekBandwidth('manifest-c').source, 'default');
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 2 * HOUR), { mbps: 80, source: 'recent' });
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 3 * HOUR), { mbps: 80, source: 'history', streams: 1 });
 });
 
-test('a slower live sample lowers the estimate immediately', () => {
+test('a stream still playing counts as recent before it ends', () => {
   // Arrange
-  recordLiveSample('manifest-a', 100, 1_000);
+  const stream = new StreamMeasurement(HOME, 'Movie.mkv');
 
   // Act
-  recordLiveSample('manifest-a', 50, 2_000);
+  stream.sample(64, T0);
 
   // Assert
-  assert.deepEqual(peekBandwidth('manifest-a', undefined, 2_000), { mbps: 50, source: 'live' });
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 1_000), { mbps: 64, source: 'recent' });
+  stream.finish();
 });
 
-test('a faster live sample recovers by only a fifth of the gap', () => {
+test('past the recent window, the lower quartile of the past day is used', () => {
   // Arrange
-  recordLiveSample('manifest-a', 50, 1_000);
+  for (const [mbps, hoursAgo] of [[90, 20], [40, 12], [70, 6], [60, 4], [80, 3]] as const) recordStream(HOME, mbps, T0 - hoursAgo * HOUR);
 
-  // Act
-  recordLiveSample('manifest-a', 100, 2_000);
-
-  // Assert
-  assert.deepEqual(peekBandwidth('manifest-a', undefined, 2_000), { mbps: 60, source: 'live' });
+  // Act & Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0), { mbps: 60, source: 'day', streams: 5 });
 });
 
-test('live data expires after ten minutes without a fresh saturated window', () => {
+test('a window needs three streams before it is used, else the next longer one is tried', () => {
   // Arrange
-  recordLiveSample('manifest-a', 80, 1_000);
+  recordStream(HOME, 50, T0 - 5 * HOUR);
+  recordStream(HOME, 70, T0 - 3 * DAY);
+  recordStream(HOME, 90, T0 - 4 * DAY);
+  recordStream(HOME, 20, T0 - 60 * DAY);
 
-  // Act
-  const est = peekBandwidth('manifest-a', undefined, 1_000 + 10 * 60 * 1000);
-
-  // Assert
-  assert.equal(est.source, 'default');
+  // Act & Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0), { mbps: 50, source: 'week', streams: 3 });
 });
 
-test('live estimates evict the oldest manifest when the cache is full', () => {
+test('streams older than ninety days are forgotten', () => {
   // Arrange
-  for (let i = 0; i <= 1_000; i++) recordLiveSample(`manifest-${i}`, 20 + i, i);
+  recordStream(HOME, 70, T0 - 91 * DAY);
 
-  // Act
-  const evicted = peekBandwidth('manifest-0', undefined, 1_000);
-  const newest = peekBandwidth('manifest-1000', undefined, 1_000);
-
-  // Assert
-  assert.equal(evicted.source, 'default');
-  assert.deepEqual(newest, { mbps: 1020, source: 'live' });
+  // Act & Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0), { mbps: DEFAULT_MBPS, source: 'default' });
 });
 
-test('samples without a manifest or with an invalid speed are ignored', () => {
+test('speeds are kept apart by scope', () => {
+  // Arrange
+  const mobile = speedScope('manifest-a', '198.51.100.5');
+  recordStream(HOME, 80, T0);
+  recordStream(mobile, 12, T0);
+
+  // Act & Assert
+  assert.equal(peekBandwidth(HOME, undefined, T0).mbps, 80);
+  assert.equal(peekBandwidth(mobile, undefined, T0).mbps, 12);
+  assert.equal(peekBandwidth(speedScope('manifest-c', '203.0.113.5'), undefined, T0).source, 'default');
+});
+
+test('a stream is worth its second-fastest window, since the first fills socket buffers', () => {
+  // Arrange
+  const stream = new StreamMeasurement(HOME, 'Seinfeld.S04E02.mkv');
+  for (const mbps of [67, 51, 50, 49]) stream.sample(mbps, T0);
+
   // Act
-  recordLiveSample(undefined, 100);
-  recordLiveSample('manifest-a', 0);
-  recordLiveSample('manifest-a', -5);
-  recordLiveSample('manifest-a', Number.NaN);
+  stream.finish(4_100_000_000);
 
   // Assert
-  assert.equal(peekBandwidth('manifest-a').source, 'default');
+  assert.deepEqual(logged, ['📶 Stream speed: Seinfeld.S04E02.mkv — 4 reading(s) [67, 51, 50, 49] Mbps → 51 Mbps, file 4.1 GB']);
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0), { mbps: 51, source: 'recent' });
+});
+
+test('a stream with one reading is worth that reading', () => {
+  // Arrange
+  const stream = new StreamMeasurement(HOME, 'Short.mkv');
+
+  // Act
+  stream.sample(12, T0);
+  stream.finish();
+
+  // Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0), { mbps: 12, source: 'recent' });
+});
+
+test('the log shows the first eight readings of a long stream', () => {
+  // Arrange
+  const stream = new StreamMeasurement(HOME, 'Movie.mkv');
+  for (let i = 1; i <= 10; i++) stream.sample(i * 10, T0);
+
+  // Act
+  stream.finish();
+
+  // Assert
+  assert.deepEqual(logged, ['📶 Stream speed: Movie.mkv — 10 reading(s) [10, 20, 30, 40, 50, 60, 70, 80, …] Mbps → 90 Mbps']);
+});
+
+test('range requests for one file make one playback, stored when the last one ends', () => {
+  // Arrange
+  const first = measurePlayback(HOME, 'Movie.mkv', T0);
+  const seek = measurePlayback(HOME, 'Movie.mkv', T0 + 60_000);
+
+  // Act
+  first.sample(90, T0 + 8_000);
+  seek.sample(60, T0 + 68_000);
+  seek.sample(55, T0 + 76_000);
+  first.finish(undefined, T0 + 80_000);
+  const whileOpen = logged.length;
+  seek.finish(undefined, T0 + 90_000);
+
+  // Assert
+  assert.equal(first, seek);
+  assert.equal(whileOpen, 0);
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 3 * HOUR), { mbps: 60, source: 'history', streams: 1 });
+});
+
+test('a playback resumed within ten minutes updates its entry instead of adding one', () => {
+  // Arrange
+  const before = measurePlayback(HOME, 'Show.S01E02.mkv', T0);
+  before.sample(40, T0);
+  before.finish(undefined, T0 + 1_000);
+
+  // Act
+  const resumed = measurePlayback(HOME, 'Show.S01E02.mkv', T0 + 5 * 60_000);
+  resumed.sample(70, T0 + 5 * 60_000);
+  resumed.finish(undefined, T0 + 6 * 60_000);
+  const later = measurePlayback(HOME, 'Show.S01E02.mkv', T0 + 30 * 60_000);
+
+  // Assert
+  assert.equal(resumed, before);
+  assert.notEqual(later, before);
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 3 * HOUR), { mbps: 40, source: 'history', streams: 1 });
+  later.finish();
+});
+
+test('a stream with no valid reading is not remembered', () => {
+  // Arrange
+  const stream = new StreamMeasurement(HOME, 'Short.mkv');
+
+  // Act
+  stream.sample(0, T0);
+  stream.sample(-5, T0);
+  stream.sample(Number.NaN, T0);
+  stream.finish();
+
+  // Assert
+  assert.equal(peekBandwidth(HOME, undefined, T0).source, 'default');
+  assert.deepEqual(logged, []);
+});
+
+test('only the latest hundred streams are kept per scope', () => {
+  // Arrange
+  for (let i = 0; i < 101; i++) recordStream(HOME, i === 0 ? 1 : 100, T0 - (101 - i) * 60_000 - 3 * HOUR);
+
+  // Act
+  const est = peekBandwidth(HOME, undefined, T0);
+
+  // Assert
+  assert.deepEqual(est, { mbps: 100, source: 'day', streams: 100 });
 });
 
 test('sampler reports a saturated window as megabits per second', () => {
@@ -166,7 +295,7 @@ test('an unscoped server probe is not used as a manifest stream measurement', as
   await warmBandwidthProbe();
 
   // Act & Assert
-  assert.deepEqual(peekBandwidth('manifest-a'), { mbps: DEFAULT_MBPS, source: 'default' });
+  assert.deepEqual(peekBandwidth(HOME), { mbps: DEFAULT_MBPS, source: 'default' });
 });
 
 test('a fresh probe is not repeated and concurrent warms share one request', async () => {
@@ -204,13 +333,13 @@ test('a failed, short or errored probe leaves the default in place', async () =>
 test('resolveBandwidth skips the probe when it already has data', async () => {
   // Arrange
   stubFetch(async () => new Response(slowBody(2, 3_000_000)));
-  recordLiveSample('manifest-a', 60);
+  recordStream(HOME, 60, Date.now());
 
   // Act
-  const est = await resolveBandwidth('manifest-a');
+  const est = await resolveBandwidth(HOME);
 
   // Assert
-  assert.deepEqual(est, { mbps: 60, source: 'live' });
+  assert.deepEqual(est, { mbps: 60, source: 'recent' });
   assert.equal(fetchCalls, 0);
 });
 
@@ -219,7 +348,7 @@ test('resolveBandwidth does not wait for a server probe to guess a manifest spee
   stubFetch(() => new Promise<Response>(() => {}));
 
   // Act
-  const est = await resolveBandwidth('manifest-a', undefined, 25);
+  const est = await resolveBandwidth(HOME, undefined, 25);
 
   // Assert
   assert.deepEqual(est, { mbps: DEFAULT_MBPS, source: 'default' });

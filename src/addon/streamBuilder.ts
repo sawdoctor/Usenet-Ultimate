@@ -417,6 +417,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       fallbackGroupId,
       streamBase: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream`,
       manifestKey: streamManifestKey || undefined,
+      clientIp: requestContext.getStore()?.clientIp,
       bingeGroup: headBingeGroup,
       speedOverrideMbps: config.economyFallback.speedOverrideMbps,
     }));

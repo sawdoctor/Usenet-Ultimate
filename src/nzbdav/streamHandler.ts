@@ -18,7 +18,7 @@ import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDead
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildDateEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
-import { resolveBandwidth } from './bandwidth.js';
+import { resolveBandwidth, speedScope } from './bandwidth.js';
 import { rankEconomyCandidates, defaultRuntimeSec } from './economyRank.js';
 import { ECONOMY_STREAM_PATH } from '../addon/ufTile.js';
 import { encodeTileEnvelope, incrementRedirectCounter, parseTilePayload } from './redirectHelpers.js';
@@ -890,14 +890,15 @@ export async function handleStream(
         let tileCandidates = group.candidates;
         if (isEconomyTilePath) {
           const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
-          const bandwidth = await resolveBandwidth(manifestKey, globalConfig.economyFallback?.speedOverrideMbps);
+          const bandwidth = await resolveBandwidth(speedScope(manifestKey, req.ip), globalConfig.economyFallback?.speedOverrideMbps);
           const ranking = rankEconomyCandidates(group.candidates, {
             mbps: bandwidth.mbps,
             runtimeSec: group.runtimeSec && group.runtimeSec > 0 ? group.runtimeSec : defaultRuntimeSec(group.type),
             episodesInSeason: group.episodesInSeason,
           });
           tileCandidates = ranking.ordered;
-          console.log(`📶 Adaptive: ~${Math.round(bandwidth.mbps)} Mbps (${bandwidth.source}) → ≤${formatBytes(ranking.maxBytes)} per file, ${ranking.fitCount}/${group.candidates.length} candidates fit`);
+          const basis = bandwidth.streams ? `${bandwidth.source}, ${bandwidth.streams} streams` : bandwidth.source;
+          console.log(`📶 Adaptive: ~${Math.round(bandwidth.mbps)} Mbps (${basis}) → ≤${formatBytes(ranking.maxBytes)} per file, ${ranking.fitCount}/${group.candidates.length} candidates fit`);
         }
         const onTileCachePattern = (group.type === 'series' && group.season && group.episode)
           ? buildEpisodePattern(parseInt(group.season, 10), parseInt(group.episode, 10), getTvAllowMultiEpisode(globalConfig))

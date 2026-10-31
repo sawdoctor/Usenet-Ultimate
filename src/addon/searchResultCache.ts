@@ -10,7 +10,7 @@ export interface CachedSearch {
   rawResults: any[];
   deprioritizedPacks: any[];
   healthMap: Record<string, any>;
-  _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; runtime?: number };
+  _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; runtime?: number; cachedAt?: number; releasedAt?: string };
 }
 
 export const cache = new DiskCache<CachedSearch>(

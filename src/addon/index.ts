@@ -21,9 +21,11 @@ import { config, getTvAllowMultiEpisode } from '../config/index.js';
 import { manifest } from './manifest.js';
 import { createFallbackGroup, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
 import { cache } from './searchResultCache.js';
+import { cacheFreshness, cacheRetentionSeconds } from './cacheFreshness.js';
 import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from './searchOrchestrator.js';
 import { runLibraryGate } from './libraryGate.js';
+import { listLibraryFolderNames } from '../nzbdav/videoDiscovery.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { sortResults } from './sort.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
@@ -252,6 +254,11 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
       console.log(`📚 Ultimate Library bypassed for this search (user-armed via tile)`);
     }
 
+    // Started now so the WebDAV listing overlaps the search instead of following it.
+    const libraryFolders = config.searchConfig?.displayLibraryInResults && isNzbdavLibraryConfigured()
+      ? listLibraryFolderNames(buildNzbdavConfig(), type === 'movie' ? 'movie' : 'series')
+      : undefined;
+
     // === SHARED: Filter dead NZBs from raw results ===
     const filterDeadFromRaw = (results: any[]) => {
       if (!config.filterDeadNzbs) return results;
@@ -366,6 +373,7 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
           contentType,
           titleMeta.episodesInSeason,
           titleMeta.episodeAired,
+          libraryFolders,
         );
         if (hits > 0) console.log(`📚 Display-library: marked ${hits}/${allResults.length} result(s) as in-library`);
       }
@@ -413,8 +421,10 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
     // Check cache first (cacheTTL of 0 means disabled)
     if (config.cacheEnabled && config.cacheTTL > 0) {
       const cached = cache.get(cacheKey);
-      if (cached) {
-        console.log(`💾 Cache hit for ${type} ${imdbId}`);
+      const store = requestContext.getStore();
+      const freshness = cached && cacheFreshness(cached._meta.cachedAt, cached._meta.releasedAt, config.cacheTTL, Date.now());
+      if (cached && (freshness === 'fresh' || (freshness === 'stale' && !store?.background))) {
+        console.log(`💾 Cache hit for ${type} ${imdbId}${freshness === 'stale' ? ' (stale, refreshing in background)' : ''}`);
 
         // libraryRunOnCacheHit: when on, scan the WebDAV library before serving
         // cached results. The cached entry is never re-queried; we only short-
@@ -460,7 +470,9 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
         cache.set(cacheKey, {
           ...cached,
           healthMap: Object.fromEntries(healthMap),
-        }, config.cacheTTL);
+          _meta: { ...cached._meta, cachedAt: cached._meta.cachedAt ?? now },
+        }, cacheRetentionSeconds(config.cacheTTL));
+        if (freshness === 'stale' && store) store.servedStale = true;
 
         // Create fallback group from current filtered results
         if (fallbackGroupId && fallbackCandidates) {
@@ -542,10 +554,13 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
         rawResults,
         deprioritizedPacks,
         healthMap: Object.fromEntries(healthMap),
-        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, episodeAired: titleInfo.episodeAired, runtime: titleInfo.runtime },
-      }, config.cacheTTL);
+        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, episodeAired: titleInfo.episodeAired, runtime: titleInfo.runtime, cachedAt: now, releasedAt: titleInfo.releaseDate },
+      }, cacheRetentionSeconds(config.cacheTTL));
     } else if (skipEmptyCache && config.cacheEnabled && config.cacheTTL > 0) {
       console.log(`⏭️  Skipping cache write — 0 results for ${type} ${imdbId}`);
+    } else if (shortCircuited && requestContext.getStore()?.background) {
+      // The library answered a refresh, so the stale indexer entry goes and the next open takes the library path.
+      cache.del(cacheKey);
     }
 
     // Create fallback group

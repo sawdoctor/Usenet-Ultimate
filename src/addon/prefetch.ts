@@ -11,20 +11,28 @@ const MAX_WARMED_EPISODES = 60;
 
 // Last time each manifest + episode was prefetched; a repeat inside the cache TTL is skipped.
 const lastPrefetched = new Map<string, number>();
-// One prefetch at a time, so binge-watching never fans out indexer searches.
-let queue: Promise<void> = Promise.resolve();
+// One background search at a time, so binge-watching never fans out indexer searches; refreshes go before prefetches.
+const refreshes: string[] = [];
+const prefetches: string[] = [];
+let draining = false;
+// Refreshes waiting or running; a stale entry opened twice is searched once.
+const queuedRefreshes = new Set<string>();
 
 // Last time each manifest + season was warmed; a repeat inside the cache TTL is skipped.
 const warmedSeasons = new Map<string, number>();
 
 const SERIES_EPISODE_ID = /^(tt\d+):(\d+):(\d+)$/;
 
+export function streamUrl(baseUrl: string, pathPrefix: string, manifestKey: string, type: string, id: string): string {
+  return `${baseUrl}${pathPrefix}/${manifestKey}/stream/${type}/${id}.json`;
+}
+
 /** Stream URL for the episode after `id`, or undefined for ids that are not IMDb series episodes. */
 export function nextEpisodeUrl(baseUrl: string, pathPrefix: string, manifestKey: string, id: string): string | undefined {
   const match = SERIES_EPISODE_ID.exec(id);
   if (!match) return undefined;
   const [, imdbId, season, episode] = match;
-  return `${baseUrl}${pathPrefix}/${manifestKey}/stream/series/${imdbId}:${season}:${Number(episode) + 1}.json`;
+  return streamUrl(baseUrl, pathPrefix, manifestKey, 'series', `${imdbId}:${season}:${Number(episode) + 1}`);
 }
 
 /** Queue a search for `url` in the background. Results land in the normal search cache. */
@@ -35,19 +43,41 @@ export function schedulePrefetch(url: string): void {
   if (last !== undefined && now - last < config.cacheTTL * 1000) return;
   if (lastPrefetched.size >= MAX_TRACKED) lastPrefetched.clear();
   lastPrefetched.set(url, now);
-  queue = queue.then(() => runPrefetch(url));
+  prefetches.push(url);
+  void drain();
 }
 
-async function runPrefetch(url: string): Promise<void> {
+/** Queue a fresh search for `url`, whose stale cached results were just served. */
+export function scheduleRefresh(url: string): void {
+  if (queuedRefreshes.has(url)) return;
+  queuedRefreshes.add(url);
+  refreshes.push(url);
+  void drain();
+}
+
+async function drain(): Promise<void> {
+  if (draining) return;
+  draining = true;
+  for (;;) {
+    const refresh = refreshes.shift();
+    const url = refresh ?? prefetches.shift();
+    if (!url) break;
+    await runPrefetch(url, refresh ? 'Refreshed stale results' : 'Prefetched next episode');
+    if (refresh) queuedRefreshes.delete(refresh);
+  }
+  draining = false;
+}
+
+async function runPrefetch(url: string, label: string): Promise<void> {
   try {
     const res = await fetch(url, {
       headers: { [PREFETCH_HEADER]: '1' },
       signal: AbortSignal.timeout(PREFETCH_TIMEOUT_MS),
     });
     await res.arrayBuffer();
-    console.log(`⏭️  Prefetched next episode (${res.status})`);
+    console.log(`⏭️  ${label} (${res.status})`);
   } catch (err) {
-    console.warn(`⏭️  Prefetch failed: ${(err as Error).message}`);
+    console.warn(`⏭️  ${label} failed: ${(err as Error).message}`);
   }
 }
 
@@ -61,7 +91,7 @@ export function seasonWarmUrls(baseUrl: string, pathPrefix: string, manifestKey:
   const numbers: number[] = [];
   for (let n = current + 1; n <= total; n++) numbers.push(n);
   for (let n = 1; n < current && n <= total; n++) numbers.push(n);
-  return numbers.map(n => `${baseUrl}${pathPrefix}/${manifestKey}/stream/series/${imdbId}:${season}:${n}.json`);
+  return numbers.map(n => streamUrl(baseUrl, pathPrefix, manifestKey, 'series', `${imdbId}:${season}:${n}`));
 }
 
 /** After a series episode is searched, queue background searches for the rest of its season so later episodes open from the cache. */

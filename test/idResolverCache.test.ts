@@ -59,3 +59,35 @@ test('title and runtime lookups for one movie share a single TMDB search', async
     (axios as any).get = originalGet;
   }
 });
+
+test('episode and title lookups started together still share a single TVDB search', async () => {
+  // Arrange
+  Object.defineProperty(config, 'searchConfig', { value: { tvdbApiKey: 'test-key' }, configurable: true });
+  const originalGet = axios.get;
+  const originalPost = axios.post;
+  let remoteIdCalls = 0;
+  (axios as any).post = async () => ({ data: { data: { token: 'test-token' } } });
+  (axios as any).get = async (url: string) => {
+    if (url.includes('/search/remoteid/')) {
+      remoteIdCalls++;
+      await new Promise(r => setTimeout(r, 20));
+      return { data: { data: [{ series: { id: 43, name: 'Parallel Show' } }] } };
+    }
+    return { data: { data: [] } };
+  };
+
+  try {
+    // Act
+    const [, title] = await Promise.all([
+      resolveEpisodeCountFromTvdb('tt7000009', 1, 1),
+      resolveTitleFromTvdb('tt7000009', 'series'),
+    ]);
+
+    // Assert
+    assert.equal(remoteIdCalls, 1);
+    assert.equal(title?.title, 'Parallel Show');
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).post = originalPost;
+  }
+});

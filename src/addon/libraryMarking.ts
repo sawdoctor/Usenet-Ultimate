@@ -24,6 +24,7 @@ export async function markLibraryHits(
   contentType: 'movie' | 'series',
   episodesInSeason: number | undefined,
   episodeAired?: string,
+  folderListing?: Promise<Set<string> | undefined>,
 ): Promise<number> {
   // Re-check entries whose existing health entry is a Library tag — the file
   // may have been deleted from WebDAV since the cached search ran, so trusting
@@ -37,7 +38,7 @@ export async function markLibraryHits(
   if (unchecked.length === 0) return 0;
   // One folder listing replaces a WebDAV lookup per result. A result without a
   // matching folder cannot be a library hit, so it never needs the lookup.
-  const lookups = pickLibraryLookups(unchecked, await listLibraryFolderNames(nzbdavConfig, contentType));
+  const lookups = pickLibraryLookups(unchecked, await (folderListing ?? listLibraryFolderNames(nzbdavConfig, contentType)));
   // Pass 2 fallback: daily/talk-show files in the library are date-named, so
   // SxxExx-only matching misses them. When the search context carries an
   // aired date, fall back to a date-pattern check after Pass 1 returns null.

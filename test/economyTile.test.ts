@@ -5,7 +5,13 @@ import { buildStreams } from '../src/addon/streamBuilder.js';
 import { buildEconomyTile } from '../src/addon/economyTile.js';
 import { decodeTileEnvelope } from '../src/nzbdav/redirectHelpers.js';
 import { ECONOMY_SESSION_SUFFIX, ECONOMY_TILE_NAME, UF_TILE_BASE_NAME } from '../src/addon/ufTile.js';
-import { recordLiveSample, resetBandwidthState } from '../src/nzbdav/bandwidth.js';
+import { StreamMeasurement, resetBandwidthState, speedScope } from '../src/nzbdav/bandwidth.js';
+
+const recordStream = (scope: string | undefined, mbps: number, at: number) => {
+  const stream = new StreamMeasurement(scope, 'Show.S01E01.mkv');
+  stream.sample(mbps, at);
+  stream.finish();
+};
 
 const saved = { ...configData } as Record<string, unknown>;
 
@@ -84,17 +90,30 @@ test('the Economy tile URL carries its session key and group in one envelope', (
   assert.equal(tile.behaviorHints?.bingeGroup, 'djstreams:economy');
 });
 
-test('the Adaptive tile uses the live estimate belonging to its manifest', () => {
+test('the Adaptive tile uses the speed measured for its manifest on the same network', () => {
   // Arrange
-  recordLiveSample('manifest-a', 82);
-  recordLiveSample('manifest-b', 36);
+  recordStream(speedScope('manifest-a', '203.0.113.5'), 82, Date.now());
+  recordStream(speedScope('manifest-b', '203.0.113.5'), 36, Date.now());
 
   // Act
-  const tileA = buildEconomyTile({ sessionKey: 'a', streamBase: 'https://x.invalid', manifestKey: 'manifest-a' });
-  const tileB = buildEconomyTile({ sessionKey: 'b', streamBase: 'https://x.invalid', manifestKey: 'manifest-b' });
+  const tileA = buildEconomyTile({ sessionKey: 'a', streamBase: 'https://x.invalid', manifestKey: 'manifest-a', clientIp: '203.0.113.77' });
+  const tileB = buildEconomyTile({ sessionKey: 'b', streamBase: 'https://x.invalid', manifestKey: 'manifest-b', clientIp: '203.0.113.77' });
+  const elsewhere = buildEconomyTile({ sessionKey: 'c', streamBase: 'https://x.invalid', manifestKey: 'manifest-a', clientIp: '198.51.100.7' });
 
   // Assert
-  assert.match(tileA.title ?? '', /Recent stream throughput/);
-  assert.match(tileA.title ?? '', /~82 Mbps/);
+  assert.match(tileA.title ?? '', /Recent stream throughput: ~82 Mbps/);
   assert.match(tileB.title ?? '', /~36 Mbps/);
+  assert.match(elsewhere.title ?? '', /Conservative start: ~25 Mbps/);
+});
+
+test('the Adaptive tile names the history window and how many streams it used', () => {
+  // Arrange
+  const scope = speedScope('manifest-a', '203.0.113.5');
+  for (const hoursAgo of [3, 5, 8]) recordStream(scope, 60, Date.now() - hoursAgo * 60 * 60 * 1000);
+
+  // Act
+  const tile = buildEconomyTile({ sessionKey: 'a', streamBase: 'https://x.invalid', manifestKey: 'manifest-a', clientIp: '203.0.113.5' });
+
+  // Assert
+  assert.match(tile.title ?? '', /Typical over the past day: ~60 Mbps \(3 streams\)/);
 });

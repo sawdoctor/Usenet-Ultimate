@@ -1,3 +1,5 @@
+import type { BandwidthEstimate, BandwidthSource } from '../nzbdav/bandwidth.js';
+
 // Ultimate Fallback tile name + path
 export const UF_TILE_BASE_NAME = '👑 Ultimate Fallback';
 export const UF_STREAM_PATH = 'ultimate-fallback';
@@ -15,11 +17,20 @@ export const ECONOMY_TILE_NAME = '📶 Adaptive Fallback';
 export const ECONOMY_STREAM_PATH = 'economy-fallback';
 export const ECONOMY_SESSION_SUFFIX = ':eco';
 
-export function economyTileDisplay(mbps: number, source: 'override' | 'live' | 'probe' | 'default'): { name: string; title: string } {
-  const speed = source === 'override' ? `Using speed override: ~${Math.round(mbps)} Mbps`
-    : source === 'live' ? `Recent stream throughput: ~${Math.round(mbps)} Mbps`
-      : source === 'probe' ? `Initial estimate: ~${Math.round(mbps)} Mbps`
-        : `Conservative start: ~${Math.round(mbps)} Mbps`;
+const ECONOMY_SPEED_LABELS: Record<BandwidthSource, string> = {
+  override: 'Using speed override',
+  recent: 'Recent stream throughput',
+  day: 'Typical over the past day',
+  week: 'Typical over the past week',
+  month: 'Typical over the past month',
+  history: 'Typical from past streams',
+  probe: 'Initial estimate',
+  default: 'Conservative start',
+};
+
+export function economyTileDisplay(estimate: BandwidthEstimate): { name: string; title: string } {
+  const basis = estimate.streams ? ` (${estimate.streams} streams)` : '';
+  const speed = `${ECONOMY_SPEED_LABELS[estimate.source]}: ~${Math.round(estimate.mbps)} Mbps${basis}`;
   return { name: ECONOMY_TILE_NAME, title: `⚬ ${speed}\n⚬ Auto-select your best-ranked stream within this speed` };
 }
 

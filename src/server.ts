@@ -22,6 +22,7 @@ import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, 
 import { createManifestRoutes } from './routes/manifests.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
+import { PREFETCH_HEADER } from './addon/prefetch.js';
 import { saveAllDiskCaches } from './parsers/diskCache.js';
 import { resolveBaseUrl } from './utils/urlHelpers.js';
 import { initAnimeDatabase, startDailyRefresh, stopDailyRefresh, getDatabaseStatus } from './anime/animeDatabase.js';
@@ -202,7 +203,7 @@ stremioRouter.get('/manifest.json', (req, res) => {
 stremioRouter.use(createStremioRouter(addon));
 
 const contextMiddleware = (pathPrefix: string) => (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: resolveBaseUrl(req), pathPrefix }, () => next());
+  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: resolveBaseUrl(req), pathPrefix, clientIp: req.ip, background: req.headers[PREFETCH_HEADER] !== undefined }, () => next());
 };
 
 // /stremio/ prefixed routes (recommended for new installations and reverse proxy setups)

@@ -49,6 +49,8 @@ export interface ResolvedTitleInfo {
   searchAliases?: string[];
   /** Air date of the targeted episode in `YYYY-MM-DD` form, when TVDB has it. Used by the alias fallback to send date-formatted queries (e.g. `Jimmy Fallon 2024.05.21`) for shows whose releases are dated rather than season/episode-numbered. */
   episodeAired?: string;
+  /** Release date of the movie or the targeted episode (TVDB air date, else Cinemeta). Decides whether a cached search may be served stale. */
+  releaseDate?: string;
 }
 
 /**
@@ -57,8 +59,9 @@ export interface ResolvedTitleInfo {
 async function resolveFromCinemeta(
   type: string,
   imdbId: string,
-  season?: number
-): Promise<{ title: string; year?: string; country?: string; genres?: string[]; episodesInSeason?: number; priorSeasonsEpisodeCount?: number; runtime?: number }> {
+  season?: number,
+  episode?: number,
+): Promise<{ title: string; year?: string; country?: string; genres?: string[]; episodesInSeason?: number; priorSeasonsEpisodeCount?: number; runtime?: number; released?: string }> {
   try {
     const url = `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`;
     const response = await axios.get(url, { timeout: 5000 });
@@ -83,8 +86,11 @@ async function resolveFromCinemeta(
         const mins = parseInt(String(meta.runtime), 10);
         if (mins > 0) runtime = mins * 60;
       }
+      const released: string | undefined = season !== undefined && Array.isArray(meta.videos)
+        ? meta.videos.find((v: any) => v.season === season && (v.episode ?? v.number) === episode)?.released
+        : meta.released;
       console.log(`🎯 Resolved ${imdbId} → "${meta.name}" (${year || 'unknown year'}, ${country || 'unknown country'})${episodesInSeason ? ` [S${season}: ${episodesInSeason} episodes]` : ''}${genres ? ` [${genres.join(', ')}]` : ''}${runtime ? ` [${Math.round(runtime / 60)}min]` : ''}`);
-      return { title: meta.name, year, country, genres, episodesInSeason, priorSeasonsEpisodeCount, runtime };
+      return { title: meta.name, year, country, genres, episodesInSeason, priorSeasonsEpisodeCount, runtime, released };
     }
   } catch (error) {
     console.warn(`⚠️  Failed to resolve title for ${imdbId}:`, (error as Error).message);
@@ -122,6 +128,8 @@ export async function resolveTitle(
   let absoluteEpisodeNumber: number | undefined;
   let tvdbPriorSeasonsCount: number | undefined;
   let episodeAired: string | undefined;
+  let cinemetaReleased: string | undefined;
+  let tmdbRuntimeLookup: Promise<number | undefined> | undefined;
   let isAnime = false;
   let resolvedTitle: string | null = null;
   let tvdbAliases: string[] | undefined;
@@ -175,17 +183,21 @@ export async function resolveTitle(
       }
     }
   } else {
-    // Step 1 (Cinemeta) and the Step 2 TVDB lookup need only imdbId and season, so they run together.
+    // Every lookup here needs only imdbId and season, so they run together; anime discards the canonical title.
+    const tvdbTitleLookup = type === 'series' && !isAnimeByImdbId(imdbId) ? resolveTitleFromTvdb(imdbId, 'series') : undefined;
+    const tmdbTitleLookup = type === 'movie' ? resolveTitleFromTmdb(imdbId, 'movie') : undefined;
+    tmdbRuntimeLookup = tmdbTitleLookup?.then(() => resolveRuntimeFromTmdb(imdbId));
     const [resolved, tvdbResult] = await Promise.all([
-      resolveFromCinemeta(type, imdbId, season),
+      resolveFromCinemeta(type, imdbId, season, episode),
       type === 'series' && season !== undefined ? resolveEpisodeCountFromTvdb(imdbId, season, episode) : undefined,
     ]);
     cinemetaTitle = resolved.title;
+    cinemetaReleased = resolved.released;
     year = resolved.year;
     country = resolved.country;
     genres = resolved.genres;
 
-    // Step 2: Episode count + runtime + episode name — prefer TVDB (authoritative for TV) over Cinemeta (fallback)
+    // Episode count, runtime and name: TVDB is authoritative for TV, Cinemeta the fallback.
     episodesInSeason = resolved.episodesInSeason;
     priorSeasonsEpisodeCount = resolved.priorSeasonsEpisodeCount;
     runtime = resolved.runtime;
@@ -203,10 +215,9 @@ export async function resolveTitle(
     }
     console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
 
-    // Step 3: Anime detection — database lookup first (authoritative), Cinemeta fallback
+    // Anime detection: database lookup first (authoritative), Cinemeta fallback.
     isAnime = isAnimeByImdbId(imdbId) || !!(country?.includes('Japan') && genres?.some(g => g.toLowerCase() === 'animation'));
 
-    // Step 4: Resolve canonical title
     // For anime: use Kitsu-IMDB title (series-level canonical name), skip TVDB/TMDB
     // (so tvdbNativeTitle never sets for anime; native-language alts via TVDB
     // don't apply to the anime path).
@@ -225,7 +236,7 @@ export async function resolveTitle(
       }
     } else {
       if (type === 'series') {
-        const tvdbTitleResult = await resolveTitleFromTvdb(imdbId, 'series');
+        const tvdbTitleResult = await tvdbTitleLookup;
         resolvedTitle = tvdbTitleResult?.title ?? null;
         if (tvdbTitleResult?.year && tvdbTitleResult.year !== year) {
           console.log(`📅 Using TVDB year ${tvdbTitleResult.year} (Cinemeta: ${year})`);
@@ -234,7 +245,7 @@ export async function resolveTitle(
         tvdbAliases = tvdbTitleResult?.aliases;
         tvdbNativeTitle = tvdbTitleResult?.nativeTitle;
       } else {
-        const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
+        const tmdbResult = await tmdbTitleLookup;
         resolvedTitle = tmdbResult?.title ?? null;
         if (tmdbResult?.year && tmdbResult.year !== year) {
           console.log(`📅 Using TMDB year ${tmdbResult.year} (Cinemeta: ${year})`);
@@ -295,11 +306,11 @@ export async function resolveTitle(
     }
   }
 
-  // Step 5: Resolve runtime — TMDB for movies (if key configured and Cinemeta didn't provide it or for higher accuracy)
+  // Runtime: TMDB for movies, if a key is set and Cinemeta lacks it or for higher accuracy.
   // Skipped on tvdb: requests since TMDB is keyed by IMDB id which isn't
   // available on that path; TVDB record runtime is the authoritative source.
   if (type === 'movie' && tvdbIdHint === undefined) {
-    const tmdbRuntime = await resolveRuntimeFromTmdb(imdbId);
+    const tmdbRuntime = await tmdbRuntimeLookup;
     if (tmdbRuntime) runtime = tmdbRuntime;
 
     // Release groups tag films with the year IMDB shows (the earliest public
@@ -313,7 +324,7 @@ export async function resolveTitle(
     }
   }
 
-  // Step 6: Detect remakes — check if another show shares the same title (for text search filtering)
+  // Remake check: does another show share this title? Affects text search filtering.
   // Empty/whitespace title can happen when both Cinemeta and TVDB fail to
   // resolve; without the trim guard, detectRemake('') hits TMDB with an empty
   // query and returns a 400.
@@ -321,7 +332,7 @@ export async function resolveTitle(
     ? await detectRemake(title)
     : undefined;
 
-  // Step 7: Substring-shortcut alias filter for the zero-result UTS fallback.
+  // Substring-shortcut alias filter for the zero-result UTS fallback.
   // Keeps an alias only when it is a strict substring of the canonical title
   // and substantially shorter (< 70% length ratio). Excludes length-similar
   // variants and longer supplemental aliases that wouldn't help the search.
@@ -364,5 +375,6 @@ export async function resolveTitle(
     titleYear,
     searchAliases,
     episodeAired,
+    releaseDate: episodeAired ?? cinemetaReleased,
   };
 }

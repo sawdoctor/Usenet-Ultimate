@@ -31,3 +31,31 @@ test('series without a TVDB match keeps the Cinemeta title and season episode co
     (axios as any).post = originalPost;
   }
 });
+
+test('the release date comes from the Cinemeta episode, or the movie, when TVDB has none', async () => {
+  // Arrange
+  Object.defineProperty(config, 'searchConfig', { value: {}, configurable: true });
+  const originalGet = axios.get;
+  (axios as any).get = async (url: string) => {
+    if (url.includes('/meta/series/')) {
+      return { data: { meta: { name: 'Dated Show', videos: [
+        { season: 1, episode: 1, released: '2020-01-01T00:00:00.000Z' },
+        { season: 1, episode: 2, released: '2020-01-08T00:00:00.000Z' },
+      ] } } };
+    }
+    if (url.includes('/meta/movie/')) return { data: { meta: { name: 'Dated Movie', released: '2021-05-05T00:00:00.000Z' } } };
+    return { data: {} };
+  };
+
+  try {
+    // Act
+    const episode = await resolveTitle('series', 'tt7000004', 1, 2);
+    const movie = await resolveTitle('movie', 'tt7000005');
+
+    // Assert
+    assert.equal(episode.releaseDate, '2020-01-08T00:00:00.000Z');
+    assert.equal(movie.releaseDate, '2021-05-05T00:00:00.000Z');
+  } finally {
+    (axios as any).get = originalGet;
+  }
+});
