@@ -1,6 +1,6 @@
 {
   "name": "usenet-ultimate",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "Modern Usenet streaming addon for Stremio",
   "main": "dist/server.js",
   "type": "module",

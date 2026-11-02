@@ -9,8 +9,12 @@ const PROBE_URL = `https://speed.cloudflare.com/__down?bytes=${PROBE_BYTES}`;
 const PROBE_MAX_READ_MS = 8_000;
 const PROBE_MIN_BYTES = 4_000_000;
 const PROBE_TTL_MS = 12 * 60 * 60 * 1000;
+const FIRST_SAMPLE_WINDOW_MS = 3_000;
 const SAMPLE_WINDOW_MS = 8_000;
 const SATURATED_BACKLOG_BYTES = 256 * 1024;
+const EXPLORE_MIN_PLAYBACK_MS = 2 * 60 * 1000;
+const EXPLORE_STEP = 1.25;
+const EXPLORE_CEILING = 2;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -38,6 +42,8 @@ interface StreamSpeed {
   mbps: number;
   /** The playback that wrote it, so a resumed playback updates its entry instead of adding one. */
   id?: string;
+  /** A raised guess from a playback that never saturated the link, not a measurement. */
+  explored?: true;
 }
 
 interface Timed {
@@ -97,10 +103,14 @@ export class StreamMeasurement {
   private readonly readings: number[] = [];
   private openRequests = 1;
   private lastActivityAt: number;
+  private readonly startedAt: number;
+  private readonly baseMbps: number;
   lastAt = 0;
 
   constructor(readonly scope: string | undefined, private readonly label: string, now = Date.now()) {
     this.lastActivityAt = now;
+    this.startedAt = now;
+    this.baseMbps = scope ? peekBandwidth(scope, undefined, now).mbps : 0;
     if (scope) activeStreams.add(this);
   }
 
@@ -131,12 +141,23 @@ export class StreamMeasurement {
     this.lastActivityAt = now;
     if (this.openRequests > 0) return;
     activeStreams.delete(this);
-    if (this.readings.length === 0) return;
+    if (this.readings.length === 0) return this.exploreUp(now);
     const shown = this.readings.slice(0, LOGGED_READINGS).map(Math.round).join(', ');
     const more = this.readings.length > LOGGED_READINGS ? ', …' : '';
     const size = fileBytes ? `, file ${(fileBytes / 1e9).toFixed(1)} GB` : '';
     console.log(`📶 Stream speed: ${this.label} — ${this.readings.length} reading(s) [${shown}${more}] Mbps → ${Math.round(this.speedMbps())} Mbps${size}`);
     if (this.scope) saveHistory(this.scope, { at: this.lastAt, mbps: this.speedMbps(), id: this.id });
+  }
+
+  // A stream sized to the estimate never saturates the link, so step up and let the next pick test it.
+  private exploreUp(now: number): void {
+    if (!this.scope || now - this.startedAt < EXPLORE_MIN_PLAYBACK_MS) return;
+    const measured = scopeStreams(this.scope, now).filter(s => !s.explored).map(s => s.mbps);
+    const ceiling = EXPLORE_CEILING * Math.max(DEFAULT_MBPS, ...measured);
+    const mbps = Math.min(this.baseMbps * EXPLORE_STEP, ceiling);
+    if (mbps <= this.baseMbps) return;
+    console.log(`📶 Stream speed: ${this.label} — never saturated the link, trying ~${Math.round(mbps)} Mbps next`);
+    saveHistory(this.scope, { at: now, mbps, id: this.id, explored: true });
   }
 }
 
@@ -173,11 +194,12 @@ export function peekBandwidth(scope?: string, overrideMbps?: number, now = Date.
     const streams = scopeStreams(scope, now);
     const latest = streams.reduce<StreamSpeed | undefined>((a, s) => (!a || s.at > a.at ? s : a), undefined);
     if (latest && now - latest.at <= RECENT_MS) return { mbps: latest.mbps, source: 'recent' };
+    const measured = streams.filter(s => !s.explored);
     for (const [source, windowMs] of HISTORY_WINDOWS) {
-      const inWindow = streams.filter(s => now - s.at <= windowMs);
+      const inWindow = measured.filter(s => now - s.at <= windowMs);
       if (inWindow.length >= MIN_STREAMS_PER_WINDOW) return { mbps: lowerQuartile(inWindow), source, streams: inWindow.length };
     }
-    if (streams.length > 0) return { mbps: lowerQuartile(streams), source: 'history', streams: streams.length };
+    if (measured.length > 0) return { mbps: lowerQuartile(measured), source: 'history', streams: measured.length };
     return { mbps: DEFAULT_MBPS, source: 'default' };
   }
   if (probe && now - probe.at < PROBE_TTL_MS) return { mbps: Math.min(probe.mbps, DEFAULT_MBPS), source: 'probe' };
@@ -231,6 +253,7 @@ export class ThroughputSampler {
   private windowStartMs: number | null = null;
   private windowStartBytes = 0;
   private saturated = true;
+  private windowMs = FIRST_SAMPLE_WINDOW_MS;
 
   constructor(private readonly onSample: (mbps: number) => void) {}
 
@@ -241,10 +264,11 @@ export class ThroughputSampler {
     }
     if (backlogBytes < SATURATED_BACKLOG_BYTES) this.saturated = false;
     const elapsedMs = nowMs - this.windowStartMs;
-    if (elapsedMs < SAMPLE_WINDOW_MS) return;
+    if (elapsedMs < this.windowMs) return;
     if (this.saturated) {
       this.onSample(((bytesWritten - this.windowStartBytes) * 8) / (elapsedMs / 1000) / 1_000_000);
     }
+    this.windowMs = SAMPLE_WINDOW_MS;
     this.windowStartMs = nowMs;
     this.windowStartBytes = bytesWritten;
     this.saturated = backlogBytes >= SATURATED_BACKLOG_BYTES;
