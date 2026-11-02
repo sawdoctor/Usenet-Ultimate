@@ -276,6 +276,126 @@ test('sampler starts a fresh window after each report', () => {
   assert.deepEqual(samples, [10, 20]);
 });
 
+test('sampler reports the first window after three seconds, later ones after eight', () => {
+  // Arrange
+  const samples: number[] = [];
+  const sampler = new ThroughputSampler(m => samples.push(m));
+
+  // Act
+  sampler.tick(1_000, 0, 1_000_000);
+  sampler.tick(2_999, 3_000_000, 1_000_000);
+  const beforeThreeSeconds = samples.length;
+  sampler.tick(4_000, 3_750_000, 1_000_000);
+  sampler.tick(9_000, 9_000_000, 1_000_000);
+  const afterFiveSeconds = [...samples];
+  sampler.tick(12_000, 15_750_000, 1_000_000);
+
+  // Assert
+  assert.equal(beforeThreeSeconds, 0);
+  assert.deepEqual(afterFiveSeconds, [10]);
+  assert.deepEqual(samples, [10, 12]);
+});
+
+const explore = (start: number, minutes: number, label = 'Movie.mkv') => {
+  const playback = new StreamMeasurement(HOME, label, start);
+  playback.finish(undefined, start + minutes * 60_000);
+  return playback;
+};
+
+test('a playback that never saturated the link raises the estimate by a quarter', () => {
+  // Arrange
+  recordStream(HOME, 60, T0);
+
+  // Act
+  explore(T0 + 1_000, 3);
+
+  // Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 5 * 60_000), { mbps: 75, source: 'recent' });
+  assert.deepEqual(logged.slice(-1), ['📶 Stream speed: Movie.mkv — never saturated the link, trying ~75 Mbps next']);
+});
+
+test('a playback under two minutes does not raise the estimate', () => {
+  // Arrange
+  recordStream(HOME, 60, T0);
+
+  // Act
+  explore(T0 + 1_000, 1);
+
+  // Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 5 * 60_000), { mbps: 60, source: 'recent' });
+});
+
+test('a playback that saturated the link keeps its measured speed', () => {
+  // Arrange
+  recordStream(HOME, 60, T0);
+  const playback = new StreamMeasurement(HOME, 'Movie.mkv', T0 + 1_000);
+
+  // Act
+  playback.sample(40, T0 + 60_000);
+  playback.finish(undefined, T0 + 5 * 60_000);
+
+  // Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 6 * 60_000), { mbps: 40, source: 'recent' });
+});
+
+test('a resumed playback raises the estimate once, not once per request', () => {
+  // Arrange
+  recordStream(HOME, 60, T0);
+  const first = measurePlayback(HOME, 'Movie.mkv', T0 + 1_000);
+  first.finish(undefined, T0 + 4 * 60_000);
+
+  // Act
+  const resumed = measurePlayback(HOME, 'Movie.mkv', T0 + 5 * 60_000);
+  resumed.finish(undefined, T0 + 10 * 60_000);
+
+  // Assert
+  assert.equal(resumed, first);
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 11 * 60_000), { mbps: 75, source: 'recent' });
+});
+
+test('repeated unsaturated playbacks stop at twice the fastest measured speed', () => {
+  // Arrange
+  recordStream(HOME, 60, T0);
+
+  // Act
+  for (let i = 1; i <= 6; i++) explore(T0 + i * 10 * 60_000, 3, `Episode${i}.mkv`);
+
+  // Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 70 * 60_000), { mbps: 120, source: 'recent' });
+});
+
+test('an unmeasured network can step up from the default', () => {
+  // Act
+  explore(T0, 3);
+
+  // Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 4 * 60_000), { mbps: DEFAULT_MBPS * 1.25, source: 'recent' });
+});
+
+test('a raised estimate expires with the recent window and leaves measured speeds alone', () => {
+  // Arrange
+  recordStream(HOME, 60, T0);
+  explore(T0 + 1_000, 3);
+
+  // Act
+  const est = peekBandwidth(HOME, undefined, T0 + 3 * HOUR);
+
+  // Assert
+  assert.deepEqual(est, { mbps: 60, source: 'history', streams: 1 });
+});
+
+test('a later measurement replaces a raised estimate immediately', () => {
+  // Arrange
+  recordStream(HOME, 60, T0);
+  explore(T0 + 1_000, 3);
+
+  // Act
+  recordStream(HOME, 45, T0 + 10 * 60_000);
+
+  // Assert
+  assert.deepEqual(peekBandwidth(HOME, undefined, T0 + 11 * 60_000), { mbps: 45, source: 'recent' });
+});
+
 test('a successful probe becomes the estimate', async () => {
   // Arrange
   stubFetch(async () => new Response(slowBody(2, 3_000_000)));
