@@ -34,6 +34,7 @@ export const DEFAULT_STREAM_DISPLAY: StreamDisplayConfig = {
     language:        { id: 'language',          label: 'Language',         enabled: true,  prefix: '🗣️'  },
     age:             { id: 'age',              label: 'Post Age',         enabled: true,  prefix: '📅'  },
     bitrate:         { id: 'bitrate',          label: 'Bitrate',          enabled: false, prefix: '📊'  },
+    filename:        { id: 'filename',         label: 'File Name',        enabled: false, prefix: '📄'  },
   },
   lineGroups: [
     { id: 'title-line',   elementIds: ['cleanTitle'],                   indent: false },
@@ -43,7 +44,7 @@ export const DEFAULT_STREAM_DISPLAY: StreamDisplayConfig = {
     { id: 'meta-line',    elementIds: ['releaseGroup', 'indexer', 'age'], indent: true  },
     { id: 'health-line',  elementIds: ['healthProviders'],             indent: true  },
     { id: 'row-7',        elementIds: ['bitrate'],                     indent: true  },
-    { id: 'row-8',        elementIds: [],                              indent: true  },
+    { id: 'row-8',        elementIds: ['filename'],                    indent: true  },
   ],
   cleanTitles: true,
 };

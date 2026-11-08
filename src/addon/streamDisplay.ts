@@ -78,6 +78,7 @@ export function buildStreamDisplay(
     language: data.language || '',
     age: data.age || '',
     bitrate: data.bitrate || '',
+    filename: data.rawTitle,
   };
 
   // Build name column

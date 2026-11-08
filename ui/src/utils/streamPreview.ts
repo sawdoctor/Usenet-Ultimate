@@ -32,6 +32,7 @@ export function renderStreamPreview(mockData: MockStreamData, cfg: StreamDisplay
     language: mockData.language,
     age: mockData.age || '',
     bitrate: mockData.bitrate || '',
+    filename: mockData.rawTitle,
   };
 
   const nameLines = cfg.nameElements
