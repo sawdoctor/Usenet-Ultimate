@@ -14,7 +14,7 @@ import addon, { clearSearchCache, addonManifest } from './addon/index.js';
 import { config, getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderIndexers, reorderSyncedIndexers, updateSettings, getProviders, addProvider, updateProvider, deleteProvider, reorderProviders } from './config/index.js';
 import { getLogBuffer, subscribeToLogs } from './logBuffer.js';
 import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats, runStaleIndexerStatsCleanup } from './statsTracker.js';
-import { fetchLatestVersions, getLatestVersions } from './versionFetcher.js';
+import { fetchLatestVersions, getLatestVersions, startVersionRefresh } from './versionFetcher.js';
 import { handleStream, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './nzbdav/index.js';
 import { proxyFetch, testProxyConnection } from './proxy.js';
 import { fetchIndexerCaps } from './parsers/newznabClient.js';
@@ -263,6 +263,7 @@ process.on('SIGINT', () => {
   startReputationReconciler();
 
   app.listen(PORT, () => {
+    startVersionRefresh();
     console.log(`\n\u{1F680} Usenet Ultimate is running!\n`);
     console.log(`\u{1F3A8} Configuration UI: http://localhost:${PORT}`);
     console.log(`\u{1F4CB} Configured indexers: ${config.indexers.length} Newznab, ${(config.syncedIndexers || []).length} synced${config.easynewsEnabled ? ', EasyNews enabled' : ''}`);
