@@ -4,6 +4,7 @@
  * Filtering passes applied to search results:
  *  - applyRemakeFilter: content-dependent — drops results from the wrong
  *    version of a remade/rebooted show; deprioritizes yearless packs
+ *  - applyEpisodeTitleFilter: content-dependent — drops releases titled as another episode of the season
  *  - applyMultiEpisodeFilter: user-preference — drops multi-episode files
  *    for TV when the "allow multi-episode" setting is off
  *  - applyQualityFilters: user-preference — drops results whose parsed
@@ -12,7 +13,7 @@
  */
 
 import { parseMetadata, parseQuality, parseCodec, parseSource, parseVisualTag, visualTagFilterKey, parseAudioTag, parseLanguage, parseEdition, parseYear, parseDurationAttr, formatBytes } from '../parsers/metadataParsers.js';
-import { isRemakeFiltered } from '../parsers/titleMatching.js';
+import { isRemakeFiltered, stripDiacritics } from '../parsers/titleMatching.js';
 import { applyRules as engineApplyRules, buildStreamContext } from '../rules/rankEngine.js';
 import type { FilterConfig } from '../types.js';
 
@@ -74,6 +75,47 @@ export function applyRemakeFilter(allResults: any[], hasRemake?: boolean, episod
   }
 
   return { results, deprioritizedPacks };
+}
+
+export interface EpisodeTitles {
+  episode: number;
+  /** TVDB episode names for the requested season, keyed by episode number. */
+  names: Record<number, string>;
+}
+
+function spaced(s: string): string {
+  return stripDiacritics(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function namesOtherEpisodeOnly(releaseTitle: string, { episode, names }: EpisodeTitles): boolean {
+  const haystack = ` ${spaced(releaseTitle)} `;
+  let namesTarget = false;
+  let namesOther = false;
+  for (const [ep, name] of Object.entries(names)) {
+    const words = spaced(name);
+    if (!words || !haystack.includes(` ${words} `)) continue;
+    if (Number(ep) === episode) namesTarget = true;
+    else namesOther = true;
+  }
+  return namesOther && !namesTarget;
+}
+
+/** Drop releases titled as another episode of the season; indexer episode numbers can be wrong. */
+export function applyEpisodeTitleFilter(allResults: any[], episodeTitles?: EpisodeTitles): any[] {
+  if (!episodeTitles) return allResults;
+
+  const removed: string[] = [];
+  const results = allResults.filter(r => {
+    if (r.isSeasonPack || !namesOtherEpisodeOnly(r.title, episodeTitles)) return true;
+    removed.push(r.title);
+    return false;
+  });
+
+  if (removed.length > 0) {
+    console.log(`🎯 Episode-title filter: removed ${removed.length} result(s) naming a different episode (${results.length} remaining)`);
+    for (const title of removed) console.log(`   ✂️  "${title}"`);
+  }
+  return results;
 }
 
 /**

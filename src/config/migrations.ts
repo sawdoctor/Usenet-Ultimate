@@ -439,3 +439,28 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     console.warn(`⚠️  Deprecated env vars set but ignored: ${stillSetUR.join(', ')}. Ultimate Fallback was renamed to Ultimate Fallback — use ULTIMATE_FALLBACK_* instead.`);
   }
 }
+
+{
+  const economy = configData.economyFallback;
+  const uf = configData.ultimateFallback;
+  if (economy && uf) {
+    const next = {
+      ...economy,
+      healthCheckEnabled: economy.healthCheckEnabled ?? uf.healthCheckEnabled ?? false,
+      healthCheckIndexers: economy.healthCheckIndexers ?? uf.healthCheckIndexers ?? {},
+      candidateCount: economy.candidateCount ?? uf.candidateCount ?? 1,
+      sampleCount: economy.sampleCount ?? uf.sampleCount ?? 3,
+      maxAttempts: economy.maxAttempts ?? uf.maxAttempts ?? 0,
+      desiredBackups: economy.desiredBackups ?? uf.desiredBackups ?? 0,
+      backupProcessingLimit: economy.backupProcessingLimit ?? uf.backupProcessingLimit ?? 3,
+      priorityMoviesTimeoutSeconds: economy.priorityMoviesTimeoutSeconds ?? uf.priorityMoviesTimeoutSeconds ?? 30,
+      priorityTvTimeoutSeconds: economy.priorityTvTimeoutSeconds ?? uf.priorityTvTimeoutSeconds ?? 15,
+      prioritySeasonPackTimeoutSeconds: economy.prioritySeasonPackTimeoutSeconds ?? uf.prioritySeasonPackTimeoutSeconds ?? 30,
+    };
+    if (JSON.stringify(next) !== JSON.stringify(economy)) {
+      configData.economyFallback = next;
+      saveConfigFile(configData);
+      console.log('✅ Migrated Adaptive Fallback settings from their former Ultimate Fallback defaults');
+    }
+  }
+}

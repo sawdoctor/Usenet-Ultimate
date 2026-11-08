@@ -9,7 +9,7 @@
  *   env var > config.json > hardcoded default
  */
 
-import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateFallbackConfig } from '../types.js';
+import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateFallbackConfig, EconomyFallbackConfig } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
@@ -468,6 +468,24 @@ export const config: Config = {
       speedTvTimeoutSeconds,
       speedSeasonPackTimeoutSeconds,
       healthCheckIndexers: ur?.healthCheckIndexers,
+    };
+  },
+  get economyFallback(): EconomyFallbackConfig {
+    const ef = configData.economyFallback;
+    const override = ef?.speedOverrideMbps;
+    return {
+      enabled: ef?.enabled ?? false,
+      speedOverrideMbps: typeof override === 'number' && override > 0 ? override : undefined,
+      healthCheckEnabled: ef?.healthCheckEnabled ?? false,
+      healthCheckIndexers: ef?.healthCheckIndexers,
+      candidateCount: Math.max(1, Math.min(10, ef?.candidateCount ?? 1)),
+      sampleCount: ef?.sampleCount === 7 ? 7 : 3,
+      maxAttempts: Math.max(0, Math.min(20, ef?.maxAttempts ?? 0)),
+      desiredBackups: Math.max(0, Math.min(10, ef?.desiredBackups ?? 0)),
+      backupProcessingLimit: Math.max(0, Math.min(20, ef?.backupProcessingLimit ?? 3)),
+      priorityMoviesTimeoutSeconds: Math.max(0, Math.min(90, ef?.priorityMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.movies)),
+      priorityTvTimeoutSeconds: Math.max(0, Math.min(90, ef?.priorityTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.tv)),
+      prioritySeasonPackTimeoutSeconds: Math.max(0, Math.min(90, ef?.prioritySeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.seasonPack)),
     };
   },
 };

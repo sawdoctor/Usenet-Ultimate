@@ -18,6 +18,9 @@ export const ZYCLOPS_DEFAULT_ENDPOINT = process.env.ZYCLOPS_ENDPOINT || 'https:/
 
 export interface ConfigData {
   addonEnabled?: boolean;
+  addonId?: string;
+  addonName?: string;
+  bingeGroup?: string;
   indexers: UsenetIndexer[];
   cacheEnabled: boolean;
   cacheTTL: number;
@@ -125,6 +128,20 @@ export interface ConfigData {
     speedTvTimeoutSeconds?: number;
     speedSeasonPackTimeoutSeconds?: number;
     healthCheckIndexers?: Record<string, boolean>;
+  };
+  economyFallback?: {
+    enabled: boolean;
+    speedOverrideMbps?: number;
+    healthCheckEnabled?: boolean;
+    healthCheckIndexers?: Record<string, boolean>;
+    candidateCount?: number;
+    sampleCount?: 3 | 7;
+    maxAttempts?: number;
+    desiredBackups?: number;
+    backupProcessingLimit?: number;
+    priorityMoviesTimeoutSeconds?: number;
+    priorityTvTimeoutSeconds?: number;
+    prioritySeasonPackTimeoutSeconds?: number;
   };
 
   // One-time cleanup of stale release folders left over from the legacy

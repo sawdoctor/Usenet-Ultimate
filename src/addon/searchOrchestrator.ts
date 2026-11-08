@@ -14,6 +14,7 @@ import { ProwlarrSearcher } from '../searchers/prowlarrSearcher.js';
 import { NzbhydraSearcher } from '../searchers/nzbhydraSearcher.js';
 import { EasynewsSearcher } from '../searchers/easynewsSearcher.js';
 import { UsenetIndexer } from '../types.js';
+import { rateLimitedUntil } from '../parsers/indexerBackoff.js';
 
 // When SEARCH_TIMEOUT env is set, force it onto every Newznab indexer for this search cycle.
 // Returns the original reference when no override is active — no allocation cost in the common path.
@@ -234,15 +235,20 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
   } else {
     // === NEWZNAB MODE ===
     const enabledIndexers = config.indexers.filter(i => i.enabled);
+    const searchableIndexers = enabledIndexers.filter(i => {
+      const until = rateLimitedUntil(i.name);
+      if (until) console.log(`⏸️  ${i.name} is rate limited, skipping it for ${Math.ceil((until - Date.now()) / 60000)} more min`);
+      return !until;
+    });
 
     // Per-indexer anime method swap
     const effectiveIndexers = isAnime
-      ? enabledIndexers.map(i => ({
+      ? searchableIndexers.map(i => ({
           ...i,
           movieSearchMethod: i.animeMovieSearchMethod ?? ['text'] as ('imdb' | 'tmdb' | 'tvdb' | 'text')[],
           tvSearchMethod: i.animeTvSearchMethod ?? ['text'] as ('imdb' | 'tvdb' | 'tvmaze' | 'text')[],
         }))
-      : enabledIndexers;
+      : searchableIndexers;
     if (isAnime) console.log(`🎌 Anime detected — using per-indexer anime search methods`);
 
     // Indexer is text-capable when its configured method (post-anime-swap) for the current type includes 'text'.
@@ -294,6 +300,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     // indexManagerSearch invocation so the text-fallback and alt-title retries can
     // skip them and avoid stacking a second timeout wait on an already-slow backend.
     const timedOutIndexers = new Set<string>();
+    const isRetryable = (i: UsenetIndexer) => !timedOutIndexers.has(i.name) && !rateLimitedUntil(i.name);
 
     // Per-indexer log accumulator. Each phase (main pass, parallel-alt, alias
     // fallback, absolute fallback, alt-title retry) appends its lines into this
@@ -439,7 +446,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       && config.searchConfig?.aliasTitleFallback !== false
       && !!searchAliases?.length
     ) {
-      const retryIndexers = effectiveIndexers.filter(i => !timedOutIndexers.has(i.name) && isTextCapable(i));
+      const retryIndexers = effectiveIndexers.filter(i => isRetryable(i) && isTextCapable(i));
       if (retryIndexers.length === 0 && enabledIndexers.length > 0) {
         slog(`⚠️  No text-method indexers, skipping alias-title fallback`);
       }
@@ -504,7 +511,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       && episode !== undefined
       && config.searchConfig?.absoluteEpisodeFallback !== false
     ) {
-      const retryIndexers = effectiveIndexers.filter(i => !timedOutIndexers.has(i.name) && isTextCapable(i));
+      const retryIndexers = effectiveIndexers.filter(i => isRetryable(i) && isTextCapable(i));
       if (retryIndexers.length === 0 && enabledIndexers.length > 0) {
         slog(`⚠️  No text-method indexers, skipping absolute-episode fallback`);
       }
@@ -570,14 +577,15 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     // Skip indexers that have timed out at any prior point in this cycle.
     // Skipped entirely in parallel-alt mode — those alts already fired upfront.
     if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0 && !parallelAltEnabled) {
-      const altIndexers = effectiveIndexers.filter(i => !timedOutIndexers.has(i.name) && isTextCapable(i));
+      const altIndexers = effectiveIndexers.filter(i => isRetryable(i) && isTextCapable(i));
       if (altIndexers.length === 0 && enabledIndexers.length > 0) {
         slog(`⚠️  No text-method indexers, skipping alt-title retry`);
       }
       for (const altTitle of additionalTitles) {
-        if (altIndexers.length === 0) break;
+        const retryableAltIndexers = altIndexers.filter(isRetryable);
+        if (retryableAltIndexers.length === 0) break;
         slog(`🔄 Newznab alt-title retry: "${altTitle}"`);
-        const altPromises = altIndexers.map(async (indexer) => {
+        const altPromises = retryableAltIndexers.map(async (indexer) => {
           const { result, lines } = await withBuffer(async (): Promise<any[]> => {
             return withSubBuffer(`Alt-title retry: "${altTitle}"`, async () => {
               const startTime = Date.now();
@@ -633,7 +641,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           } else {
             absoluteEp = episode;
           }
-          const absoluteAltIndexers = altIndexers.filter(i => !timedOutIndexers.has(i.name));
+          const absoluteAltIndexers = altIndexers.filter(isRetryable);
           if (absoluteAltIndexers.length > 0) {
             const absPromises = absoluteAltIndexers.map(async (indexer) => {
               const { result, lines } = await withBuffer(async (): Promise<any[]> => {

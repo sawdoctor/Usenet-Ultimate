@@ -52,6 +52,8 @@ export interface FallbackCandidate {
   title: string;
   indexerName: string;
   size?: number;
+  durationSec?: number;
+  estimatedEpisodeSize?: number;
   isSeasonPack?: boolean;
   /** Full WebDAV path, set only for library-origin candidates (mirrors
    *  RawResult.libraryVideoPath). Lets UF probe the exact file regardless of
@@ -72,5 +74,6 @@ export interface FallbackGroup {
   season?: string;
   episode?: string;
   episodesInSeason?: number;
+  runtimeSec?: number;
   createdAt: number;
 }

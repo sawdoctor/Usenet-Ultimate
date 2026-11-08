@@ -17,16 +17,15 @@
  *      notWebReady: true - tells Stremio it can't play in the web player
  */
 
-import { createRequire } from 'node:module';
-
-const _require = createRequire(import.meta.url);
-const { version: APP_VERSION } = _require('../../package.json');
-import NodeCache from 'node-cache';
 import { config, getTvAllowMultiEpisode } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured, clearResolvedSessions } from '../nzbdav/index.js';
+import { manifest } from './manifest.js';
+import { createFallbackGroup, ultimateFallbackFromCandidates, buildNzbdavConfig, buildEpisodePattern, buildDateEpisodePattern, isNzbdavLibraryConfigured } from '../nzbdav/index.js';
+import { cache } from './searchResultCache.js';
+import { cacheFreshness, cacheRetentionSeconds } from './cacheFreshness.js';
 import { resolveTitle, type ResolvedTitleInfo } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch, type SearchContext } from './searchOrchestrator.js';
 import { runLibraryGate } from './libraryGate.js';
+import { listLibraryFolderNames } from '../nzbdav/videoDiscovery.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { sortResults } from './sort.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav, markLibraryHits } from './healthCheckCoordinator.js';
@@ -37,47 +36,7 @@ import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
 import { isDatabaseLoaded } from '../anime/animeDatabase.js';
 import { resolveEpisodeCountFromTvdbId, resolveTmdbExternalIds } from '../idResolver.js';
 
-// Create cache for search results
-// Use stdTTL: 0 (no expiry) and manage TTL per-entry via cache.set() so runtime changes take effect
-const cache = new NodeCache({ stdTTL: 0 });
-
-export function clearSearchCache(): void {
-  cache.flushAll();
-  clearFallbackGroups();
-  clearTimeoutEntries();
-  clearResolvedSessions();
-}
-
-// Define addon manifest - tells Stremio what we support
-const manifest = {
-  id: 'com.usenetultimate.addon',
-  version: APP_VERSION,
-  name: 'Usenet Ultimate',
-  description: 'Search Usenet indexers and EasyNews for media content. Supports Newznab, Prowlarr, and NZBHydra with NZB health checking, quality-based sorting, and direct streaming via NZBDav or EasyNews.',
-  logo: '/pwa-512x512.png',
-  resources: ['stream'],           // We only provide streams
-  types: ['movie', 'series'],      // Support movies and TV shows
-  catalogs: [],                    // No catalogs (don't show in discover)
-  idPrefixes: ['tt', 'kitsu:', 'mal:', 'anilist:', 'anidb:', 'tvdb:', 'tmdb:'],
-  behaviorHints: {
-    configurable: true,            // We have a config UI
-    configurationRequired: false,  // But it's optional
-  },
-};
-
-
-/**
- * Build the manifest-scoped search cache key. Single source of truth for the
- * key composition used by the search-time write (this file) and the bypass-
- * time delete (routes/nzbdav.ts library-bypass endpoint). Manifest-scoping
- * prevents cross-manifest cache collisions in multi-tenant deployments.
- */
-/** Drop a search cache entry by its full key. Used by the library-bypass
- *  endpoint to clear stale results before the user re-searches. */
-export function deleteSearchCacheEntry(cacheKey: string): boolean {
-  return cache.del(cacheKey) > 0;
-}
-
+export { clearSearchCache, deleteSearchCacheEntry } from './searchResultCache.js';
 
 export function buildSearchCacheKey(manifestKey: string, type: string, id: string, cfg: typeof config): string {
   const easynewsSuffix = cfg.easynewsEnabled ? ':en' : '';
@@ -154,6 +113,7 @@ async function resolveTitleAndBuildSearchCtx(args: {
           titleInfo.episodesInSeason = tvdbResult.count;
           if (tvdbResult.runtime) titleInfo.runtime = tvdbResult.runtime;
           if (tvdbResult.episodeName) titleInfo.episodeName = tvdbResult.episodeName;
+          if (tvdbResult.seasonEpisodeNames) titleInfo.seasonEpisodeNames = tvdbResult.seasonEpisodeNames;
           if (tvdbResult.absoluteNumber) titleInfo.absoluteEpisodeNumber = tvdbResult.absoluteNumber;
           if (tvdbResult.priorSeasonsCount !== undefined) titleInfo.tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
         }
@@ -294,6 +254,11 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
       console.log(`📚 Ultimate Library bypassed for this search (user-armed via tile)`);
     }
 
+    // Started now so the WebDAV listing overlaps the search instead of following it.
+    const libraryFolders = config.searchConfig?.displayLibraryInResults && isNzbdavLibraryConfigured()
+      ? listLibraryFolderNames(buildNzbdavConfig(), type === 'movie' ? 'movie' : 'series')
+      : undefined;
+
     // === SHARED: Filter dead NZBs from raw results ===
     const filterDeadFromRaw = (results: any[]) => {
       if (!config.filterDeadNzbs) return results;
@@ -353,7 +318,7 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
         const ur = config.ultimateFallback;
         ultimateFallbackFromCandidates(
           sessionKey, fallbackCandidates, nzbdavConfig,
-          { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
+          { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, healthCheckEnabled: ur.healthCheckEnabled ?? false, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxAttempts: ur.maxAttempts, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, priorityMoviesTimeoutSeconds: ur.priorityMoviesTimeoutSeconds, priorityTvTimeoutSeconds: ur.priorityTvTimeoutSeconds, prioritySeasonPackTimeoutSeconds: ur.prioritySeasonPackTimeoutSeconds, speedMoviesTimeoutSeconds: ur.speedMoviesTimeoutSeconds, speedTvTimeoutSeconds: ur.speedTvTimeoutSeconds, speedSeasonPackTimeoutSeconds: ur.speedSeasonPackTimeoutSeconds, healthCheckIndexers: ur.healthCheckIndexers },
           cachePattern, filePattern, type, episodesInSeason,
         ).catch(err => console.error('❌ Ultimate-Fallback error:', err));
         return;
@@ -408,6 +373,7 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
           contentType,
           titleMeta.episodesInSeason,
           titleMeta.episodeAired,
+          libraryFolders,
         );
         if (hits > 0) console.log(`📚 Display-library: marked ${hits}/${allResults.length} result(s) as in-library`);
       }
@@ -454,9 +420,11 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
 
     // Check cache first (cacheTTL of 0 means disabled)
     if (config.cacheEnabled && config.cacheTTL > 0) {
-      const cached = cache.get<{ rawResults: any[]; deprioritizedPacks: any[]; healthMap: Record<string, any>; _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; runtime?: number } }>(cacheKey);
-      if (cached) {
-        console.log(`💾 Cache hit for ${type} ${imdbId}`);
+      const cached = cache.get(cacheKey);
+      const store = requestContext.getStore();
+      const freshness = cached && cacheFreshness(cached._meta.cachedAt, cached._meta.releasedAt, config.cacheTTL, Date.now());
+      if (cached && (freshness === 'fresh' || (freshness === 'stale' && !store?.background))) {
+        console.log(`💾 Cache hit for ${type} ${imdbId}${freshness === 'stale' ? ' (stale, refreshing in background)' : ''}`);
 
         // libraryRunOnCacheHit: when on, scan the WebDAV library before serving
         // cached results. The cached entry is never re-queried; we only short-
@@ -502,7 +470,9 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
         cache.set(cacheKey, {
           ...cached,
           healthMap: Object.fromEntries(healthMap),
-        }, config.cacheTTL);
+          _meta: { ...cached._meta, cachedAt: cached._meta.cachedAt ?? now },
+        }, cacheRetentionSeconds(config.cacheTTL));
+        if (freshness === 'stale' && store) store.servedStale = true;
 
         // Create fallback group from current filtered results
         if (fallbackGroupId && fallbackCandidates) {
@@ -562,7 +532,10 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
     }
 
     // === STEP 3: DEDUP + CONTENT-DEPENDENT PRE-FILTERING (cacheable) ===
-    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
+    const episodeTitles = type === 'series' && episode !== undefined && titleInfo.seasonEpisodeNames
+      ? { episode, names: titleInfo.seasonEpisodeNames }
+      : undefined;
+    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear, episodeTitles);
 
     // === STEP 4: FILTER, SORT, HEALTH CHECK, BUILD (user-preference-dependent) ===
     const now = Date.now();
@@ -581,10 +554,13 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
         rawResults,
         deprioritizedPacks,
         healthMap: Object.fromEntries(healthMap),
-        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, episodeAired: titleInfo.episodeAired, runtime: titleInfo.runtime },
-      }, config.cacheTTL);
+        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, episodeAired: titleInfo.episodeAired, runtime: titleInfo.runtime, cachedAt: now, releasedAt: titleInfo.releaseDate },
+      }, cacheRetentionSeconds(config.cacheTTL));
     } else if (skipEmptyCache && config.cacheEnabled && config.cacheTTL > 0) {
       console.log(`⏭️  Skipping cache write — 0 results for ${type} ${imdbId}`);
+    } else if (shortCircuited && requestContext.getStore()?.background) {
+      // The library answered a refresh, so the stale indexer entry goes and the next open takes the library path.
+      cache.del(cacheKey);
     }
 
     // Create fallback group

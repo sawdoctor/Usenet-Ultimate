@@ -138,6 +138,20 @@ export function updateSettings(settings: {
     speedSeasonPackTimeoutSeconds?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
+  economyFallback?: {
+    enabled?: boolean;
+    speedOverrideMbps?: number | null;
+    healthCheckEnabled?: boolean;
+    healthCheckIndexers?: Record<string, boolean>;
+    candidateCount?: number;
+    sampleCount?: 3 | 7;
+    maxAttempts?: number;
+    desiredBackups?: number;
+    backupProcessingLimit?: number;
+    priorityMoviesTimeoutSeconds?: number;
+    priorityTvTimeoutSeconds?: number;
+    prioritySeasonPackTimeoutSeconds?: number;
+  };
 }): void {
   if (settings.addonEnabled !== undefined) {
     configData.addonEnabled = settings.addonEnabled;
@@ -434,6 +448,16 @@ export function updateSettings(settings: {
     ufEnableTransitioned = wasUfEnabled && !isUfEnabled;
     ufIndexersChanged =
       JSON.stringify(configData.ultimateFallback?.healthCheckIndexers ?? {}) !== prevHcIndexersJson;
+  }
+
+  if (settings.economyFallback !== undefined) {
+    const { speedOverrideMbps, ...rest } = settings.economyFallback;
+    const next = { enabled: false, ...configData.economyFallback, ...rest };
+    if (speedOverrideMbps !== undefined) {
+      if (speedOverrideMbps === null || !(speedOverrideMbps > 0)) delete next.speedOverrideMbps;
+      else next.speedOverrideMbps = speedOverrideMbps;
+    }
+    configData.economyFallback = next;
   }
 
   // Enforce minimum cacheTTL when auto play is enabled

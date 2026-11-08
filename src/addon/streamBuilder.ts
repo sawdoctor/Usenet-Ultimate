@@ -22,18 +22,9 @@ import { encodeTileEnvelope, toContentType } from '../nzbdav/redirectHelpers.js'
 import { registerDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
-// Ultimate Fallback tile name + path
-const UF_TILE_BASE_NAME = '👑 Ultimate Fallback';
-const UF_STREAM_PATH = 'ultimate-fallback';
-
-/** Build the UF tile's display name + title based on the active preference mode.
- *  Brand goes in the `name` chip (left), mode + description in `title` (right detail). */
-function ufTileDisplay(mode: 'speed' | 'priority' | undefined): { name: string; title: string } {
-  if (mode === 'priority') {
-    return { name: UF_TILE_BASE_NAME, title: '⚬ Priority Mode\n⚬ Auto-select highest-quality healthy stream' };
-  }
-  return { name: UF_TILE_BASE_NAME, title: '⚬ Speed Mode\n⚬ Auto-select fastest healthy stream' };
-}
+import { ufTileDisplay, UF_STREAM_PATH } from './ufTile.js';
+import { buildEconomyTile } from './economyTile.js';
+import { addonIdentity } from './identity.js';
 
 
 /** Resolve the base URL for stream/proxy URLs — uses the request's origin when available,
@@ -92,7 +83,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Create fallback group for NZBDav mode (auto-retry next NZB on failure)
   let fallbackGroupId: string | undefined;
   let fallbackCandidates: FallbackCandidate[] | undefined;
-  if (config.streamingMode === 'nzbdav' && config.ultimateFallback?.enabled && allResults.length > 0) {
+  if (config.streamingMode === 'nzbdav' && (config.ultimateFallback?.enabled || config.economyFallback?.enabled) && allResults.length > 0) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
 
     fallbackCandidates = allResults
@@ -112,7 +103,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           if (meta.sig) nzbParams.set('sig', meta.sig);
           nzbUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
-        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
+        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, durationSec: r.duration, estimatedEpisodeSize: r.estimatedEpisodeSize, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
       });
 
     createFallbackGroup(
@@ -122,6 +113,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       season?.toString(),
       episode?.toString(),
       episodesInSeason,
+      runtime,
     );
     console.log(`🔄 Created fallback group ${fallbackGroupId} with ${fallbackCandidates.length} candidates`);
   }
@@ -211,7 +203,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     // Compute bingeGroup for auto-play / binge watching
     let bingeGroup: string | undefined;
     if (autoPlay.enabled && type === 'series') {
-      bingeGroup = 'usenetultimate';
+      bingeGroup = addonIdentity.bingeGroup;
       switch (autoPlay.method) {
         case 'matchingFile': {
           const attrs = (autoPlay.attributes || ['resolution', 'quality', 'releaseGroup']);
@@ -227,7 +219,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         case 'matchingIndex':
           bingeGroup += `|${streamIndex}`;
           break;
-        // 'firstFile': all streams get the same bingeGroup (just 'usenetultimate')
+        // 'firstFile': all streams get the same bingeGroup
       }
     }
 
@@ -372,6 +364,10 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     }
   }
 
+  const ufPresent = !!(config.ultimateFallback?.enabled && config.streamingMode === 'nzbdav' && sessionKey);
+  // bingeGroup matches regular tiles so cross-episode auto-play can continue via UF.
+  const headBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? addonIdentity.bingeGroup : undefined;
+
   // Prepend synthetic Ultimate Fallback tile so users can opt into the UF lobby explicitly.
   // Guarded by streamingMode=nzbdav: UF resolves via NZBDav, so showing the tile in other
   // modes would produce a URL the handler can't serve. sessionKey gate skips item pages
@@ -396,8 +392,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
     });
     const ufUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UF_STREAM_PATH}?t=${ufT}`;
-    // bingeGroup matches regular tiles so cross-episode auto-play can continue via UF.
-    const ufBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? 'usenetultimate' : undefined;
     const ufDisplay = ufTileDisplay(config.ultimateFallback?.preferenceMode);
     streams.unshift({
       name: ufDisplay.name,
@@ -405,9 +399,28 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       url: ufUrl,
       behaviorHints: {
         notWebReady: false,
-        bingeGroup: ufBingeGroup,
+        bingeGroup: headBingeGroup,
       },
     });
+  }
+
+  let ecoTileAdded = false;
+  if (
+    streams.length > 0
+    && config.economyFallback?.enabled
+    && config.streamingMode === 'nzbdav'
+    && sessionKey
+  ) {
+    ecoTileAdded = true;
+    streams.splice(ufPresent ? 1 : 0, 0, buildEconomyTile({
+      sessionKey,
+      fallbackGroupId,
+      streamBase: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream`,
+      manifestKey: streamManifestKey || undefined,
+      clientIp: requestContext.getStore()?.clientIp,
+      bingeGroup: headBingeGroup,
+      speedOverrideMbps: config.economyFallback.speedOverrideMbps,
+    }));
   }
 
   // Ultimate Library bypass tile - appears at the top of the head cluster when
@@ -416,7 +429,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // the feature in the UI. When UF lobby is at index 0, bypass lands at index
   // 1 (right after UF). When UF lobby is absent, bypass lands at index 0 (top
   // of the list). The tile is NEVER added to fallbackCandidates so UF skips it.
-  const ufPresent = !!(config.ultimateFallback?.enabled && config.streamingMode === 'nzbdav' && sessionKey);
+  const ufHeadCount = (ufPresent ? 1 : 0) + (ecoTileAdded ? 1 : 0);
   const bypassPresent = !!(shortCircuited && sessionKey && streamManifestKey);
   // User-configurable position: 'second' (current default — splice at index 1)
   // or 'last' (deferred push to the very end of the streams array AFTER
@@ -436,7 +449,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       }
     : null;
   if (bypassTile && !skipTileAtEnd) {
-    streams.splice(ufPresent ? 1 : 0, 0, bypassTile);
+    streams.splice(ufHeadCount, 0, bypassTile);
   }
 
   // ── Library delete tiles (toggle-gated, NEVER added to fallbackCandidates
@@ -448,7 +461,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   //   B. Delete-all tile inserted at headOffset (after UF + bypass), so it
   //      sits right under the head tiles regardless of which combination
   //      is active.
-  const headOffset = (ufPresent ? 1 : 0) + (bypassPresent && !skipTileAtEnd ? 1 : 0);
+  const headOffset = ufHeadCount + (bypassPresent && !skipTileAtEnd ? 1 : 0);
   const sc = config.searchConfig;
   if (libraryStreamIndices.length > 0 && (sc?.libraryDeletePerStreamTile || sc?.libraryDeleteAllTile)) {
     const idStr = imdbId

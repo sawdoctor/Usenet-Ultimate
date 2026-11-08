@@ -179,7 +179,7 @@ export const DEFAULT_FILTERS = {
   allowMultiEpisodeFiles: true,
 };
 
-export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'ultimateFallback', 'healthChecks', 'providerStats', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'ultimateFallback', 'economyFallback', 'healthChecks', 'providerStats', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
 
 export const DEFAULT_ULTIMATE_FALLBACK = {
   enabled: false,
@@ -201,6 +201,21 @@ export const DEFAULT_ULTIMATE_FALLBACK = {
   speedTvTimeoutSeconds: 10,
   speedSeasonPackTimeoutSeconds: 20,
   healthCheckIndexers: {} as Record<string, boolean>,
+};
+
+export const DEFAULT_ECONOMY_FALLBACK = {
+  enabled: false,
+  speedOverrideMbps: null as number | null,
+  healthCheckEnabled: false,
+  healthCheckIndexers: {} as Record<string, boolean>,
+  candidateCount: 1,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 0,
+  backupProcessingLimit: 3,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
 };
 
 // Preset profiles for the UF overlay's Presets card. Spread over current state

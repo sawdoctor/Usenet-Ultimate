@@ -183,6 +183,7 @@ export interface Config {
   tvFilters?: FilterConfig;      // TV-specific sort/filter overrides (falls back to filters)
   healthChecks?: HealthCheckConfig; // Health check settings for NZB verification
   ultimateFallback?: UltimateFallbackConfig; // Ultimate-Fallback: combined fallback + health checking
+  economyFallback?: EconomyFallbackConfig; // Adaptive Fallback: highest resolution that fits the connection's bandwidth
   autoPlay?: AutoPlayConfig;   // Auto-play / binge group settings
   streamDisplayConfig?: StreamDisplayConfig; // Stream display customization
   syncedIndexers?: SyncedIndexer[]; // Indexers synced from Prowlarr or NZBHydra
@@ -390,6 +391,21 @@ export interface UltimateFallbackConfig {
   speedTvTimeoutSeconds: number;
   speedSeasonPackTimeoutSeconds: number;
   healthCheckIndexers?: Record<string, boolean>;
+}
+
+export interface EconomyFallbackConfig {
+  enabled: boolean;
+  speedOverrideMbps?: number; // Fixed connection speed in Mbps; unset = auto (live playback throughput, else a downlink probe)
+  healthCheckEnabled: boolean;
+  healthCheckIndexers?: Record<string, boolean>;
+  candidateCount: number;
+  sampleCount: 3 | 7;
+  maxAttempts: number;
+  desiredBackups: number;
+  backupProcessingLimit: number;
+  priorityMoviesTimeoutSeconds: number;
+  priorityTvTimeoutSeconds: number;
+  prioritySeasonPackTimeoutSeconds: number;
 }
 
 // Device manifest — each represents a Stremio installation

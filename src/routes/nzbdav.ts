@@ -25,6 +25,7 @@ import { sendLibraryBypassArmedVideo, sendDeleteAllSuccessVideo, sendDeleteFileS
 import { incrementRedirectCounterOnUrl } from '../nzbdav/redirectHelpers.js';
 import { getDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
+import { ThroughputSampler, measurePlayback, speedScope } from '../nzbdav/bandwidth.js';
 import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
 
 interface NzbdavDeps {
@@ -497,6 +498,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     // One-liner for external-player regression diagnosis. Throttled so Range
     // probes from an active player don't flood the log.
     const kind = req.params.filename === 'ultimate-fallback' ? 'UF'
+      : req.params.filename === 'economy-fallback' ? 'Economy'
       : req.query.t ? 'user_pick'
       : 'other';
     const hitKey = `${kind}::${req.params.filename ?? '-'}`;
@@ -798,6 +800,16 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       currentUpstream?.destroy();
       if (!res.writableFinished) res.destroy();
     });
+    const manifestKey = (req.params as { manifestKey?: string }).manifestKey;
+    const speed = measurePlayback(speedScope(manifestKey, req.ip), pathPosix.basename(videoPath));
+    let fileBytes: number | null = null;
+    const throughputSampler = new ThroughputSampler(mbps => speed.sample(mbps));
+    const throughputTimer = setInterval(
+      // socket.bytesWritten includes bytes still queued in Node; only bytes that left the process measure the client's speed.
+      () => throughputSampler.tick(Date.now(), (res.socket?.bytesWritten ?? 0) - (res.socket?.writableLength ?? 0), res.writableLength),
+      1000,
+    );
+    throughputTimer.unref();
 
     try {
       // Phase 1: Establish upstream connection (pre-header retries)
@@ -908,6 +920,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         ? streamRangeStart + parseInt(fwdHeaders['content-length'] as string, 10) - 1
         : null);
       const totalSize = cr?.total ?? null;
+      fileBytes = totalSize;
 
       // Accept-Ranges: always advertise — the reconnect loop below resumes via
       // byte-range requests against nzbdav, so the /v contract is range-capable.
@@ -1015,6 +1028,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       if (!res.headersSent) throw err;
       console.error(`\u274C WebDAV proxy error: ${(err as Error).message}`);
     } finally {
+      clearInterval(throughputTimer);
+      speed.finish(fileBytes);
       untrackRequest(safePath, reqId);
     }
   }
