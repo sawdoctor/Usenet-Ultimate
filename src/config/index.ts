@@ -15,6 +15,7 @@ export type { ConfigData } from './schema.js';
 
 // 2. Migrations — runs all one-time data migrations (side-effect import)
 import './migrations.js';
+import './streamDisplayFilenameMigration.js';
 
 // 3. Accessors — the main `config` object consumed by the app
 export { config, getTvRemakeFiltering, getTvAllowMultiEpisode } from './accessors.js';
