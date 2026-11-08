@@ -36,11 +36,19 @@ export interface ParsedMetadata {
   edition: string;
   releaseGroup: string;
   cleanTitle: string;
+  year: string | undefined;
 }
 
 // ── Core parser — calls library once, normalizes all fields ──────────
 
+// Sort comparators and stream builders re-parse the same title many times; cache per title.
+const PARSE_CACHE_LIMIT = 5000;
+const parseCache = new Map<string, ParsedMetadata>();
+
 export function parseMetadata(title: string): ParsedMetadata {
+  const cached = parseCache.get(title);
+  if (cached) return cached;
+
   // Strip trailing whitespace + dashes so indexer-mangled titles get their
   // release group extracted correctly. Scene convention is `-GROUP` at
   // end-of-title with nothing after; trailing dashes/spaces are always
@@ -48,7 +56,7 @@ export function parseMetadata(title: string): ParsedMetadata {
   const cleanedTitle = title.replace(/[\s\-]+$/, '');
   const parsed = parseTorrentTitle(cleanedTitle);
 
-  return {
+  const metadata: ParsedMetadata = {
     resolution: parseResolution(parsed, title),
     codec: normalizeCodec(parsed.codec, title),
     source: parseSourceFromLib(parsed, title),
@@ -58,7 +66,11 @@ export function parseMetadata(title: string): ParsedMetadata {
     edition: parseEditionFromLib(parsed, title),
     releaseGroup: parsed.group ?? 'Unknown',
     cleanTitle: buildCleanTitle(parsed),
+    year: parsed.year,
   };
+  if (parseCache.size >= PARSE_CACHE_LIMIT) parseCache.clear();
+  parseCache.set(title, metadata);
+  return metadata;
 }
 
 // ── Resolution ───────────────────────────────────────────────────────
@@ -130,8 +142,12 @@ export function parseCodec(title: string): string {
 // raw projection files dumped from theaters. Detect before library parse.
 const DCP_PATTERN = /(?:^|[^a-z0-9])DCP(?:[^a-z0-9]|$)/i;
 
+// The library reads the "HD" in "DTS-HD" as HDTV; keep that only when the title says HDTV.
+const HDTV_PATTERN = /(?:^|[^a-z0-9])HD[ ._-]?TV(?:[^a-z0-9]|$)/i;
+
 function parseSourceFromLib(parsed: any, title?: string): string {
   if (title && DCP_PATTERN.test(title)) return 'DCP';
+  if (parsed.quality === 'HDTV' && title && !HDTV_PATTERN.test(title)) return 'Unknown';
   return parsed.quality ?? 'Unknown';
 }
 
@@ -337,15 +353,25 @@ export function parseReleaseGroup(title: string): string {
 
 // ── Clean Title ──────────────────────────────────────────────────────
 
+// Season packs can span several seasons; show the range rather than only the first season.
+function seasonLabel(seasons: number[]): string {
+  const pad = (n: number) => `S${String(n).padStart(2, '0')}`;
+  const sorted = [...seasons].sort((a, b) => a - b);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (sorted.length > 1 && last - first + 1 === sorted.length) return `${pad(first)}-${pad(last)}`;
+  return sorted.map(pad).join('+');
+}
+
 function buildCleanTitle(parsed: any): string {
   let title = parsed.title ?? 'Unknown';
   if (parsed.seasons?.length > 0) {
-    const s = String(parsed.seasons[0]).padStart(2, '0');
     if (parsed.episodes?.length > 0) {
+      const s = String(parsed.seasons[0]).padStart(2, '0');
       const eps = parsed.episodes.map((e: number) => 'E' + String(e).padStart(2, '0')).join('');
       title += ` S${s}${eps}`;
     } else {
-      title += ` S${s}`;
+      title += ` ${seasonLabel(parsed.seasons)}`;
     }
   }
   return title;
@@ -356,7 +382,7 @@ export function parseCleanTitle(title: string): string {
 }
 
 export function parseYear(title: string): string | undefined {
-  return parseTorrentTitle(title).year;
+  return parseMetadata(title).year;
 }
 
 /**
@@ -375,7 +401,7 @@ export function buildStreamFilename(title: string, type: string, season?: number
   const year = type === 'movie' ? parseYear(title) : undefined;
   const clean = year ? `${parsed} (${year})` : parsed;
   return type === 'series' && season != null && episode != null
-    ? `${parsed.replace(/\s*S\d+$/i, '')} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
+    ? `${parsed.replace(/\s*S\d+(?:-S?\d+)?(?:E\d+)*$/i, '')} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
     : clean;
 }
 

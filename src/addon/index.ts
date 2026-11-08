@@ -154,6 +154,7 @@ async function resolveTitleAndBuildSearchCtx(args: {
           titleInfo.episodesInSeason = tvdbResult.count;
           if (tvdbResult.runtime) titleInfo.runtime = tvdbResult.runtime;
           if (tvdbResult.episodeName) titleInfo.episodeName = tvdbResult.episodeName;
+          if (tvdbResult.seasonEpisodeNames) titleInfo.seasonEpisodeNames = tvdbResult.seasonEpisodeNames;
           if (tvdbResult.absoluteNumber) titleInfo.absoluteEpisodeNumber = tvdbResult.absoluteNumber;
           if (tvdbResult.priorSeasonsCount !== undefined) titleInfo.tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
         }
@@ -562,7 +563,10 @@ const streamHandler = async ({ type, id }: { type: string; id: string }) => {
     }
 
     // === STEP 3: DEDUP + CONTENT-DEPENDENT PRE-FILTERING (cacheable) ===
-    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
+    const episodeTitles = type === 'series' && episode !== undefined && titleInfo.seasonEpisodeNames
+      ? { episode, names: titleInfo.seasonEpisodeNames }
+      : undefined;
+    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear, episodeTitles);
 
     // === STEP 4: FILTER, SORT, HEALTH CHECK, BUILD (user-preference-dependent) ===
     const now = Date.now();

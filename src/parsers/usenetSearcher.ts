@@ -15,18 +15,8 @@ import { parseNewznabXmlWithMeta } from './newznabClient.js';
 import { stripDiacritics, isTextSearchMatch, tagSeasonPack, normalizeTitle, extractTitleFromRelease, runSeriesPackQueries, buildSeriesPackPaginationMaxPages, buildSeasonPackPaginationMaxPages, extractSeasonTokens } from './titleMatching.js';
 import { slog, withSubBuffer } from './searchLogger.js';
 
-// Return the proxy exit IP only when pre- and post-request probes agree.
-// A disagreement means the VPN rotated while the axios call was in flight;
-// the request may have exited on either IP, so stamping either one risks a
-// search/grab mismatch the verifier cannot detect. Returning undefined makes
-// the grab fail closed with "baseline unavailable" instead.
-function consensusSearchIp(preIp: string | undefined, postIp: string | undefined, indexerName: string, opLabel: string): string | undefined {
-  if (preIp && postIp && preIp === postIp) return preIp;
-  if (preIp && postIp && preIp !== postIp) {
-    console.warn(`🔒 ⚠️ [${indexerName}] proxy IP changed mid-${opLabel} (${preIp} → ${postIp}), skipping IP stamp`);
-  }
-  return undefined;
-}
+import { consensusSearchIp } from './searchExitIp.js';
+import { cachedSearch, searchCacheKey } from './searchCache.js';
 
 export class UsenetSearcher {
   public timedOut = false;
@@ -94,6 +84,14 @@ export class UsenetSearcher {
   }
 
   async search(query: string, category?: string, paginationOverride?: { enabled: boolean; maxPages: number }): Promise<NZBSearchResult[]> {
+    const { isZyclops } = this.getEffectiveEndpoint();
+    if (isZyclops || Object.keys(getAxiosProxyConfig(this.indexer.url, this.indexer.name)).length > 0) {
+      return this.searchLive(query, category, paginationOverride);
+    }
+    return cachedSearch(searchCacheKey(this.indexer.name, this.indexer.url, query, category, paginationOverride), () => this.searchLive(query, category, paginationOverride));
+  }
+
+  async searchLive(query: string, category?: string, paginationOverride?: { enabled: boolean; maxPages: number }): Promise<NZBSearchResult[]> {
     try {
       const { url: effectiveUrl, extraParams, isZyclops } = this.getEffectiveEndpoint();
 

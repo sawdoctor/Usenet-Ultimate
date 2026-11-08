@@ -39,6 +39,8 @@ export interface ResolvedTitleInfo {
   runtime?: number;
   /** Episode name from TVDB (for remake/version detection via episode name cross-referencing) */
   episodeName?: string;
+  /** TVDB episode names for the season, keyed by episode number; used to reject mistitled releases. */
+  seasonEpisodeNames?: Record<number, string>;
   /** Whether this show has a known remake/reboot (detected via TMDB search) */
   hasRemake?: boolean;
   /** Year extracted from parenthetical suffix in resolved title, e.g. "2003" from "Show (2003)" */
@@ -116,6 +118,7 @@ export async function resolveTitle(
   let priorSeasonsEpisodeCount: number | undefined;
   let runtime: number | undefined;
   let episodeName: string | undefined;
+  let seasonEpisodeNames: Record<number, string> | undefined;
   let absoluteEpisodeNumber: number | undefined;
   let tvdbPriorSeasonsCount: number | undefined;
   let episodeAired: string | undefined;
@@ -142,6 +145,7 @@ export async function resolveTitle(
         episodesInSeason = epData.count;
         if (epData.runtime) runtime = epData.runtime;
         if (epData.episodeName) episodeName = epData.episodeName;
+        if (epData.seasonEpisodeNames) seasonEpisodeNames = epData.seasonEpisodeNames;
         if (epData.absoluteNumber) absoluteEpisodeNumber = epData.absoluteNumber;
         if (epData.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = epData.priorSeasonsCount;
         if (epData.episodeAired) episodeAired = epData.episodeAired;
@@ -171,8 +175,11 @@ export async function resolveTitle(
       }
     }
   } else {
-    // Step 1: Cinemeta
-    const resolved = await resolveFromCinemeta(type, imdbId, season);
+    // Step 1 (Cinemeta) and the Step 2 TVDB lookup need only imdbId and season, so they run together.
+    const [resolved, tvdbResult] = await Promise.all([
+      resolveFromCinemeta(type, imdbId, season),
+      type === 'series' && season !== undefined ? resolveEpisodeCountFromTvdb(imdbId, season, episode) : undefined,
+    ]);
     cinemetaTitle = resolved.title;
     year = resolved.year;
     country = resolved.country;
@@ -182,19 +189,17 @@ export async function resolveTitle(
     episodesInSeason = resolved.episodesInSeason;
     priorSeasonsEpisodeCount = resolved.priorSeasonsEpisodeCount;
     runtime = resolved.runtime;
-    if (type === 'series' && season !== undefined) {
-      const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
-      if (tvdbResult) {
-        if (episodesInSeason && tvdbResult.count !== episodesInSeason) {
-          console.log(`📌 TVDB episode count (${tvdbResult.count}) differs from Cinemeta (${episodesInSeason}) — using TVDB`);
-        }
-        episodesInSeason = tvdbResult.count;
-        if (tvdbResult.runtime) runtime = tvdbResult.runtime;
-        if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
-        if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
-        if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
-        if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
+    if (tvdbResult) {
+      if (episodesInSeason && tvdbResult.count !== episodesInSeason) {
+        console.log(`📌 TVDB episode count (${tvdbResult.count}) differs from Cinemeta (${episodesInSeason}) — using TVDB`);
       }
+      episodesInSeason = tvdbResult.count;
+      if (tvdbResult.runtime) runtime = tvdbResult.runtime;
+      if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
+      if (tvdbResult.seasonEpisodeNames) seasonEpisodeNames = tvdbResult.seasonEpisodeNames;
+      if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
+      if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
+      if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
     }
     console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
 
@@ -354,6 +359,7 @@ export async function resolveTitle(
     isAnime,
     runtime,
     episodeName,
+    seasonEpisodeNames,
     hasRemake,
     titleYear,
     searchAliases,
